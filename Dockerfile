@@ -1,16 +1,27 @@
-FROM python:3.10
+# syntax=docker/dockerfile:1
+ARG PYTHON_VERSION=3.10
+FROM ghcr.io/astral-sh/uv:0.4-python${PYTHON_VERSION}-bookworm-slim AS builder
 
-ENV PYTHONUNBUFFERED True
-ENV APP_HOME /app
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
-WORKDIR ${APP_HOME}
+WORKDIR /app
+COPY pyproject.toml uv.lock README.rst ./
+COPY src ./src
+RUN uv sync --frozen --no-dev
 
-COPY src/cancelchain ${APP_HOME}/cancelchain
+FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 
-RUN pip install --no-cache-dir -r cancelchain/requirements.txt
-RUN pip install -e cancelchain
+ENV PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
 
-COPY app.py ${APP_HOME}/app.py
+RUN groupadd --system app && useradd --system --gid app --home /app app
+WORKDIR /app
 
-# Run the web service on container startup.
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --chown=app:app src ./src
+COPY --chown=app:app app.py ./
+
+USER app
+CMD ["gunicorn", "--bind", ":8080", "--workers", "1", "--threads", "8", "--timeout", "0", "app:app"]
