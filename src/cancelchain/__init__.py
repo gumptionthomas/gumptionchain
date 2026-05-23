@@ -15,11 +15,13 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+from importlib.metadata import version as _pkg_version
+
 import click
 from flask import Flask
 from flask.cli import FlaskGroup
 
-__version__ = "1.4.1"
+__version__ = _pkg_version("cancelchain")
 
 
 def create_app(app=None, config_map=None, register_browser=True):
