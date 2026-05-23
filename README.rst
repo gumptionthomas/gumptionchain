@@ -27,6 +27,14 @@ Install CancelChain using pip:
 
 It is recommended that a `python virtual environment`_ is used for `all <https://realpython.com/python-virtual-environments-a-primer/#avoid-system-pollution>`__ `the <https://realpython.com/python-virtual-environments-a-primer/#sidestep-dependency-conflicts>`__ `usual <https://realpython.com/python-virtual-environments-a-primer/#minimize-reproducibility-issues>`__ `reasons <https://realpython.com/python-virtual-environments-a-primer/#dodge-installation-privilege-lockouts>`_.
 
+For development on the project itself, use `uv`_ to manage the environment and dependencies:
+
+.. code-block:: console
+
+  $ git clone https://github.com/cancelchain/cancelchain.git
+  $ cd cancelchain
+  $ uv sync --group dev
+  $ uv run cancelchain --help
 
 Configure
 ---------
@@ -177,3 +185,4 @@ See the `documentation`_ for some potential development ideas.
 .. _sync command: https://docs.cancelchain.org/en/latest/usage.html#sync
 .. _The Cancel Button: https://thecancelbutton.com
 .. _transactor: https://docs.cancelchain.org/en/latest/api.html#transactor
+.. _uv: https://docs.astral.sh/uv/

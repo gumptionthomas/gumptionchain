@@ -10,23 +10,31 @@ Units: 1 **CCG / grumble** = 100 **curmudgeons** (`CURMUDGEON_PER_GRUMBLE` in `c
 
 ## Common commands
 
-Tooling is driven by **Hatch**. Pinned dev versions live in `requirements-dev.txt`; the source of truth for the test env is `[tool.hatch.envs.test]` in `pyproject.toml`.
+Tooling is driven by **uv** + **uv_build**. Runtime deps live in `[project.dependencies]`; dev deps in `[dependency-groups].dev`; both resolved into `uv.lock`.
 
 ```bash
 # Tests (full suite, uses tests/.test.env via pytest-dotenv)
-hatch run test:run                    # pytest, no coverage
-hatch run test:run-coverage           # pytest with coverage
-hatch run test:run tests/test_chain.py::test_name   # single test
-hatch run test:run -- --runmulti      # opt in to multiprocessing-marked tests (skipped by default)
+uv run pytest                            # full suite
+uv run pytest --cov=cancelchain          # with coverage
+uv run pytest tests/test_chain.py::test_name   # single test
+uv run pytest --runmulti                 # opt in to multiprocessing-marked tests (skipped by default)
 
-# Lint (CI runs this exact command)
-ruff check src tests
+# Lint and format (CI runs both)
+uv run ruff check src tests
+uv run ruff format --check src tests
 
-# Local app run (after `pip install -e .` and a populated .env)
-cancelchain init                      # create SQLite schema (FLASK_SQLALCHEMY_DATABASE_URI)
-cancelchain import path/to/cancelchain.jsonl   # bulk-load blocks from JSON Lines export
-cancelchain run                       # Flask dev server on :5000
-cancelchain --help                    # full CLI tree (txn/, wallet/, subject/, mill, sync, validate, export, import)
+# Type check (non-blocking in CI; expect existing errors)
+uv run mypy src
+
+# Pre-commit (once per clone)
+uv run pre-commit install
+uv run pre-commit run --all-files
+
+# Local app run (after `uv sync` and a populated .env)
+uv run cancelchain init                  # create SQLite schema (FLASK_SQLALCHEMY_DATABASE_URI)
+uv run cancelchain import path/to/cancelchain.jsonl   # bulk-load blocks from JSON Lines export
+uv run cancelchain run                   # Flask dev server on :5000
+uv run cancelchain --help                # full CLI tree (txn/, wallet/, subject/, mill, sync, validate, export, import)
 
 # Production entry point (see Dockerfile)
 gunicorn --bind :$PORT app:app
