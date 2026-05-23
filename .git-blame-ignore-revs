@@ -1,0 +1,6 @@
+# Commits listed here are skipped by `git blame` with --ignore-revs-file.
+# Configure once locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# One-time ruff format pass (Phase 1 tooling modernization)
+27395d37afccd14e653d242ce10a1fe36a1be06c
