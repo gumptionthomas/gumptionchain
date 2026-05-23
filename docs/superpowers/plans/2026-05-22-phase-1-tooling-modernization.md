@@ -32,16 +32,17 @@ git log --oneline -5
 ```
 Expected: branch is `modernize/phase-1-tooling-design`; most recent commit is `Revise Phase 1 design: full-uv build backend`.
 
-- [ ] **Step 2: Install the project with the existing pip-based setup**
+- [ ] **Step 2: Install the project into a baseline venv using uv**
+
+We use `uv venv` rather than `python -m venv` because the latter requires the `python3-venv` apt package on Debian/Ubuntu systems, which is not always installed. `uv venv` ships its own Python and has no such dependency. Inside the venv, dependencies are still installed against the *existing* hatchling-based `pyproject.toml` and `requirements-dev.txt` — this verifies the legacy setup before we replace it.
 
 Run:
 ```bash
-python -m venv .venv-baseline
-.venv-baseline/bin/pip install --upgrade pip
-.venv-baseline/bin/pip install -e .
-.venv-baseline/bin/pip install -r requirements-dev.txt
+uv venv --python 3.10 .venv-baseline
+uv pip install --python .venv-baseline/bin/python -e .
+uv pip install --python .venv-baseline/bin/python -r requirements-dev.txt
 ```
-Expected: install completes without errors.
+Expected: uv downloads CPython 3.10 (or uses a locally cached copy), creates `.venv-baseline/`, then installs the project editably along with all dev deps. No errors.
 
 - [ ] **Step 3: Run the existing test suite**
 
@@ -91,7 +92,7 @@ Replace the entire contents of `pyproject.toml` with:
 
 ```toml
 [build-system]
-requires = ["uv_build>=0.5,<0.6"]
+requires = ["uv_build>=0.5,<1.0"]
 build-backend = "uv_build"
 
 # PROJECT

@@ -30,7 +30,7 @@ Adopt **uv** as the sole tool for venvs, dep resolution, locking, **and building
 
   ```toml
   [build-system]
-  requires = ["uv_build>=0.5,<0.6"]
+  requires = ["uv_build>=0.5,<1.0"]
   build-backend = "uv_build"
   ```
 
@@ -228,7 +228,7 @@ Notes:
 | `uv.lock` resolution differs from current pinned `requirements.txt`, causing a behavior change. | Phase 1 keeps the **constraints** in `[project.dependencies]` identical to what they are today. `uv lock` will resolve within those constraints; any resolver-driven version drift is bounded by the existing `>=X.Y` floors. If a specific version pin is critical for a runtime lib (e.g. `pymerkle>=4,<5`), it's already in `pyproject.toml`. |
 | Dockerfile rewrite changes the runtime Python from 3.10 to 3.13 before Phase 2's compat work lands. | Pin `PYTHON_VERSION=3.10` as the default `ARG` in Phase 1's Dockerfile. Bump to 3.13 default in Phase 2 along with `requires-python`. |
 | pymerkle 4 wheel availability on Python 3.13. | If wheels are missing for 3.13, drop 3.13 from the CI matrix in Phase 1 and add it back in Phase 2 when pymerkle is upgraded. Decided at PR time. |
-| `uv_build` is younger than `hatchling` and was still flagged "preview" in early releases. | Pin `uv_build>=0.5,<0.6` (matches uv 0.5.x). Verify `uv build` output is installable end-to-end as part of acceptance. If a regression surfaces post-merge, the rollback is a single commit re-instating the hatchling `[build-system]` + `[tool.hatch.version]` blocks and reverting the `__version__` shim. |
+| `uv_build` is younger than `hatchling` and was still flagged "preview" in early releases. | Pin `uv_build>=0.5,<1.0` — accepts any 0.x release (uv_build is currently at 0.11.x and tracks uv's release cadence). Verify `uv build` output is installable end-to-end as part of acceptance. If a regression surfaces post-merge, the rollback is a single commit re-instating the hatchling `[build-system]` + `[tool.hatch.version]` blocks and reverting the `__version__` shim. |
 
 ## Acceptance criteria
 
