@@ -892,6 +892,7 @@ RUN groupadd --system app && useradd --system --gid app --home /app app
 WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --chown=app:app src ./src
 COPY --chown=app:app app.py ./
 
 USER app
