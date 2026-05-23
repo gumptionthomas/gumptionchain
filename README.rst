@@ -31,7 +31,7 @@ For development on the project itself, use `uv`_ to manage the environment and d
 
 .. code-block:: console
 
-  $ git clone https://github.com/cancelchain/cancelchain.git
+  $ git clone https://github.com/gumptionthomas/cancelchain.git
   $ cd cancelchain
   $ uv sync --group dev
   $ uv run cancelchain --help

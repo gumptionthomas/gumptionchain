@@ -109,3 +109,24 @@ When `CC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 - Python ≥ 3.9 (CI matrix: 3.10, 3.11, 3.12, 3.13; 3.9 is the floor but not actively tested post-EOL). Avoid 3.10-only syntax in `src/`.
 - SQLAlchemy is pinned `<2.0`; don't import from 2.0-only namespaces. Flask-SQLAlchemy is 3.x (uses `db.Model`, `db.session`, classic `Model.query` style).
 - pymerkle is pinned `>=4,<5` (block Merkle tree). v5 has breaking changes.
+
+## Conventions
+
+- **Never push directly to main.** Every change — including refactors, cleanups, one-line typo fixes, and obvious-looking patches — goes through a branch + PR. The user makes the call about what's "too small" for a PR, not me.
+- **Branch names:** `<type>/<short-description>` (e.g. `feat/peer-gossip-retry`, `fix/wallet-load-race`, `docs/api-auth-readme`).
+- **Commit messages:** Conventional Commits (`feat(scope): description`, `fix: ...`, `refactor: ...`, `docs: ...`).
+- **PR merge:** `gh pr merge <N> --squash --delete-branch`. Never regular merge or rebase, never leave the branch lying around.
+- **Always wait for Copilot review** (`wor` shorthand) before merging — even when CI is green and local testing looks clean. Copilot catches things that look obvious only in hindsight. Skip only when the user explicitly says so.
+- **`mwg`** = "merge when green" — `gh pr checks <N> --watch`, then squash-merge once green.
+- **Run formatting and tests before commit:** `uv run ruff format --check src tests` and `uv run pytest`. CI gates on both.
+- **No "while we're in here" scope creep.** A fix PR fixes the thing it was opened for; adjacent refactors become their own PRs (or issues for later). Bundling expands blast radius and complicates revert.
+- **Never start a long-running dev server** from a Claude Code session — the user runs `uv run cancelchain run` themselves in a separate terminal. Sessions only run `pytest`.
+
+## Supply-chain practices
+
+- **`uv.lock` is tracked in git** and is authoritative for reproducible builds. CVE remediation goes through `uv lock --upgrade-package <name>` followed by committing the resulting lock change — never edit `pyproject.toml` pins in isolation. Use `git ls-files uv.lock` to confirm tracking (don't rely on `git check-ignore` exit-code semantics — they're inverted).
+- **CVE scanning** runs in `.github/workflows/security.yml` (pip-audit, `--strict`) on every PR, push to main, and a weekly Sunday cron ahead of Monday's Dependabot run. Treat a red security build as a merge blocker, not a warning.
+- **Dependabot** is configured in `.github/dependabot.yml` for pip, docker, and github-actions, all on a Monday cadence with a 3-day cooldown. Minor/patch updates are grouped; majors come as individual PRs.
+- **Pin third-party GitHub Actions to commit SHAs**, not tags — tags can be retargeted to point at malicious code. Keep the `# vX.Y.Z` trailing comment for human readability and let Dependabot bump the SHA + comment together.
+- **Validate Dockerfile changes locally** with `docker build --target builder -t cc-test .` (or a full build for later stages) before pushing. CI workflows here don't run the Docker build — syntax errors will silently pass and break the deploy. Specific gotcha: in Dockerfiles, `#` only starts a comment at the *beginning* of a line; trailing `# whatever` on a `COPY`/`RUN` line is parsed as additional arguments.
+- **Avoid ad-hoc Node/npm tooling.** The npm ecosystem is under sustained supply-chain attack (typosquats, post-install hooks, compromised maintainer tokens). Prefer Python/uvx or plain text alternatives; if a Node dep is unavoidable, surface it explicitly so the dependency surface is reviewable.

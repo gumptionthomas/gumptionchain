@@ -1,0 +1,49 @@
+name: security
+
+# CVE scanning for Python dependencies (pip-audit).
+# Runs on every PR and push to main, plus a weekly cron so newly-published
+# advisories are surfaced even if the dep tree hasn't changed.
+#
+# Scope is intentionally minimal: known-fixable vulns fail the build.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "17 7 * * 0"  # Sunday 07:17 UTC, ahead of Monday Dependabot
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-audit:
+    name: pip-audit (Python)
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party actions are pinned to commit SHAs (not tags) to defend
+      # against tag-retargeting supply-chain attacks. Bump via Dependabot.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+
+      - name: Resolve project requirements
+        run: |
+          uv export \
+            --format requirements-txt \
+            --no-hashes \
+            --no-emit-project \
+            --no-dev \
+            > requirements.audit.txt
+
+      - name: Run pip-audit
+        run: uvx pip-audit --strict -r requirements.audit.txt
