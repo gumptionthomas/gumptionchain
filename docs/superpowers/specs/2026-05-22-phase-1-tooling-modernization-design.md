@@ -20,14 +20,32 @@ Concretely: a fresh `git clone && uv sync && uv run pytest` should be the entire
 
 ## Changes
 
-### 1. Package manager: pip → uv
+### 1. Package manager and build backend: pip + hatchling → uv + uv_build
 
-Adopt **uv** as the sole tool for venvs, dep resolution, and locking.
+Adopt **uv** as the sole tool for venvs, dep resolution, locking, **and building**.
 
 - Generate `uv.lock` committed to the repo.
 - Replace ad-hoc `pip install -r requirements.txt` and `hatch run …` invocations with `uv sync` and `uv run …`.
-- Keep **`hatchling`** as the build backend (`[build-system]` block stays untouched). uv is the *frontend*; hatchling is the *backend*. They compose cleanly.
-- Keep `[tool.hatch.version]` and `[tool.hatch.build.targets.sdist]` — these configure hatchling, not hatch-the-task-runner.
+- Swap the build backend from `hatchling` to **`uv_build`**:
+
+  ```toml
+  [build-system]
+  requires = ["uv_build>=0.5,<0.6"]
+  build-backend = "uv_build"
+  ```
+
+- Remove **all** `[tool.hatch.*]` tables from `pyproject.toml`. That includes `[tool.hatch.version]`, `[tool.hatch.build.targets.sdist]`, `[tool.hatch.envs.test]`, and `[tool.hatch.envs.test.scripts]`.
+- `uv_build` does not (yet) support reading version from a module attribute the way `[tool.hatch.version] path = …` did. Two consequences:
+  - `[project]` `dynamic = ["version"]` goes away; the version becomes static (`version = "1.4.1"`).
+  - `src/cancelchain/__init__.py` switches `__version__ = "1.4.1"` to:
+
+    ```python
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("cancelchain")
+    ```
+
+    Runtime callers (`application.py`'s `inject_cc_version`, the `@click.version_option(package_name='cancelchain')` decorator, etc.) keep working unchanged.
+- The default `uv_build` source layout is `src/<package>/`, which matches the existing project. No `[tool.uv.build-backend]` config needed.
 
 ### 2. Dependency layout: PEP 735 groups
 
@@ -195,7 +213,7 @@ Notes:
 
 ## Out of scope (explicit reminders)
 
-- **No** changes under `src/cancelchain/` except whatever `ruff format` produces as a one-time pass.
+- **No** changes under `src/cancelchain/` except whatever `ruff format` produces as a one-time pass, plus the two-line `__version__` change in `__init__.py` required by the `uv_build` switch (section 1).
 - **No** changes to runtime dependency versions in `[project.dependencies]`.
 - **No** `from __future__ import annotations` additions, no new type hints in source.
 - **No** Alembic migrations, no Pydantic, no httpx, no cryptography swap.
@@ -210,6 +228,7 @@ Notes:
 | `uv.lock` resolution differs from current pinned `requirements.txt`, causing a behavior change. | Phase 1 keeps the **constraints** in `[project.dependencies]` identical to what they are today. `uv lock` will resolve within those constraints; any resolver-driven version drift is bounded by the existing `>=X.Y` floors. If a specific version pin is critical for a runtime lib (e.g. `pymerkle>=4,<5`), it's already in `pyproject.toml`. |
 | Dockerfile rewrite changes the runtime Python from 3.10 to 3.13 before Phase 2's compat work lands. | Pin `PYTHON_VERSION=3.10` as the default `ARG` in Phase 1's Dockerfile. Bump to 3.13 default in Phase 2 along with `requires-python`. |
 | pymerkle 4 wheel availability on Python 3.13. | If wheels are missing for 3.13, drop 3.13 from the CI matrix in Phase 1 and add it back in Phase 2 when pymerkle is upgraded. Decided at PR time. |
+| `uv_build` is younger than `hatchling` and was still flagged "preview" in early releases. | Pin `uv_build>=0.5,<0.6` (matches uv 0.5.x). Verify `uv build` output is installable end-to-end as part of acceptance. If a regression surfaces post-merge, the rollback is a single commit re-instating the hatchling `[build-system]` + `[tool.hatch.version]` blocks and reverting the `__version__` shim. |
 
 ## Acceptance criteria
 
@@ -220,7 +239,7 @@ Notes:
 - [ ] CI green on 3.10, 3.11, 3.12, 3.13.
 - [ ] `docker build .` succeeds and the resulting image runs `cancelchain --help` and `gunicorn app:app` correctly.
 - [ ] `requirements.txt`, `requirements-dev.txt`, `[tool.hatch.envs.test]` no longer exist.
-- [ ] `uv build` produces an sdist + wheel; the wheel contents match what `hatch build` produced previously (same files in `src/cancelchain/`, same metadata module).
+- [ ] `uv build` produces an sdist + wheel. Wheel contents (Python files under `src/cancelchain/`, including templates) match the previous hatchling build; metadata reports `version = "1.4.1"`; `python -c "import cancelchain; print(cancelchain.__version__)"` in a fresh venv installed from the wheel prints `1.4.1`.
 - [ ] `pip install cancelchain` (from PyPI, when published) still works for end-users — the build backend and `[project]` table are unchanged.
 
 ## Open decisions (to be resolved at PR time)
