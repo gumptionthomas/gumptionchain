@@ -56,8 +56,8 @@ cancelchain = "cancelchain:cli"
 [project.urls]
 Homepage = "https://cancelchain.org"
 Documentation = "https://docs.cancelchain.org"
-Source = "https://github.com/cancelchain/cancelchain"
-Tracker = "https://github.com/cancelchain/cancelchain/issues"
+Source = "https://github.com/gumptionthomas/cancelchain"
+Tracker = "https://github.com/gumptionthomas/cancelchain/issues"
 
 # HATCH
 [tool.hatch.version]

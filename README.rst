@@ -89,19 +89,19 @@ Open `http://localhost:5000 <http://localhost:5000>`_ in a browser to explore th
 Home Page (Current Chain)
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. image:: https://github.com/cancelchain/cancelchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-chain.png?raw=true
+.. image:: https://github.com/gumptionthomas/cancelchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-chain.png?raw=true
    :width: 500pt
 
 Block Page
 ^^^^^^^^^^
 
-.. image:: https://github.com/cancelchain/cancelchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-block.png?raw=true
+.. image:: https://github.com/gumptionthomas/cancelchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-block.png?raw=true
    :width: 500pt
 
 Transaction Page
 ^^^^^^^^^^^^^^^^
 
-.. image:: https://github.com/cancelchain/cancelchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-txn.png?raw=true
+.. image:: https://github.com/gumptionthomas/cancelchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-txn.png?raw=true
    :width: 500pt
 
 Running the ``cancelchain`` application also exposes a set of web service endpoints that comprise the communications layer of the blockchain. See the  `API Documentation`_ for more information.
