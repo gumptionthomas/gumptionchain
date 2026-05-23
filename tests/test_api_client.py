@@ -28,7 +28,7 @@ def test_expired_token(
     app, host, mill_block, requests_proxy, time_stepper, wallet
 ):
     with app.app_context():
-        time_step = time_stepper(delta=API_TOKEN_SECONDS+1)
+        time_step = time_stepper(delta=API_TOKEN_SECONDS + 1)
         _ = next(time_step)
         client = ApiClient(host, wallet)
         m, b = mill_block(wallet)

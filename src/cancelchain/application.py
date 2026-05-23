@@ -37,7 +37,7 @@ def init_app(app, register_browser=True):
         return {'cc_version': __version__}
 
     @app.template_filter('utc_datetime')
-    def utc_datetime(value, fmt="%a %b %d %H:%M:%S %Z"):
+    def utc_datetime(value, fmt='%a %b %d %H:%M:%S %Z'):
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
             value = value.replace(tzinfo=datetime.timezone.utc)
         value = value.astimezone(datetime.timezone.utc)

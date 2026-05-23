@@ -12,7 +12,7 @@ def host_address(url):
         hostname = f'{parsed.hostname}:{parsed.port}'
     return (
         urlunparse((parsed.scheme, f'{hostname}', '', '', '', '')),
-        parsed.username
+        parsed.username,
     )
 
 

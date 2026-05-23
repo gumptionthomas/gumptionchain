@@ -18,7 +18,7 @@ def test_new():
 
 def test_invalid_address():
     assert not validate_address_format('foo')
-    assert not validate_address_format('f'*47)
+    assert not validate_address_format('f' * 47)
     assert not validate_address_format(1)
 
 
@@ -34,11 +34,11 @@ def test_create_invalid_key():
 def test_crypto(wallet):
     s = 'This is a secret'
     msg = wallet.encrypt(s.encode())
-    assert (msg != s)
+    assert msg != s
     wallet2 = Wallet()
     with pytest.raises(ValueError):
         wallet2.decrypt(msg)
-    assert (wallet.decrypt(msg).decode() == s)
+    assert wallet.decrypt(msg).decode() == s
 
 
 def test_create_from_key(
@@ -46,7 +46,7 @@ def test_create_from_key(
     wallet_public_key_b64,
     wallet_address,
     wallet_dict,
-    wallet_json
+    wallet_json,
 ):
     wallet = Wallet(b58ks=wallet_private_key_b58)
     assert wallet is not None
@@ -85,9 +85,7 @@ def test_export(wallet):
 
 
 def test_sign(wallet, wallet_signature_data, wallet_signature):
-    assert wallet.sign(
-        wallet_signature_data.encode()
-    ) == wallet_signature
+    assert wallet.sign(wallet_signature_data.encode()) == wallet_signature
     assert wallet.sign(b'foo') != wallet_signature
 
 
@@ -101,4 +99,4 @@ def test_eq(wallet):
 def test_repr(caplog, logger, wallet, wallet_address):
     with caplog.at_level(logging.INFO):
         logger.info(wallet)
-        assert f"Wallet({wallet_address})" in caplog.text
+        assert f'Wallet({wallet_address})' in caplog.text

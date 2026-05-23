@@ -39,6 +39,7 @@ from cancelchain.wallet import Wallet
 REFRESH_PER_SECOND = 8
 CHAIN_MISMATCH_MSG = 'Chain/file mismatch'
 
+
 def grumble_to_curmudgeons(grumble):
     return int(CURMUDGEON_PER_GRUMBLE * float(grumble))
 
@@ -61,7 +62,7 @@ def http_error_message(e):
         msg = e.response.json().get('error')
         if msg:
             if isinstance(msg, dict):
-                return ','.join([f"{k} => {v}" for k, v in msg.items()])
+                return ','.join([f'{k} => {v}' for k, v in msg.items()])
             elif isinstance(msg, list):
                 return ','.join(msg)
             else:
@@ -91,7 +92,7 @@ def address_wallet(address, wallet_file=None):
     else:
         wallet = current_app.wallets.get(address)
     if wallet is None or address != wallet.address:
-        msg = f"No wallet for {address}"
+        msg = f'No wallet for {address}'
         raise Exception(msg)
     return wallet
 
@@ -117,19 +118,14 @@ class ProgressBar:
             TextColumn('['),
             TimeElapsedColumn(),
             TextColumn(']'),
-            console=console
+            console=console,
         )
         self.task_id = self.progress.add_task(
             title, total=total, completed=completed
         )
-        self.panel = Panel.fit(
-            self.progress,
-            title=title
-        )
+        self.panel = Panel.fit(self.progress, title=title)
         self.live = Live(
-            self.panel,
-            console=console,
-            refresh_per_second=REFRESH_PER_SECOND
+            self.panel, console=console, refresh_per_second=REFRESH_PER_SECOND
         )
 
     @property
@@ -154,7 +150,7 @@ class BlockSyncProgress:
             TextColumn('{task.completed} Blocks'),
             TextColumn('['),
             TimeElapsedColumn(),
-            TextColumn(']')
+            TextColumn(']'),
         )
         self.find_task_id = self.find_progress.add_task('Finding', total=None)
         self.load_title_text = TextColumn('Waiting...')
@@ -167,26 +163,23 @@ class BlockSyncProgress:
             TimeRemainingColumn(),
             TextColumn('['),
             TimeElapsedColumn(),
-            TextColumn(']')
+            TextColumn(']'),
         )
         self.load_task_id = self.load_progress.add_task(
             'Loading', total=None, start=False
         )
         self.finding_panel = Panel.fit(
-            self.find_progress,
-            title='Finding Blocks'
+            self.find_progress, title='Finding Blocks'
         )
         self.loading_panel = Panel.fit(
-            self.load_progress,
-            title='Loading Blocks',
-            border_style='dim'
+            self.load_progress, title='Loading Blocks', border_style='dim'
         )
         progress_table = Table.grid()
         progress_table.add_row(self.finding_panel, self.loading_panel)
         self.live = Live(
             progress_table,
             console=console,
-            refresh_per_second=REFRESH_PER_SECOND
+            refresh_per_second=REFRESH_PER_SECOND,
         )
         self.progress = self.find_progress
         self.task_id = self.find_task_id
@@ -203,9 +196,7 @@ class BlockSyncProgress:
 
     def complete_find(self):
         block_count = self.find_progress.tasks[0].completed
-        self.find_progress.update(
-            self.find_task_id, total=block_count
-        )
+        self.find_progress.update(self.find_task_id, total=block_count)
         self.load_title_text.text_format = ''
         return block_count
 
@@ -239,21 +230,17 @@ class MillingProgress:
             TextColumn('{task.fields[hps]} hps'),
             TextColumn('['),
             TimeElapsedColumn(),
-            TextColumn(']')
+            TextColumn(']'),
         )
         self.task_id = self.progress.add_task(
             'Milling', total=None, hash_count=0, hps=0
         )
         self.task = self.progress.tasks[0]
         self.panel = Panel.fit(
-            self.progress,
-            title="Milling",
-            border_style='milling'
+            self.progress, title='Milling', border_style='milling'
         )
         self.live = Live(
-            self.panel,
-            console=console,
-            refresh_per_second=REFRESH_PER_SECOND
+            self.panel, console=console, refresh_per_second=REFRESH_PER_SECOND
         )
 
     @property
@@ -274,9 +261,9 @@ class MillingProgress:
     @property
     def elapsed(self):
         if self.task.elapsed is None:
-            return Text("-:--:--", style="progress.elapsed")
+            return Text('-:--:--', style='progress.elapsed')
         delta = timedelta(seconds=int(self.task.elapsed))
-        return Text(str(delta), style="progress.elapsed")
+        return Text(str(delta), style='progress.elapsed')
 
     def next(self, n=1):
         self.progress.update(
@@ -313,9 +300,7 @@ class MillingProgress:
         stop_table.add_column('value', justify='left')
         stop_table.add_row('Stopped', now_iso())
         stop_table.add_row('Elapsed', self.elapsed)
-        stop_table.add_row(
-            'Hashes', f'{self.hash_count} @ {self.hps} hps'
-        )
+        stop_table.add_row('Hashes', f'{self.hash_count} @ {self.hps} hps')
         label_text = Text('POW')
         style = 'milling.milled'
         if milled_block:
@@ -347,8 +332,7 @@ def init_db_command():
 
 
 @click.command(
-    'sync',
-    help="Synchronize the node's block chain to that of its peers."
+    'sync', help="Synchronize the node's block chain to that of its peers."
 )
 @with_appcontext
 def sync_blocks_command():
@@ -357,7 +341,7 @@ def sync_blocks_command():
             host=current_app.config['NODE_HOST'],
             peers=current_app.config['PEERS'],
             clients=current_app.clients,
-            logger=current_app.logger
+            logger=current_app.logger,
         )
         for latest_block, peer in node.request_latest_blocks():
             try:
@@ -368,7 +352,7 @@ def sync_blocks_command():
             except requests.HTTPError as e:
                 console.print(
                     f'Synchronization failed: {http_error_message(e)}',
-                    style='error'
+                    style='error',
                 )
             except Exception:
                 console.print_exception()
@@ -415,15 +399,16 @@ def export_blocks_command(file):
             append_blocks = True
         last_idx = last_block.idx if last_block is not None else -1
         progress_bar = ProgressBar(
-            "Exporting Blocks",
+            'Exporting Blocks',
             console=console,
-            total=lc_dao.block.idx+1,
-            completed=last_block.idx+1 if last_block is not None else 0
+            total=lc_dao.block.idx + 1,
+            completed=last_block.idx + 1 if last_block is not None else 0,
         )
-        with open(
-            file, 'a' if append_blocks else 'w', encoding='utf-8'
-        ) as f, progress_bar as progress:
-            block_dao = lc_dao.get_block(idx=last_idx+1)
+        with (
+            open(file, 'a' if append_blocks else 'w', encoding='utf-8') as f,
+            progress_bar as progress,
+        ):
+            block_dao = lc_dao.get_block(idx=last_idx + 1)
             while block_dao is not None:
                 block = Block.from_dao(block_dao)
                 f.write(block.to_json())
@@ -448,9 +433,7 @@ def import_blocks_command(file):
         node = Node(logger=current_app.logger)
         with open(file, encoding='utf-8') as f:
             progress_bar = ProgressBar(
-                "Importing Blocks",
-                console=console,
-                total=sum(1 for line in f)
+                'Importing Blocks', console=console, total=sum(1 for line in f)
             )
         with open(file, encoding='utf-8') as f, progress_bar as progress:
             for line in f:
@@ -466,42 +449,47 @@ def import_blocks_command(file):
 @click.command('mill')
 @click.argument('address')
 @click.option(
-    '-m', '--multi',
+    '-m',
+    '--multi',
     is_flag=True,
     default=False,
-    help='Use python multiprocessing when calculating hashes.'
+    help='Use python multiprocessing when calculating hashes.',
 )
 @click.option(
-    '-r', '--rounds',
+    '-r',
+    '--rounds',
     default=1,
-    help='Number of rounds of milling between new block checks. (default 1)'
+    help='Number of rounds of milling between new block checks. (default 1)',
 )
 @click.option(
-    '-s', '--size', 'worksize',
+    '-s',
+    '--size',
+    'worksize',
     default=100000,
     help=(
         'Number of hashes to calculate per round '
         '(per CPU if multiprocessing is enabled) '
         '(default 100000)'
-    )
+    ),
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for milling coinbase rewards.'
+    help='Wallet file to use for milling coinbase rewards.',
 )
 @click.option(
-    '-p', '--peer',
+    '-p',
+    '--peer',
     default=None,
-    help=(
-        "Peer node to poll before checking for new blocks and transactions."
-    )
+    help=('Peer node to poll before checking for new blocks and transactions.'),
 )
 @click.option(
-    '-b', '--blocks',
+    '-b',
+    '--blocks',
     default=0,
-    help='Stop after this many blocks. (default 0 (run forever))'
+    help='Stop after this many blocks. (default 0 (run forever))',
 )
 @with_appcontext
 def mill_command(address, multi, rounds, worksize, wallet, peer, blocks):
@@ -512,7 +500,7 @@ def mill_command(address, multi, rounds, worksize, wallet, peer, blocks):
     """
     milling_wallet = address_wallet(address, wallet_file=wallet)
     if peer is not None and current_app.clients.get(peer) is None:
-        msg = f"Peer {peer} client not configured."
+        msg = f'Peer {peer} client not configured.'
         raise Exception(msg)
     miller = Miller(
         host=current_app.config['NODE_HOST'],
@@ -520,7 +508,7 @@ def mill_command(address, multi, rounds, worksize, wallet, peer, blocks):
         clients=current_app.clients,
         logger=current_app.logger,
         milling_wallet=milling_wallet,
-        milling_peer=peer
+        milling_peer=peer,
     )
     if peer:
         try:
@@ -539,7 +527,7 @@ def mill_command(address, multi, rounds, worksize, wallet, peer, blocks):
             Rule(
                 title=f'Milling as address [bold]{milling_wallet.address}',
                 align='left',
-                style='milling'
+                style='milling',
             )
         )
         while (not blocks) or (block_count < blocks):
@@ -554,7 +542,7 @@ def mill_command(address, multi, rounds, worksize, wallet, peer, blocks):
                         mp=multi,
                         rounds=rounds,
                         worksize=worksize,
-                        progress=progress
+                        progress=progress,
                     )
                 finally:
                     block_count += 1
@@ -572,27 +560,31 @@ txn_cli = AppGroup('txn', help='Command group to create transactions.')
 @click.argument('amount', type=click.FLOAT)
 @click.argument('to_address')
 @click.option(
-    '-t', '--txn-wallet',
+    '-t',
+    '--txn-wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.'
+    help='Wallet file to use for transaction source.',
 )
 @click.option(
-    '-h', '--host',
+    '-h',
+    '--host',
     default=None,
-    help='The API host to use (default from app config).'
+    help='The API host to use (default from app config).',
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.'
+    help='Wallet file to use for API auth.',
 )
 @click.option(
-    '-y', '--yes',
+    '-y',
+    '--yes',
     is_flag=True,
     default=False,
-    help='Assume "yes" as answer to all prompts and run non-interactively.'
+    help='Assume "yes" as answer to all prompts and run non-interactively.',
 )
 @with_appcontext
 def create_transfer(
@@ -611,7 +603,7 @@ def create_transfer(
         r = client.get_transfer_transaction(
             txn_wallet.public_key_b64,
             grumble_to_curmudgeons(amount),
-            to_address
+            to_address,
         )
         txn = Transaction.from_json(r.text)
         if not (confirm := yes):
@@ -639,27 +631,31 @@ def create_transfer(
 @click.argument('amount', type=click.FLOAT)
 @click.argument('subject')
 @click.option(
-    '-t', '--txn-wallet',
+    '-t',
+    '--txn-wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.'
+    help='Wallet file to use for transaction source.',
 )
 @click.option(
-    '-h', '--host',
+    '-h',
+    '--host',
     default=None,
-    help='The API host to use (default from app config).'
+    help='The API host to use (default from app config).',
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.'
+    help='Wallet file to use for API auth.',
 )
 @click.option(
-    '-y', '--yes',
+    '-y',
+    '--yes',
     is_flag=True,
     default=False,
-    help='Assume "yes" as answer to all prompts and run non-interactively.'
+    help='Assume "yes" as answer to all prompts and run non-interactively.',
 )
 @with_appcontext
 def create_subject(address, amount, subject, txn_wallet, host, wallet, yes):
@@ -690,9 +686,7 @@ def create_subject(address, amount, subject, txn_wallet, host, wallet, yes):
         else:
             console.print('Subject aborted.', style='error')
     except requests.HTTPError as e:
-        console.print(
-            f'Subject failed: {http_error_message(e)}', style='error'
-        )
+        console.print(f'Subject failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Subject failed: {e}', style='error')
 
@@ -702,27 +696,31 @@ def create_subject(address, amount, subject, txn_wallet, host, wallet, yes):
 @click.argument('amount', type=click.FLOAT)
 @click.argument('subject')
 @click.option(
-    '-t', '--txn-wallet',
+    '-t',
+    '--txn-wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.'
+    help='Wallet file to use for transaction source.',
 )
 @click.option(
-    '-h', '--host',
+    '-h',
+    '--host',
     default=None,
-    help='The API host to use (default from app config).'
+    help='The API host to use (default from app config).',
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.'
+    help='Wallet file to use for API auth.',
 )
 @click.option(
-    '-y', '--yes',
+    '-y',
+    '--yes',
     is_flag=True,
     default=False,
-    help='Assume "yes" as answer to all prompts and run non-interactively.'
+    help='Assume "yes" as answer to all prompts and run non-interactively.',
 )
 @with_appcontext
 def create_forgive(address, amount, subject, txn_wallet, host, wallet, yes):
@@ -753,9 +751,7 @@ def create_forgive(address, amount, subject, txn_wallet, host, wallet, yes):
         else:
             console.print('Forgive aborted.', style='error')
     except requests.HTTPError as e:
-        console.print(
-            f'Forgive failed: {http_error_message(e)}', style='error'
-        )
+        console.print(f'Forgive failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Forgive failed: {e} ', style='error')
 
@@ -765,27 +761,31 @@ def create_forgive(address, amount, subject, txn_wallet, host, wallet, yes):
 @click.argument('amount', type=click.FLOAT)
 @click.argument('subject')
 @click.option(
-    '-t', '--txn-wallet',
+    '-t',
+    '--txn-wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.'
+    help='Wallet file to use for transaction source.',
 )
 @click.option(
-    '-h', '--host',
+    '-h',
+    '--host',
     default=None,
-    help='The API host to use (default from app config).'
+    help='The API host to use (default from app config).',
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.'
+    help='Wallet file to use for API auth.',
 )
 @click.option(
-    '-y', '--yes',
+    '-y',
+    '--yes',
     is_flag=True,
     default=False,
-    help='Assume "yes" as answer to all prompts and run non-interactively.'
+    help='Assume "yes" as answer to all prompts and run non-interactively.',
 )
 @with_appcontext
 def create_support(address, amount, subject, txn_wallet, host, wallet, yes):
@@ -816,9 +816,7 @@ def create_support(address, amount, subject, txn_wallet, host, wallet, yes):
         else:
             console.print('Support aborted.', style='error')
     except requests.HTTPError as e:
-        console.print(
-            f'Support failed: {http_error_message(e)}', style='error'
-        )
+        console.print(f'Support failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Support failed: {e}', style='error')
 
@@ -828,10 +826,11 @@ wallet_cli = AppGroup('wallet', help='Command group to work with wallets.')
 
 @wallet_cli.command('create')
 @click.option(
-    '-d', '--walletdir',
+    '-d',
+    '--walletdir',
     type=click.Path(exists=True),
     default=None,
-    help="Parent directory for the wallet file (default from app config)."
+    help='Parent directory for the wallet file (default from app config).',
 )
 @with_appcontext
 def create_wallet(walletdir):
@@ -845,15 +844,17 @@ def create_wallet(walletdir):
 @wallet_cli.command('balance')
 @click.argument('address')
 @click.option(
-    '-h', '--host',
+    '-h',
+    '--host',
     default=None,
-    help='The API host to use (default from app config).'
+    help='The API host to use (default from app config).',
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.'
+    help='Wallet file to use for API auth.',
 )
 @with_appcontext
 def wallet_balance(address, host, wallet):
@@ -868,9 +869,7 @@ def wallet_balance(address, host, wallet):
         balance = r.json().get('balance')
         console.print(f'{human_curmudgeons(balance)} CCG', style='success')
     except requests.HTTPError as e:
-        console.print(
-            f'Balance failed: {http_error_message(e)}', style='error'
-        )
+        console.print(f'Balance failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Balance failed: {e}', style='error')
 
@@ -881,15 +880,17 @@ subject_cli = AppGroup('subject', help='Command group to work with subjects.')
 @subject_cli.command('balance')
 @click.argument('subject')
 @click.option(
-    '-h', '--host',
+    '-h',
+    '--host',
     default=None,
-    help='The API host to use (default from app config).'
+    help='The API host to use (default from app config).',
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.'
+    help='Wallet file to use for API auth.',
 )
 @with_appcontext
 def subject_balance(subject, host, wallet):
@@ -915,15 +916,17 @@ def subject_balance(subject, host, wallet):
 @subject_cli.command('support')
 @click.argument('subject')
 @click.option(
-    '-h', '--host',
+    '-h',
+    '--host',
     default=None,
-    help='The API host to use (default from app config)'
+    help='The API host to use (default from app config)',
 )
 @click.option(
-    '-w', '--wallet',
+    '-w',
+    '--wallet',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth'
+    help='Wallet file to use for API auth',
 )
 @with_appcontext
 def support_balance(subject, host, wallet):

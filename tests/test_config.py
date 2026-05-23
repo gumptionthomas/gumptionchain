@@ -5,7 +5,7 @@ def test_environ_settings():
     s = EnvAppSettings.from_env()
     assert [
         'CCB9JajrPayCVUqRU7RrDAVfZ1QPj135moCyrKkNwMwEtRCC',
-        'CC3QfbBDAEktCNPzcTg8DPz4a1qY5zMKvenQjr5nFoaKXaCC'
+        'CC3QfbBDAEktCNPzcTg8DPz4a1qY5zMKvenQjr5nFoaKXaCC',
     ] == s.READER_ADDRESSES
 
 

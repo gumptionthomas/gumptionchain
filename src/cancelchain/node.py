@@ -91,7 +91,7 @@ class Node:
                     r = self.clients.get(peer).post_block(
                         block,
                         visited_hosts=visited_hosts,
-                        raise_for_status=False
+                        raise_for_status=False,
                     )
                     if r.status_code == 404:
                         self.fill_peer(peer, block)
@@ -187,9 +187,7 @@ class Node:
                 blocks.insert(0, block)
                 block = Block.from_db(block.prev_hash)
                 r = client.post_block(
-                    block,
-                    visited_hosts=visited_hosts,
-                    raise_for_status=False
+                    block, visited_hosts=visited_hosts, raise_for_status=False
                 )
                 if r.status_code in [200, 201, 202]:
                     accepted = True
@@ -202,7 +200,7 @@ class Node:
                     r = client.post_block(
                         block,
                         visited_hosts=visited_hosts,
-                        raise_for_status=False
+                        raise_for_status=False,
                     )
                     if r.status_code in [200, 201, 202]:
                         accepted = True
@@ -229,7 +227,7 @@ class Node:
                 block_hash=last_block.block_hash,
                 idx=last_block.idx,
                 block_json=last_block.to_json(),
-                chain_fill=chain_fill
+                chain_fill=chain_fill,
             ).commit()
             progress_next()
             block = last_block
@@ -247,7 +245,7 @@ class Node:
                     block_hash=block.block_hash,
                     idx=block.idx,
                     block_json=block.to_json(),
-                    chain_fill=chain_fill
+                    chain_fill=chain_fill,
                 ).commit()
             progress_switch()
             for chain_fill_block in chain_fill.blocks:

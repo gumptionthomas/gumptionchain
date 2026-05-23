@@ -97,7 +97,7 @@ def test_future_txn(reward, single_block, subject, time_machine, txid, wallet):
     single_block.link(0, GENESIS_HASH, TEST_TARGET)
     single_block.seal(wallet, reward)
     single_block.mill()
-    with pytest.raises(InvalidBlockError, match="FutureTransactionError"):
+    with pytest.raises(InvalidBlockError, match='FutureTransactionError'):
         single_block.validate()
 
 
@@ -118,24 +118,24 @@ def test_invalid_transaction(
     txn = new_txn(txid, subject, wallet)
     with pytest.raises(ExpiredTransactionError):
         single_block.validate_transaction(txn)
-    with pytest.raises(InvalidBlockError, match="block_hash"):
+    with pytest.raises(InvalidBlockError, match='block_hash'):
         single_block.validate()
     target = single_block.target
     single_block.target = '0' * 64
     single_block.block_hash = single_block.get_header_hash()
-    with pytest.raises(InvalidBlockError, match="proof_of_work"):
+    with pytest.raises(InvalidBlockError, match='proof_of_work'):
         single_block.validate()
     single_block.target = target
     version = single_block.version
     single_block.version = 'foo'
     single_block.block_hash = single_block.get_header_hash()
-    with pytest.raises(InvalidBlockError, match="version"):
+    with pytest.raises(InvalidBlockError, match='version'):
         single_block.validate()
     single_block.version = version
     merkle_root = single_block.merkle_root
     single_block.merkle_root = None
     single_block.block_hash = single_block.get_header_hash()
-    with pytest.raises(InvalidBlockError, match="merkle_root"):
+    with pytest.raises(InvalidBlockError, match='merkle_root'):
         single_block.validate()
     single_block.merkle_root = merkle_root
 
@@ -154,7 +154,7 @@ def test_too_many_txns(reward, subject, txid, wallet):
     block.seal(wallet, reward)
     block.mill()
     with pytest.raises(
-        InvalidBlockError, match="Length must be between 1 and 100"
+        InvalidBlockError, match='Length must be between 1 and 100'
     ):
         block.validate()
 

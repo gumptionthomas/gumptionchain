@@ -14,13 +14,14 @@ def rollback_session():
 block_transactions = db.Table(
     'block_transaction',
     db.Column(
-        'block_id', db.Integer, db.ForeignKey('block.id'),
-        primary_key=True
+        'block_id', db.Integer, db.ForeignKey('block.id'), primary_key=True
     ),
     db.Column(
-        'transaction_id', db.Integer, db.ForeignKey('transaction.id'),
-        primary_key=True
-    )
+        'transaction_id',
+        db.Integer,
+        db.ForeignKey('transaction.id'),
+        primary_key=True,
+    ),
 )
 
 
@@ -39,8 +40,15 @@ class TransactionDAO(db.Model):
     )
 
     def __init__(
-        self, txid, version, timestamp, address=None, public_key=None,
-        signature=None, inflow_daos=None, outflow_daos=None
+        self,
+        txid,
+        version,
+        timestamp,
+        address=None,
+        public_key=None,
+        signature=None,
+        inflow_daos=None,
+        outflow_daos=None,
     ):
         self.txid = txid
         self.version = version
@@ -85,7 +93,7 @@ class OutflowDAO(db.Model):
     )
     transaction = db.relationship(
         'TransactionDAO',
-        backref=db.backref('outflows', order_by='OutflowDAO.idx')
+        backref=db.backref('outflows', order_by='OutflowDAO.idx'),
     )
     __table_args__ = (
         db.UniqueConstraint('txid', 'idx'),
@@ -93,9 +101,15 @@ class OutflowDAO(db.Model):
     )
 
     def __init__(
-        self, txid, idx, amount,
-        address=None, subject=None, forgive=None, support=None,
-        transaction_dao=None
+        self,
+        txid,
+        idx,
+        amount,
+        address=None,
+        subject=None,
+        forgive=None,
+        support=None,
+        transaction_dao=None,
     ):
         with db.session.no_autoflush:
             self.txid = txid
@@ -119,9 +133,7 @@ class OutflowDAO(db.Model):
         q = db.session.query(OutflowDAO)
         q = q.join(txn_alias, OutflowDAO.transaction)
         q = q.order_by(
-            txn_alias.timestamp.desc(),
-            txn_alias.txid,
-            OutflowDAO.idx
+            txn_alias.timestamp.desc(), txn_alias.txid, OutflowDAO.idx
         )
         return q
 
@@ -143,7 +155,7 @@ class InflowDAO(db.Model):
     )
     transaction = db.relationship(
         'TransactionDAO',
-        backref=db.backref('inflows', order_by='InflowDAO.idx')
+        backref=db.backref('inflows', order_by='InflowDAO.idx'),
     )
 
     __table_args__ = (
@@ -152,8 +164,13 @@ class InflowDAO(db.Model):
     )
 
     def __init__(
-        self, txid, idx, outflow_txid, outflow_idx,
-        outflow_dao=None, transaction_dao=None
+        self,
+        txid,
+        idx,
+        outflow_txid,
+        outflow_idx,
+        outflow_dao=None,
+        transaction_dao=None,
     ):
         with db.session.no_autoflush:
             self.txid = txid
@@ -173,9 +190,7 @@ class InflowDAO(db.Model):
         q = db.session.query(InflowDAO)
         q = q.join(txn_alias, InflowDAO.transaction)
         q = q.order_by(
-            txn_alias.timestamp.desc(),
-            txn_alias.txid,
-            InflowDAO.idx
+            txn_alias.timestamp.desc(), txn_alias.txid, InflowDAO.idx
         )
         return q
 
@@ -198,14 +213,24 @@ class BlockDAO(db.Model):
     prev = db.relationship('BlockDAO', remote_side=[id], backref='next')
     transactions = db.relationship(
         'TransactionDAO',
-        secondary=block_transactions, back_populates='blocks',
+        secondary=block_transactions,
+        back_populates='blocks',
         lazy='dynamic',
-        order_by=[TransactionDAO.timestamp, TransactionDAO.txid]
+        order_by=[TransactionDAO.timestamp, TransactionDAO.txid],
     )
 
     def __init__(
-        self, block_hash, version, idx, prev_hash, timestamp, merkle_root,
-        proof_of_work, target, prev_dao=None, transaction_daos=None
+        self,
+        block_hash,
+        version,
+        idx,
+        prev_hash,
+        timestamp,
+        merkle_root,
+        proof_of_work,
+        target,
+        prev_dao=None,
+        transaction_daos=None,
     ):
         self.block_hash = block_hash
         self.version = version
@@ -250,29 +275,28 @@ class BlockDAO(db.Model):
         ).one_or_none()
 
     def address_transactions(self, address):
-        return self.transactions_chain.filter(
-            TransactionDAO.address == address
-        )
+        return self.transactions_chain.filter(TransactionDAO.address == address)
 
     def get_block_in_chain(self, block_hash=None, idx=None):
         block_alias = db.aliased(BlockDAO, self.block_chain.subquery())
         q = db.session.query(BlockDAO)
         q = q.join(block_alias, BlockDAO.id == block_alias.id)
         if block_hash is not None:
-            q = q.filter(
-                BlockDAO.block_hash == block_hash
-            )
+            q = q.filter(BlockDAO.block_hash == block_hash)
         if idx is not None:
-            q = q.filter(
-                BlockDAO.idx == idx
-            )
+            q = q.filter(BlockDAO.idx == idx)
         return q.one_or_none()
 
     def inflows_in_chain_count(self, outflow_txid, outflow_idx):
-        return 1 if self.inflows_chain.filter(
-            InflowDAO.outflow_txid == outflow_txid,
-            InflowDAO.outflow_idx == outflow_idx
-        ).first() is not None else 0
+        return (
+            1
+            if self.inflows_chain.filter(
+                InflowDAO.outflow_txid == outflow_txid,
+                InflowDAO.outflow_idx == outflow_idx,
+            ).first()
+            is not None
+            else 0
+        )
 
     @classmethod
     def count(cls):
@@ -342,9 +366,9 @@ class ChainDAO(db.Model):
         q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
         q = q.filter(inflows_alias.id.is_(None))
         outflows_alias = db.aliased(OutflowDAO, q.subquery())
-        q2 = db.session.query(
-            db.func.sum(OutflowDAO.amount)
-        ).join(outflows_alias, OutflowDAO.id == outflows_alias.id)
+        q2 = db.session.query(db.func.sum(OutflowDAO.amount)).join(
+            outflows_alias, OutflowDAO.id == outflows_alias.id
+        )
         amount = q2.one_or_none()
         return (amount[0] or 0) if amount is not None else 0
 
@@ -354,9 +378,7 @@ class ChainDAO(db.Model):
         q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
         q = q.filter(inflows_alias.id.is_(None))
         if address is not None:
-            txn_alias = db.aliased(
-                TransactionDAO, self.transactions.subquery()
-            )
+            txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
             q = q.join(txn_alias, OutflowDAO.transaction)
             q = q.filter(txn_alias.address == address)
         if filter_pending:
@@ -369,18 +391,18 @@ class ChainDAO(db.Model):
         q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
         q = q.filter(inflows_alias.id.is_(None))
         outflows_alias = db.aliased(OutflowDAO, q.subquery())
-        q2 = db.session.query(
-            db.func.sum(OutflowDAO.amount)
-        ).join(outflows_alias, OutflowDAO.id == outflows_alias.id)
+        q2 = db.session.query(db.func.sum(OutflowDAO.amount)).join(
+            outflows_alias, OutflowDAO.id == outflows_alias.id
+        )
         amount = q2.one_or_none()
         return (amount[0] or 0) if amount is not None else 0
 
     def subject_support(self, subject):
         q = self.outflows.filter(OutflowDAO.support == subject)
         outflows_alias = db.aliased(OutflowDAO, q.subquery())
-        q2 = db.session.query(
-            db.func.sum(OutflowDAO.amount)
-        ).join(outflows_alias, OutflowDAO.id == outflows_alias.id)
+        q2 = db.session.query(db.func.sum(OutflowDAO.amount)).join(
+            outflows_alias, OutflowDAO.id == outflows_alias.id
+        )
         amount = q2.one_or_none()
         return (amount[0] or 0) if amount is not None else 0
 
@@ -509,7 +531,7 @@ class PendingIOflowDAO(db.Model):
     )
     pending_txn = db.relationship(
         'PendingTxnDAO',
-        backref=db.backref('ioflows', cascade='delete, delete-orphan')
+        backref=db.backref('ioflows', cascade='delete, delete-orphan'),
     )
     outflow_id = db.Column(
         db.Integer, db.ForeignKey('outflow.id'), nullable=False
@@ -556,8 +578,8 @@ class ChainFillBlock(db.Model):
         backref=db.backref(
             'blocks',
             order_by='ChainFillBlock.idx',
-            cascade='delete, delete-orphan'
-        )
+            cascade='delete, delete-orphan',
+        ),
     )
 
     def add(self):
@@ -572,16 +594,14 @@ class ApiToken(db.Model):
     __tablename__ = 'api_token'
 
     id = db.Column(db.Integer, autoincrement=True, primary_key=True)
-    address = db.Column(
-        db.String(100), unique=True, nullable=False, index=True
-    )
+    address = db.Column(db.String(100), unique=True, nullable=False, index=True)
     public_key = db.Column(db.String(500), nullable=False)
     hashed = db.Column(db.String(100), unique=True, nullable=True)
     cipher = db.Column(db.String(500), unique=True, nullable=True)
     timestamp = db.Column(
         db.DateTime,
         default=datetime.datetime.utcnow,
-        onupdate=datetime.datetime.utcnow
+        onupdate=datetime.datetime.utcnow,
     )
 
     @property

@@ -102,7 +102,7 @@ class Chain:
             interval_delta = prev_block.timestamp_dt - start_block.timestamp_dt
             factor = interval_delta.total_seconds() / TARGET_INTERVAL_SECONDS
             factor = min(max(factor, 0.25), 4.0)
-            new_target = f"{int(int(prev_target, 16) * factor):064x}"
+            new_target = f'{int(int(prev_target, 16) * factor):064x}'
             if int(new_target, 16) > int(MAX_TARGET, 16):
                 new_target = MAX_TARGET
             return new_target
@@ -183,7 +183,7 @@ class Chain:
                 if subject_amount and subject_amount > 0:
                     if o.amount > subject_amount:
                         subject_amounts[o.subject] = 0
-                        other_amounts -= (o.amount - subject_amount)
+                        other_amounts -= o.amount - subject_amount
                     else:
                         subject_amounts[o.subject] = subject_amount - o.amount
                 else:
@@ -216,7 +216,7 @@ class Chain:
         num_inflows = self.get_inflows_count(
             block, i.outflow_txid, i.outflow_idx
         )
-        if (num_inflows > 1 or (num_inflows > 0 and not txn_in_block)):
+        if num_inflows > 1 or (num_inflows > 0 and not txn_in_block):
             raise SpentTransactionError()
         return ioflow.amount, ioflow.subject
 
@@ -251,8 +251,8 @@ class Chain:
             for txn in block.txns:
                 for inflow in txn.inflows:
                     if (
-                        inflow.outflow_txid == outflow_txid and
-                        inflow.outflow_idx == outflow_idx
+                        inflow.outflow_txid == outflow_txid
+                        and inflow.outflow_idx == outflow_idx
                     ):
                         i += 1
             block = Block.from_db(block.prev_hash)
@@ -325,7 +325,7 @@ class Chain:
             raise InsufficientFundsError()
         t.add_outflow(Outflow(amount=amount, address=dest_address))
         if balance - amount:
-            t.add_outflow(Outflow(amount=balance-amount, address=address))
+            t.add_outflow(Outflow(amount=balance - amount, address=address))
         t.set_wallet(wallet)
         t.seal()
         return t
@@ -346,7 +346,7 @@ class Chain:
                 )
         if balance < amount:
             unspent = self.unspent_outflows(
-                address, limit=amount-balance, filter_pending=True
+                address, limit=amount - balance, filter_pending=True
             )
             for txid, index, outflow in unspent:
                 balance += outflow.amount
@@ -355,7 +355,7 @@ class Chain:
             raise InsufficientFundsError()
         t.add_outflow(Outflow(amount=amount, subject=subject))
         if balance - amount:
-            t.add_outflow(Outflow(amount=balance-amount, address=address))
+            t.add_outflow(Outflow(amount=balance - amount, address=address))
         t.set_wallet(wallet)
         t.seal()
         return t
@@ -374,7 +374,7 @@ class Chain:
             raise InsufficientFundsError()
         t.add_outflow(Outflow(amount=amount, forgive=subject))
         if balance - amount:
-            t.add_outflow(Outflow(amount=balance-amount, subject=subject))
+            t.add_outflow(Outflow(amount=balance - amount, subject=subject))
         t.set_wallet(wallet)
         t.seal()
         return t
@@ -395,7 +395,7 @@ class Chain:
                 )
         if balance < amount:
             unspent = self.unspent_outflows(
-                address, limit=amount-balance, filter_pending=True
+                address, limit=amount - balance, filter_pending=True
             )
             for txid, index, outflow in unspent:
                 balance += outflow.amount
@@ -404,16 +404,13 @@ class Chain:
             raise InsufficientFundsError()
         t.add_outflow(Outflow(amount=amount, support=subject))
         if balance - amount:
-            t.add_outflow(Outflow(amount=balance-amount, address=address))
+            t.add_outflow(Outflow(amount=balance - amount, address=address))
         t.set_wallet(wallet)
         t.seal()
         return t
 
     def to_dict(self):
-        return {
-            'cid': self.cid,
-            'block_hash': self.block_hash
-        }
+        return {'cid': self.cid, 'block_hash': self.block_hash}
 
     def to_json(self):
         return json.dumps(self.to_dict())

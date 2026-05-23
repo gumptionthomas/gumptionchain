@@ -65,13 +65,13 @@ class OutflowSchema(SansNoneSchema):
     def validate_destinations(self, data, **kwargs):
         address = data.get('address')
         options = [
-            v for v in [
-                data.get(n) for n in ('subject', 'forgive', 'support')
-            ] if v is not None
+            v
+            for v in [data.get(n) for n in ('subject', 'forgive', 'support')]
+            if v is not None
         ]
         if not (
-            (address and not options) or
-            (options and len(options) == 1 and not address)
+            (address and not options)
+            or (options and len(options) == 1 and not address)
         ):
             raise ValidationError(INVALID_DESTINATION_MSG)
 
@@ -90,13 +90,15 @@ class Outflow:
 
     @property
     def data_csv(self):
-        return ','.join([
-            str(self.amount),
-            self.address if self.address is not None else '',
-            self.subject if self.subject is not None else '',
-            self.forgive if self.forgive is not None else '',
-            self.support if self.support is not None else ''
-        ])
+        return ','.join(
+            [
+                str(self.amount),
+                self.address if self.address is not None else '',
+                self.subject if self.subject is not None else '',
+                self.forgive if self.forgive is not None else '',
+                self.support if self.support is not None else '',
+            ]
+        )
 
     @property
     def schadenfreude(self):

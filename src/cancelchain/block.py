@@ -60,7 +60,7 @@ class BlockSchema(SansNoneSchema):
     txns = fields.List(
         fields.Nested(TransactionSchema),
         required=True,
-        validate=validate.Length(min=1, max=MAX_TRANSACTIONS)
+        validate=validate.Length(min=1, max=MAX_TRANSACTIONS),
     )
     version = fields.String(required=True, validate=validate.Equal(VERSION_1))
 
@@ -126,15 +126,17 @@ class Block:
 
     @property
     def unproven_header(self):
-        return ','.join((
-            str(self.idx),
-            str(self.timestamp),
-            str(self.prev_hash),
-            str(self.target),
-            str(self.merkle_root),
-            str(self.version),
-            ''
-        ))
+        return ','.join(
+            (
+                str(self.idx),
+                str(self.timestamp),
+                str(self.prev_hash),
+                str(self.target),
+                str(self.merkle_root),
+                str(self.version),
+                '',
+            )
+        )
 
     @property
     def header(self):
@@ -273,9 +275,15 @@ class Block:
 
     def to_dao(self):
         return BlockDAO.get(self.block_hash) or BlockDAO(
-            self.block_hash, self.version, self.idx, self.prev_hash,
-            self.timestamp_dt, self.merkle_root, self.proof_of_work,
-            self.target, transaction_daos=[txn.to_dao() for txn in self.txns]
+            self.block_hash,
+            self.version,
+            self.idx,
+            self.prev_hash,
+            self.timestamp_dt,
+            self.merkle_root,
+            self.proof_of_work,
+            self.target,
+            transaction_daos=[txn.to_dao() for txn in self.txns],
         )
 
     def to_db(self):
@@ -310,7 +318,7 @@ class Block:
             txns=[
                 Transaction.from_dao(txn_dao) for txn_dao in dao.transactions
             ],
-            version=dao.version
+            version=dao.version,
         )
 
     @classmethod

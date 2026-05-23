@@ -23,11 +23,7 @@ def index_view():
     except Exception as e:
         current_app.logger.exception(e)
         return e
-    return render_template(
-        'index.html',
-        title="Home",
-        lc=lc
-    )
+    return render_template('index.html', title='Home', lc=lc)
 
 
 @blueprint.route('/chains')
@@ -40,9 +36,7 @@ def chains_view():
         current_app.logger.exception(e)
         return e
     return render_template(
-        'chains.html',
-        title="Chains",
-        chains_page=chains_page
+        'chains.html', title='Chains', chains_page=chains_page
     )
 
 
@@ -64,9 +58,9 @@ def block_view(block_hash=None):
         return e
     return render_template(
         'block.html',
-        title=f"Block #{block.idx}: {block.block_hash}",
+        title=f'Block #{block.idx}: {block.block_hash}',
         block=block,
-        block_dao=block_dao
+        block_dao=block_dao,
     )
 
 
@@ -97,11 +91,11 @@ def transaction_view(txid):
         return e
     return render_template(
         'transaction.html',
-        title=f"Transaction: {transaction.txid}",
+        title=f'Transaction: {transaction.txid}',
         transaction=transaction,
         transaction_dao=transaction_dao,
         inflows=inflows,
         inflow_total=inflow_total,
         outflows=outflows,
-        outflow_total=outflow_total
+        outflow_total=outflow_total,
     )

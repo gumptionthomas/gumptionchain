@@ -18,10 +18,5 @@ def init_tasks(app):
 
 @celery.task()
 def post_process(url, data, headers=None):
-    r = requests.post(
-        url,
-        headers=headers,
-        data=data,
-        timeout=360
-    )
+    r = requests.post(url, headers=headers, data=data, timeout=360)
     r.raise_for_status()

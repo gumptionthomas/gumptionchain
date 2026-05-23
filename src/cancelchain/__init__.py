@@ -21,7 +21,7 @@ import click
 from flask import Flask
 from flask.cli import FlaskGroup
 
-__version__ = _pkg_version("cancelchain")
+__version__ = _pkg_version('cancelchain')
 
 
 def create_app(app=None, config_map=None, register_browser=True):

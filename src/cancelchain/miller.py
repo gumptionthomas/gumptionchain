@@ -12,12 +12,15 @@ from cancelchain.util import host_address, now
 
 class Miller(Node):
     def __init__(
-        self, host=None, peers=None, clients=None, logger=None,
-        milling_wallet=None, milling_peer=None
+        self,
+        host=None,
+        peers=None,
+        clients=None,
+        logger=None,
+        milling_wallet=None,
+        milling_peer=None,
     ):
-        super().__init__(
-            host=host, peers=peers, clients=clients, logger=logger
-        )
+        super().__init__(host=host, peers=peers, clients=clients, logger=logger)
         self.milling_client = None
         self.milling_peer = milling_peer
         if self.milling_peer is not None:
@@ -38,8 +41,9 @@ class Miller(Node):
                     for txn_json in r.json():
                         if txid := txn_json.get('txid'):
                             self.receive_transaction(
-                                txid, json.dumps(txn_json),
-                                visited_hosts=visited_hosts
+                                txid,
+                                json.dumps(txn_json),
+                                visited_hosts=visited_hosts,
                             )
                 except requests.RequestException as re:
                     self.logger.error(re)
@@ -57,9 +61,8 @@ class Miller(Node):
     def pending_chain_txns(self, chain):
         expired_dt = now() - TXN_TIMEOUT
         for txn in self.pending_txns:
-            if (
-                txn.timestamp_dt > expired_dt and
-                not chain.get_transaction(txn.txid)
+            if txn.timestamp_dt > expired_dt and not chain.get_transaction(
+                txn.txid
             ):
                 yield txn
 

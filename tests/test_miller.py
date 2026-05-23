@@ -16,23 +16,19 @@ from cancelchain.wallet import Wallet
 def test_miller_create_block(app, time_machine, time_stepper, wallet):
     with app.app_context():
         now_dt = now()
-        time_step = time_stepper(start=now_dt-datetime.timedelta(hours=1))
+        time_step = time_stepper(start=now_dt - datetime.timedelta(hours=1))
         m = Miller(milling_wallet=wallet)
         _ = next(time_step)
         b0 = m.create_block()
         m.mill_block(b0)
         _ = next(time_step)
         assert m.longest_chain.length == 1
-        assert (
-            m.longest_chain.balance(wallet.address) == REWARD
-        )
+        assert m.longest_chain.balance(wallet.address) == REWARD
         b1 = m.create_block()
         m.mill_block(b1)
         _ = next(time_step)
         assert m.longest_chain.length == 2
-        assert (
-            m.longest_chain.balance(wallet.address) == 2 * REWARD
-        )
+        assert m.longest_chain.balance(wallet.address) == 2 * REWARD
         cb0 = b0.coinbase
         cb0_amount = list(cb0.outflows)[0].amount
         w2 = Wallet()
@@ -41,7 +37,7 @@ def test_miller_create_block(app, time_machine, time_stepper, wallet):
         t0.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
         t0.add_outflow(Outflow(amount=remit, address=w2.address))
         t0.add_outflow(
-            Outflow(amount=cb0_amount-remit, address=wallet.address)
+            Outflow(amount=cb0_amount - remit, address=wallet.address)
         )
         t0.set_wallet(wallet)
         t0.seal()
@@ -51,8 +47,8 @@ def test_miller_create_block(app, time_machine, time_stepper, wallet):
         m.mill_block(b2)
         _ = next(time_step)
         assert m.longest_chain.length == 3
-        assert (
-            m.longest_chain.balance(wallet.address) == (3 * REWARD) - (2 * CPG)
+        assert m.longest_chain.balance(wallet.address) == (3 * REWARD) - (
+            2 * CPG
         )
         assert m.longest_chain.balance(w2.address) == 2 * CPG
         time_machine.move_to(now_dt)
@@ -65,7 +61,7 @@ def test_expired_transaction(app, time_machine, wallet):
         b0 = m.create_block()
         m.mill_block(b0)
         now_dt = now()
-        when_dt = now_dt-TXN_TIMEOUT-datetime.timedelta(seconds=1)
+        when_dt = now_dt - TXN_TIMEOUT - datetime.timedelta(seconds=1)
         time_machine.move_to(when_dt)
         t0 = m.longest_chain.create_transfer(
             wallet, m.longest_chain.balance(wallet.address), wallet.address
@@ -83,7 +79,7 @@ def test_expired_transaction(app, time_machine, wallet):
 def test_duplicate_transaction(app, time_machine, wallet):
     with app.app_context():
         now_dt = now()
-        when_dt = now_dt-datetime.timedelta(hours=1)
+        when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
         m = Miller(milling_wallet=wallet)
         b0 = m.create_block()
@@ -145,7 +141,7 @@ def test_max_txns(app, time_machine, wallet):
     with app.app_context():
         max_txns = 10
         now_dt = now()
-        when_dt = now_dt-datetime.timedelta(hours=4)
+        when_dt = now_dt - datetime.timedelta(hours=4)
         time_machine.move_to(when_dt)
         m = Miller(milling_wallet=wallet)
         b0 = m.create_block()
@@ -174,7 +170,7 @@ def test_max_txns(app, time_machine, wallet):
 def test_subject_forgive_txns(app, subject, time_machine, wallet):
     with app.app_context():
         now_dt = now()
-        when_dt = now_dt-datetime.timedelta(hours=1)
+        when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
         m = Miller(milling_wallet=wallet)
         b0 = m.create_block()
@@ -187,7 +183,7 @@ def test_subject_forgive_txns(app, subject, time_machine, wallet):
         m.receive_transaction(t0.txid, t0.to_json())
         b1 = m.create_block()
         m.mill_block(b1)
-        assert (m.longest_chain.subject_balance(subject) == amount)
+        assert m.longest_chain.subject_balance(subject) == amount
         when_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
         t1 = m.longest_chain.create_forgive(wallet, amount, subject)
@@ -195,13 +191,13 @@ def test_subject_forgive_txns(app, subject, time_machine, wallet):
         m.receive_transaction(t1.txid, t1.to_json())
         b2 = m.create_block()
         m.mill_block(b2)
-        assert (m.longest_chain.subject_balance(subject) == 0)
+        assert m.longest_chain.subject_balance(subject) == 0
 
 
 def test_invalid_subject_forgive_txns(app, subject, time_machine, wallet):
     with app.app_context():
         now_dt = now()
-        when_dt = now_dt-datetime.timedelta(hours=1)
+        when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
         m = Miller(milling_wallet=wallet)
         b0 = m.create_block()
@@ -213,21 +209,21 @@ def test_invalid_subject_forgive_txns(app, subject, time_machine, wallet):
             t0 = m.longest_chain.create_subject(wallet, amount, subject)
         amount = m.longest_chain.balance(wallet.address) - 2
         t0 = m.longest_chain.create_subject(wallet, amount, subject)
-        assert (len(t0.outflows) == 2)
+        assert len(t0.outflows) == 2
         t0.sign()
         m.receive_transaction(t0.txid, t0.to_json())
         b1 = m.create_block()
-        assert (len(b1.txns) == 2)
+        assert len(b1.txns) == 2
         m.mill_block(b1)
         when_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
         with pytest.raises(InsufficientFundsError):
-            t1 = m.longest_chain.create_forgive(wallet, amount+1, subject)
-        t1 = m.longest_chain.create_forgive(wallet, amount-1, subject)
+            t1 = m.longest_chain.create_forgive(wallet, amount + 1, subject)
+        t1 = m.longest_chain.create_forgive(wallet, amount - 1, subject)
         t1.sign()
         m.receive_transaction(t1.txid, t1.to_json())
         b2 = m.create_block()
-        assert (len(b2.txns) == 2)
+        assert len(b2.txns) == 2
         m.mill_block(b2)
         when_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)

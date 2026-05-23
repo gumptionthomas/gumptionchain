@@ -53,12 +53,12 @@ class TransactionSchema(SansNoneSchema):
     inflows = fields.List(
         fields.Nested(InflowSchema),
         required=True,
-        validate=validate.Length(min=0, max=MAX_FLOWS)
+        validate=validate.Length(min=0, max=MAX_FLOWS),
     )
     outflows = fields.List(
         fields.Nested(OutflowSchema),
         required=True,
-        validate=validate.Length(min=1, max=MAX_FLOWS)
+        validate=validate.Length(min=1, max=MAX_FLOWS),
     )
     version = fields.String(required=True, validate=validate.Equal(VERSION_1))
 
@@ -76,7 +76,7 @@ class RegularTransactionSchema(TransactionSchema):
     inflows = fields.List(
         fields.Nested(InflowSchema),
         required=True,
-        validate=validate.Length(min=1, max=MAX_FLOWS)
+        validate=validate.Length(min=1, max=MAX_FLOWS),
     )
 
 
@@ -84,12 +84,12 @@ class CoinbaseTransactionSchema(TransactionSchema):
     inflows = fields.List(
         fields.Nested(InflowSchema),
         required=True,
-        validate=validate.Length(equal=0)
+        validate=validate.Length(equal=0),
     )
     outflows = fields.List(
         fields.Nested(OutflowSchema),
         required=True,
-        validate=validate.Length(min=1, max=4)
+        validate=validate.Length(min=1, max=4),
     )
 
 
@@ -110,14 +110,16 @@ class Transaction:
 
     @property
     def data_csv(self):
-        return ','.join([
-            str(self.timestamp),
-            str(self.address),
-            str(self.public_key),
-            ','.join(i.data_csv for i in self.inflows),
-            ','.join(o.data_csv for o in self.outflows),
-            str(self.version)
-        ])
+        return ','.join(
+            [
+                str(self.timestamp),
+                str(self.address),
+                str(self.public_key),
+                ','.join(i.data_csv for i in self.inflows),
+                ','.join(o.data_csv for o in self.outflows),
+                str(self.version),
+            ]
+        )
 
     @property
     def is_sealed(self):
@@ -206,23 +208,30 @@ class Transaction:
 
     def to_dao(self):
         return TransactionDAO.get(self.txid) or TransactionDAO(
-            self.txid, self.version, self.timestamp_dt,
+            self.txid,
+            self.version,
+            self.timestamp_dt,
             address=self.address,
             public_key=self.public_key,
             signature=self.signature,
             inflow_daos=[
                 InflowDAO(
                     self.txid, idx, inflow.outflow_txid, inflow.outflow_idx
-                ) for idx, inflow in enumerate(self.inflows)],
+                )
+                for idx, inflow in enumerate(self.inflows)
+            ],
             outflow_daos=[
                 OutflowDAO(
-                    self.txid, idx, outflow.amount,
+                    self.txid,
+                    idx,
+                    outflow.amount,
                     address=outflow.address,
                     subject=outflow.subject,
                     forgive=outflow.forgive,
-                    support=outflow.support
-                ) for idx, outflow in enumerate(self.outflows)
-            ]
+                    support=outflow.support,
+                )
+                for idx, outflow in enumerate(self.outflows)
+            ],
         )
 
     def to_db(self):
@@ -258,8 +267,9 @@ class Transaction:
             inflows=[
                 Inflow(
                     outflow_txid=inflow_dao.outflow_txid,
-                    outflow_idx=inflow_dao.outflow_idx
-                ) for inflow_dao in dao.inflows
+                    outflow_idx=inflow_dao.outflow_idx,
+                )
+                for inflow_dao in dao.inflows
             ],
             outflows=[
                 Outflow(
@@ -267,10 +277,11 @@ class Transaction:
                     address=outflow_dao.address,
                     subject=outflow_dao.subject,
                     forgive=outflow_dao.forgive,
-                    support=outflow_dao.support
-                ) for outflow_dao in dao.outflows
+                    support=outflow_dao.support,
+                )
+                for outflow_dao in dao.outflows
             ],
-            version=dao.version
+            version=dao.version,
         )
 
     @classmethod
@@ -282,21 +293,15 @@ class Transaction:
     def coinbase(cls, wallet, reward, schadenfreude, grace, mudita):
         outflows = []
         if reward:
-            outflows.append(
-                Outflow(amount=reward, address=wallet.address)
-            )
+            outflows.append(Outflow(amount=reward, address=wallet.address))
         if schadenfreude:
             outflows.append(
                 Outflow(amount=schadenfreude, address=wallet.address)
             )
         if grace:
-            outflows.append(
-                Outflow(amount=grace, address=wallet.address)
-            )
+            outflows.append(Outflow(amount=grace, address=wallet.address))
         if mudita:
-            outflows.append(
-                Outflow(amount=mudita, address=wallet.address)
-            )
+            outflows.append(Outflow(amount=mudita, address=wallet.address))
         cb = cls(outflows=outflows)
         cb.set_wallet(wallet)
         cb.seal()
@@ -318,8 +323,7 @@ class PendingTxnSet(MutableSet):
 
     def add(self, txn):
         dao = PendingTxnDAO(
-            txid=txn.txid, timestamp=txn.timestamp_dt,
-            json_data=txn.to_json()
+            txid=txn.txid, timestamp=txn.timestamp_dt, json_data=txn.to_json()
         )
         dao.commit()
         for inflow in txn.inflows:
@@ -332,7 +336,7 @@ class PendingTxnSet(MutableSet):
                         outflow_txid=inflow.outflow_txid,
                         outflow_idx=inflow.outflow_idx,
                         pending_txn=dao,
-                        outflow=ioflow_dao
+                        outflow=ioflow_dao,
                     ).commit()
 
     def discard(self, txn):

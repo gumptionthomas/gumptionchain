@@ -37,7 +37,7 @@ class ApiClient:
     def request_token(self, rfs=True):
         r = requests.get(
             urljoin(self.host, f'/api/token/{self.wallet.address}'),
-            timeout=self.timeout
+            timeout=self.timeout,
         )
         if rfs:
             r.raise_for_status()
@@ -47,7 +47,7 @@ class ApiClient:
                 urljoin(self.host, f'/api/token/{self.wallet.address}'),
                 headers=json_header(),
                 data=json.dumps({'challenge': secret}),
-                timeout=self.timeout
+                timeout=self.timeout,
             )
             if rfs:
                 r.raise_for_status()
@@ -71,11 +71,12 @@ class ApiClient:
         return headers
 
     def get(
-        self, path,
+        self,
+        path,
         headers=None,
         params=None,
         timeout=None,
-        raise_for_status=True
+        raise_for_status=True,
     ):
         timeout = self.timeout if timeout is None else timeout
         for _i in range(2):
@@ -84,7 +85,7 @@ class ApiClient:
                 urljoin(self.host, path),
                 headers=headers,
                 params=params,
-                timeout=timeout
+                timeout=timeout,
             )
             if r.status_code == UNAUTHORIZED:
                 self.reset_token()
@@ -95,11 +96,7 @@ class ApiClient:
         return r
 
     def post(
-        self, path,
-        headers=None,
-        data=None,
-        timeout=None,
-        raise_for_status=True
+        self, path, headers=None, data=None, timeout=None, raise_for_status=True
     ):
         timeout = self.timeout if timeout is None else timeout
         for _i in range(2):
@@ -108,7 +105,7 @@ class ApiClient:
                 urljoin(self.host, path),
                 headers=headers,
                 data=data,
-                timeout=timeout
+                timeout=timeout,
             )
             if r.status_code == UNAUTHORIZED:
                 self.reset_token()
@@ -126,10 +123,10 @@ class ApiClient:
             params={
                 'public_key': public_key,
                 'amount': amount,
-                'address': address
+                'address': address,
             },
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def get_subject_transaction(
@@ -140,10 +137,10 @@ class ApiClient:
             params={
                 'public_key': public_key,
                 'amount': amount,
-                'subject': subject
+                'subject': subject,
             },
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def get_forgive_transaction(
@@ -154,10 +151,10 @@ class ApiClient:
             params={
                 'public_key': public_key,
                 'amount': amount,
-                'subject': subject
+                'subject': subject,
             },
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def get_support_transaction(
@@ -168,10 +165,10 @@ class ApiClient:
             params={
                 'public_key': public_key,
                 'amount': amount,
-                'subject': subject
+                'subject': subject,
             },
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def post_transaction(
@@ -183,7 +180,7 @@ class ApiClient:
             data=txn.to_json(),
             headers=headers,
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def get_pending_transactions(
@@ -196,14 +193,14 @@ class ApiClient:
             '/api/transaction/pending',
             params=params,
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def get_block(self, block_hash=None, timeout=None, raise_for_status=True):
         return self.get(
             f'/api/block/{block_hash}' if block_hash else '/api/block',
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def post_block(
@@ -215,30 +212,26 @@ class ApiClient:
             data=block.to_json(),
             headers=headers,
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
     def get_wallet_balance(self, address, timeout=None, raise_for_status=True):
         return self.get(
             f'/api/wallet/{address}/balance',
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
-    def get_subject_balance(
-        self, subject, timeout=None, raise_for_status=True
-    ):
+    def get_subject_balance(self, subject, timeout=None, raise_for_status=True):
         return self.get(
             f'/api/subject/{subject}/balance',
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )
 
-    def get_subject_support(
-        self, subject, timeout=None, raise_for_status=True
-    ):
+    def get_subject_support(self, subject, timeout=None, raise_for_status=True):
         return self.get(
             f'/api/subject/{subject}/support',
             timeout=timeout,
-            raise_for_status=raise_for_status
+            raise_for_status=raise_for_status,
         )

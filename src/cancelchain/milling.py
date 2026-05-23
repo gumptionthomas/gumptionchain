@@ -36,9 +36,9 @@ def mill_block(block, rounds, worksize, progress_next):
         for _i in r:
             if proof_of_work is not None:
                 break
-            proof, c = mill_work((
-                proof_start, proof_start + worksize, unproven_header, target
-            ))
+            proof, c = mill_work(
+                (proof_start, proof_start + worksize, unproven_header, target)
+            )
             progress_next(n=c)
             if proof is not None and proof_of_work is None:
                 proof_of_work = proof
@@ -68,7 +68,7 @@ def mill_block_mp(block, rounds, worksize, progress_next):
             )
             with multiprocessing.Pool(cpus) as p:
                 imap = p.imap_unordered(mill_work, work)
-                for (proof, c) in imap:
+                for proof, c in imap:
                     progress_next(n=c)
                     if proof is not None and proof_of_work is None:
                         proof_of_work = proof

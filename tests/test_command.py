@@ -63,11 +63,15 @@ def run_txn_transfer(
 ):
     return runner.invoke(
         args=[
-            'txn', 'transfer',
-            from_wallet.address, '2', to_wallet.address,
-            '--txn-wallet', from_wallet_file
+            'txn',
+            'transfer',
+            from_wallet.address,
+            '2',
+            to_wallet.address,
+            '--txn-wallet',
+            from_wallet_file,
         ],
-        input='Y' if confirm else 'n'
+        input='Y' if confirm else 'n',
     )
 
 
@@ -98,15 +102,18 @@ def test_invalid_transfer(app, mill_block, runner, requests_proxy, wallet):
         assert len(m.pending_txns) == 0
 
 
-def run_txn_subject(
-    runner, subject, txn_wallet, txn_wallet_file, confirm=True
-):
+def run_txn_subject(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
     return runner.invoke(
         args=[
-            'txn', 'subject', txn_wallet.address, str(SUBJECT_CCG), subject,
-            '--txn-wallet', txn_wallet_file
+            'txn',
+            'subject',
+            txn_wallet.address,
+            str(SUBJECT_CCG),
+            subject,
+            '--txn-wallet',
+            txn_wallet_file,
         ],
-        input='Y' if confirm else 'n'
+        input='Y' if confirm else 'n',
     )
 
 
@@ -145,15 +152,18 @@ def test_empty_chain(app, runner, requests_proxy, subject_raw, wallet):
         assert 'Subject failed: EmptyChainError' in result.output
 
 
-def run_txn_forgive(
-    runner, subject, txn_wallet, txn_wallet_file, confirm=True
-):
+def run_txn_forgive(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
     return runner.invoke(
         args=[
-            'txn', 'forgive', txn_wallet.address, str(SUBJECT_CCG), subject,
-            '--txn-wallet', txn_wallet_file
+            'txn',
+            'forgive',
+            txn_wallet.address,
+            str(SUBJECT_CCG),
+            subject,
+            '--txn-wallet',
+            txn_wallet_file,
         ],
-        input='Y' if confirm else 'n'
+        input='Y' if confirm else 'n',
     )
 
 
@@ -191,15 +201,18 @@ def test_invalid_forgive(
         assert len(m.pending_txns) == 0
 
 
-def run_txn_support(
-    runner, subject, txn_wallet, txn_wallet_file, confirm=True
-):
+def run_txn_support(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
     return runner.invoke(
         args=[
-            'txn', 'support', txn_wallet.address, str(SUBJECT_CCG), subject,
-            '--txn-wallet', txn_wallet_file
+            'txn',
+            'support',
+            txn_wallet.address,
+            str(SUBJECT_CCG),
+            subject,
+            '--txn-wallet',
+            txn_wallet_file,
         ],
-        input='Y' if confirm else 'n'
+        input='Y' if confirm else 'n',
     )
 
 
@@ -232,13 +245,11 @@ def test_invalid_support(
 
 def test_create_wallet(app, runner):
     with app.app_context(), TemporaryDirectory() as walletdir:
-            result = runner.invoke(
-                args=[
-                    'wallet', 'create', '--walletdir', walletdir
-                ]
-            )
-            wallet_filename = result.output.strip()[len('Created '):]
-            assert Wallet.from_file(wallet_filename) is not None
+        result = runner.invoke(
+            args=['wallet', 'create', '--walletdir', walletdir]
+        )
+        wallet_filename = result.output.strip()[len('Created ') :]
+        assert Wallet.from_file(wallet_filename) is not None
 
 
 def test_wallet_balance(
@@ -253,16 +264,16 @@ def test_wallet_balance(
         w = Wallet()
         mill_block(w)
         result = runner.invoke(args=['wallet', 'balance', wallet.address])
-        assert f'{REWARD_CCG-SUBJECT_CCG} CCG' in result.output
+        assert f'{REWARD_CCG - SUBJECT_CCG} CCG' in result.output
         to_wallet = Wallet()
         run_txn_transfer(runner, wallet, to_wallet, wf)
         mill_block(w)
         result = runner.invoke(args=['wallet', 'balance', wallet.address])
-        assert f'{REWARD_CCG-2*SUBJECT_CCG} CCG' in result.output
+        assert f'{REWARD_CCG - 2 * SUBJECT_CCG} CCG' in result.output
         result = runner.invoke(args=['wallet', 'balance', to_wallet.address])
         assert f'{SUBJECT_CCG} CCG' in result.output
         result = runner.invoke(args=['wallet', 'balance', w.address])
-        assert f'{int(2*REWARD_CCG+0.5*SUBJECT_CCG)} CCG' in result.output
+        assert f'{int(2 * REWARD_CCG + 0.5 * SUBJECT_CCG)} CCG' in result.output
         result = runner.invoke(args=['wallet', 'balance', 'foo'])
         assert 'Not Found' in result.output
 
@@ -282,7 +293,7 @@ def test_subject_balance(
         run_txn_subject(runner, subject_raw, wallet, wf)
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'balance', subject_raw])
-        assert f'{2*SUBJECT_CCG} CCG' in result.output
+        assert f'{2 * SUBJECT_CCG} CCG' in result.output
 
 
 def test_subject_support(
@@ -300,7 +311,7 @@ def test_subject_support(
         run_txn_support(runner, subject_raw, wallet, wf)
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'support', subject_raw])
-        assert f'{2*SUBJECT_CCG} CCG' in result.output
+        assert f'{2 * SUBJECT_CCG} CCG' in result.output
 
 
 def test_mill(app, runner, wallet):
@@ -309,8 +320,6 @@ def test_mill(app, runner, wallet):
         assert 'GENESIS' in result.output
         assert 'Block │ 0' in result.output
         assert 'Block │ 1' in result.output
-        result = runner.invoke(
-            args=['mill', wallet.address, '--blocks', 2]
-        )
+        result = runner.invoke(args=['mill', wallet.address, '--blocks', 2])
         assert 'Block │ 2' in result.output
         assert 'Block │ 3' in result.output

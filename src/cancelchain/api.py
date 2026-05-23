@@ -32,7 +32,7 @@ def node_lc_dao():
         host=current_app.config['NODE_HOST'],
         peers=current_app.config['PEERS'],
         clients=current_app.clients,
-        logger=current_app.logger
+        logger=current_app.logger,
     )
     lc = node.longest_chain
     return node, lc, lc.to_dao() if lc is not None else None
@@ -60,17 +60,13 @@ def queue_post_process(path, data, visited_hosts):
 
 def queue_block_post_process(block, visited_hosts):
     queue_post_process(
-        f'/api/block/{block.block_hash}/process',
-        block.to_json(),
-        visited_hosts
+        f'/api/block/{block.block_hash}/process', block.to_json(), visited_hosts
     )
 
 
 def queue_txn_post_process(txn, visited_hosts):
     queue_post_process(
-        f'/api/transaction/{txn.txid}/process',
-        txn.to_json(),
-        visited_hosts
+        f'/api/transaction/{txn.txid}/process', txn.to_json(), visited_hosts
     )
 
 
@@ -112,9 +108,11 @@ class Role(Enum):
 
     @classmethod
     def address_roles(cls, address):
-        return [role for role in Role if any(
-            re.fullmatch(x, address) for x in role.addresses()
-        )]
+        return [
+            role
+            for role in Role
+            if any(re.fullmatch(x, address) for x in role.addresses())
+        ]
 
     @classmethod
     def address_role(cls, address):
@@ -149,10 +147,10 @@ class TokenView(MethodView):
             {
                 'sub': address,
                 'rol': str(role.name),
-                'exp': now().timestamp() + API_TOKEN_SECONDS
+                'exp': now().timestamp() + API_TOKEN_SECONDS,
             },
             current_app.config['SECRET_KEY'],
-            algorithm='HS256'
+            algorithm='HS256',
         )
         return make_json_response({'token': token})
 
@@ -160,7 +158,7 @@ class TokenView(MethodView):
 blueprint.add_url_rule(
     '/token/<address:address>',
     view_func=TokenView.as_view('token'),
-    methods=['GET', 'POST']
+    methods=['GET', 'POST'],
 )
 
 
@@ -181,7 +179,7 @@ def authorize(required_role=Role.READER):
                     data = jwt.decode(
                         token,
                         current_app.config['SECRET_KEY'],
-                        algorithms=['HS256']
+                        algorithms=['HS256'],
                     )
                     address = data['sub']
                     role = Role[data['rol']]
@@ -197,7 +195,9 @@ def authorize(required_role=Role.READER):
                 kwargs['_role'] = role
                 return func(*args, **kwargs)
             abort(401)
+
         return wrapper
+
     return _authorize
 
 
@@ -239,8 +239,10 @@ class BlockView(MethodView):
             vhosts = visited_hosts()
             received = now_iso()
             block = node.receive_block(
-                request.data, block_hash=block_hash,
-                visited_hosts=vhosts, process=process
+                request.data,
+                block_hash=block_hash,
+                visited_hosts=vhosts,
+                process=process,
             )
             if process is False and block is not None:
                 queue_block_post_process(block, vhosts)
@@ -259,28 +261,24 @@ class BlockView(MethodView):
 reader_block_view = authorize_reader(BlockView.as_view('block_reader'))
 miller_block_view = authorize_miller(BlockView.as_view('block_miller'))
 
-blueprint.add_url_rule(
-    '/block',
-    view_func=reader_block_view,
-    methods=['GET']
-)
+blueprint.add_url_rule('/block', view_func=reader_block_view, methods=['GET'])
 
 blueprint.add_url_rule(
     '/block/<mill_hash:block_hash>',
     view_func=reader_block_view,
-    methods=['GET']
+    methods=['GET'],
 )
 
 blueprint.add_url_rule(
     '/block/<mill_hash:block_hash>',
     view_func=miller_block_view,
-    methods=['POST']
+    methods=['POST'],
 )
 
 blueprint.add_url_rule(
     '/block/<mill_hash:block_hash>/<process>',
     view_func=miller_block_view,
-    methods=['POST']
+    methods=['POST'],
 )
 
 
@@ -313,12 +311,12 @@ transactor_txn_view = authorize_transactor(TxnView.as_view('txn_transactor'))
 blueprint.add_url_rule(
     '/transaction/<mill_hash:txid>',
     view_func=transactor_txn_view,
-    methods=['POST']
+    methods=['POST'],
 )
 blueprint.add_url_rule(
     '/transaction/<mill_hash:txid>/<process>',
     view_func=transactor_txn_view,
-    methods=['POST']
+    methods=['POST'],
 )
 
 
@@ -353,7 +351,7 @@ blueprint.add_url_rule(
     view_func=authorize_transactor(
         TransferTxnView.as_view('txn_transfer_transactor')
     ),
-    methods=['GET']
+    methods=['GET'],
 )
 
 
@@ -388,7 +386,7 @@ blueprint.add_url_rule(
     view_func=authorize_transactor(
         SubjectTxnView.as_view('txn_subject_transactor')
     ),
-    methods=['GET']
+    methods=['GET'],
 )
 
 
@@ -417,7 +415,7 @@ blueprint.add_url_rule(
     view_func=authorize_transactor(
         ForgiveTxnView.as_view('txn_forgive_transactor')
     ),
-    methods=['GET']
+    methods=['GET'],
 )
 
 
@@ -446,7 +444,7 @@ blueprint.add_url_rule(
     view_func=authorize_transactor(
         SupportTxnView.as_view('txn_support_transactor')
     ),
-    methods=['GET']
+    methods=['GET'],
 )
 
 
@@ -454,7 +452,7 @@ class PendingTxnQuerySchema(Schema):
     earliest = fields.Function(
         lambda obj: dt_2_ciso(obj.earliest),
         deserialize=lambda v: ciso_2_dt(v),
-        required=False
+        required=False,
     )
 
 
@@ -478,10 +476,8 @@ class PendingTxnView(MethodView):
 
 blueprint.add_url_rule(
     '/transaction/pending',
-    view_func=authorize_reader(
-        PendingTxnView.as_view('txn_pending_reader')
-    ),
-    methods=['GET']
+    view_func=authorize_reader(PendingTxnView.as_view('txn_pending_reader')),
+    methods=['GET'],
 )
 
 
@@ -510,7 +506,7 @@ blueprint.add_url_rule(
     view_func=authorize_reader(
         WalletBalanceView.as_view('wallet_balance_transactor')
     ),
-    methods=['GET']
+    methods=['GET'],
 )
 
 
@@ -539,7 +535,7 @@ blueprint.add_url_rule(
     view_func=authorize_reader(
         SubjectBalanceView.as_view('subject_balance_transactor')
     ),
-    methods=['GET']
+    methods=['GET'],
 )
 
 
@@ -568,5 +564,5 @@ blueprint.add_url_rule(
     view_func=authorize_reader(
         SubjectSupportView.as_view('subject_support_transactor')
     ),
-    methods=['GET']
+    methods=['GET'],
 )

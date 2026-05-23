@@ -26,11 +26,14 @@ def validate_address(public_key_b64, address):
 def validate_address_format(address):
     try:
         if (
-            address.startswith(ADDRESS_TAG) and
-            address.endswith(ADDRESS_TAG) and
-            len(b58decode(
-                address.removeprefix(ADDRESS_TAG).removesuffix(ADDRESS_TAG)
-            )) == 32
+            address.startswith(ADDRESS_TAG)
+            and address.endswith(ADDRESS_TAG)
+            and len(
+                b58decode(
+                    address.removeprefix(ADDRESS_TAG).removesuffix(ADDRESS_TAG)
+                )
+            )
+            == 32
         ):
             return True
     except Exception:

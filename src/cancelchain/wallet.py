@@ -36,9 +36,7 @@ def export_binary_key(key, passphrase=None):
     if passphrase is None:
         return key.export_key(format='DER')
     else:
-        return key.export_key(
-            format='DER', pkcs=8, passphrase=passphrase
-        )
+        return key.export_key(format='DER', pkcs=8, passphrase=passphrase)
 
 
 def import_key(ks, passphrase=None):
@@ -102,7 +100,7 @@ class Wallet:
         return self.private_key.export_key(
             pkcs=1 if passphrase is None else 8,
             passphrase=passphrase,
-            protection="scryptAndAES128-CBC"
+            protection='scryptAndAES128-CBC',
         )
 
     def export_private_key_b58(self, passphrase=None):
@@ -132,8 +130,10 @@ class Wallet:
         enc_session_key = cipher_rsa.encrypt(session_key)
         cipher_aes = AES.new(session_key, AES.MODE_EAX)
         ciphertext, tag = cipher_aes.encrypt_and_digest(data)
-        return b64encode(b''.join(
-            x for x in (enc_session_key, cipher_aes.nonce, tag, ciphertext))
+        return b64encode(
+            b''.join(
+                x for x in (enc_session_key, cipher_aes.nonce, tag, ciphertext)
+            )
         )
 
     def decrypt(self, msg):
@@ -142,6 +142,7 @@ class Wallet:
                 yield msg[:n]
                 msg = msg[n:]
             yield msg
+
         if self.private_key is None:
             raise NoPrivateKeyError()
         part = msg_parts(self.private_key.size_in_bytes(), b64decode(msg))
@@ -159,7 +160,7 @@ class Wallet:
         return json.dumps(self.to_dict())
 
     def to_file(self, walletdir=None, passphrase=None):
-        filename = f"{self.address}.pem"
+        filename = f'{self.address}.pem'
         if walletdir:
             filename = os.path.join(walletdir, filename)
         with open(filename, 'wb') as f:
@@ -167,7 +168,7 @@ class Wallet:
         return filename
 
     def __repr__(self):
-        return f"Wallet({self.address})"
+        return f'Wallet({self.address})'
 
     def __eq__(self, other):
         return self.key == other.key

@@ -74,7 +74,7 @@ def test_invalid_txn_timestamp(app, time_machine, wallet):
         chain.add_block(block)
         cb = block.coinbase
         now_dt = now()
-        when_dt = now_dt+datetime.timedelta(hours=1)
+        when_dt = now_dt + datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
@@ -88,7 +88,7 @@ def test_invalid_txn_timestamp(app, time_machine, wallet):
         chain.link_block(block)
         block.seal(wallet, chain.block_reward(block))
         block.mill()
-        with pytest.raises(InvalidBlockError, match="FutureTransactionError"):
+        with pytest.raises(InvalidBlockError, match='FutureTransactionError'):
             chain.add_block(block)
         then_dt = now_dt - TXN_TIMEOUT - datetime.timedelta(hours=1)
         time_machine.move_to(then_dt)
@@ -104,7 +104,7 @@ def test_invalid_txn_timestamp(app, time_machine, wallet):
         chain.link_block(block)
         block.seal(wallet, chain.block_reward(block))
         block.mill()
-        with pytest.raises(InvalidBlockError, match="ExpiredTransactionError"):
+        with pytest.raises(InvalidBlockError, match='ExpiredTransactionError'):
             chain.add_block(block)
 
 
@@ -135,7 +135,7 @@ def test_decrease_target(app, wallet):
 def test_increase_target(app, time_machine, wallet):
     with app.app_context():
         now_dt = now()
-        then_dt = now_dt-datetime.timedelta(days=100)
+        then_dt = now_dt - datetime.timedelta(days=100)
         time_machine.move_to(then_dt)
         chain = Chain()
         block = Block()
@@ -158,7 +158,7 @@ def test_increase_target(app, time_machine, wallet):
 def test_invalid_target(app, time_machine, time_stepper, wallet):
     with app.app_context():
         now_dt = now()
-        time_step = time_stepper(start=now_dt-datetime.timedelta(hours=1))
+        time_step = time_stepper(start=now_dt - datetime.timedelta(hours=1))
         _ = next(time_step)
         chain = Chain()
         original_target = chain.target
@@ -190,7 +190,7 @@ def test_block_reward(add_chain_block, app, wallet):
 
 def test_generators(add_chain_block, app, time_stepper, wallet):
     with app.app_context():
-        time_step = time_stepper(start=now()-datetime.timedelta(hours=1))
+        time_step = time_stepper(start=now() - datetime.timedelta(hours=1))
         _ = next(time_step)
         wallet2 = Wallet()
         chain, block = add_chain_block()
@@ -207,9 +207,7 @@ def test_generators(add_chain_block, app, time_stepper, wallet):
                         Inflow(outflow_txid=prev_coinbase.txid, outflow_idx=0)
                     )
                     amount += o.amount
-            txn.add_outflow(
-                Outflow(amount=amount, address=wallet2.address)
-            )
+            txn.add_outflow(Outflow(amount=amount, address=wallet2.address))
             txn.set_wallet(wallet)
             txn.seal()
             txn.sign()
@@ -239,7 +237,7 @@ def test_db(add_chain_block, app, time_machine, wallet):
     with app.app_context():
         wallet2 = Wallet()
         now_dt = now()
-        then_dt = now_dt-datetime.timedelta(hours=1)
+        then_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(then_dt)
         chain, block = add_chain_block()
         block_copy = Block.from_db(block.block_hash)
@@ -252,9 +250,7 @@ def test_db(add_chain_block, app, time_machine, wallet):
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
         t.add_outflow(Outflow(amount=remit, address=wallet2.address))
-        t.add_outflow(
-            Outflow(amount=cb_amount-remit, address=wallet.address)
-        )
+        t.add_outflow(Outflow(amount=cb_amount - remit, address=wallet.address))
         t.set_wallet(wallet)
         t.seal()
         t.sign()
@@ -273,7 +269,7 @@ def test_db(add_chain_block, app, time_machine, wallet):
 def test_dao(add_chain_block, app, time_machine, time_stepper, wallet):
     with app.app_context():
         now_dt = now()
-        time_step = time_stepper(now_dt-datetime.timedelta(hours=1))
+        time_step = time_stepper(now_dt - datetime.timedelta(hours=1))
         wallet2 = Wallet()
         wallet3 = Wallet()
         _ = next(time_step)
@@ -328,30 +324,32 @@ def test_dao(add_chain_block, app, time_machine, time_stepper, wallet):
         assert [b.id for b in alt_inflows.all()] == []
 
         wallet_leaders = list(chain.to_dao(create=True).wallet_leaderboard())
-        assert (wallet_leaders[0][0] == wallet.address)
-        assert (wallet_leaders[0][1] == 5 * REWARD)
-        assert (wallet_leaders[1][0] == wallet3.address)
-        assert (wallet_leaders[1][1] == 2 * REWARD)
-        assert (wallet_leaders[2][0] == wallet2.address)
-        assert (wallet_leaders[2][1] == REWARD)
-        assert (len(wallet_leaders) == 3)
-        wallet_leaders = list(chain.to_dao(create=True).wallet_leaderboard(
-            earliest=block2.timestamp_dt,
-            latest=last_block.timestamp_dt,
-            limit=2
-        ))
-        assert (len(wallet_leaders) == 2)
-        assert (wallet_leaders[0][0] == wallet.address)
-        assert (wallet_leaders[0][1] == 3 * REWARD)
-        assert (wallet_leaders[1][0] == wallet3.address)
-        assert (wallet_leaders[1][1] == 2 * REWARD)
+        assert wallet_leaders[0][0] == wallet.address
+        assert wallet_leaders[0][1] == 5 * REWARD
+        assert wallet_leaders[1][0] == wallet3.address
+        assert wallet_leaders[1][1] == 2 * REWARD
+        assert wallet_leaders[2][0] == wallet2.address
+        assert wallet_leaders[2][1] == REWARD
+        assert len(wallet_leaders) == 3
+        wallet_leaders = list(
+            chain.to_dao(create=True).wallet_leaderboard(
+                earliest=block2.timestamp_dt,
+                latest=last_block.timestamp_dt,
+                limit=2,
+            )
+        )
+        assert len(wallet_leaders) == 2
+        assert wallet_leaders[0][0] == wallet.address
+        assert wallet_leaders[0][1] == 3 * REWARD
+        assert wallet_leaders[1][0] == wallet3.address
+        assert wallet_leaders[1][1] == 2 * REWARD
 
 
 def test_validate_block(add_chain_block, app, time_machine, wallet):
     with app.app_context():
         chain, block = add_chain_block()
         now_dt = now()
-        then_dt = now_dt+datetime.timedelta(hours=1)
+        then_dt = now_dt + datetime.timedelta(hours=1)
         time_machine.move_to(then_dt)
         block2 = Block()
         chain.link_block(block2)
@@ -361,7 +359,7 @@ def test_validate_block(add_chain_block, app, time_machine, wallet):
         with pytest.raises(FutureBlockError):
             chain.add_block(block2)
 
-        then_dt = now_dt-datetime.timedelta(hours=1)
+        then_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(then_dt)
         block2 = Block()
         chain.link_block(block2)
@@ -392,7 +390,7 @@ def test_validate_block_txn(add_chain_block, app, time_machine, wallet):
         block2 = Block()
         chain.link_block(block2)
         now_dt = now()
-        then_dt = now_dt+datetime.timedelta(hours=1)
+        then_dt = now_dt + datetime.timedelta(hours=1)
         time_machine.move_to(then_dt)
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
@@ -404,14 +402,14 @@ def test_validate_block_txn(add_chain_block, app, time_machine, wallet):
         block2.add_txn(t)
         chain.seal_block(block2, wallet)
         block2.mill()
-        with pytest.raises(InvalidBlockError, match="FutureTransactionError"):
+        with pytest.raises(InvalidBlockError, match='FutureTransactionError'):
             chain.add_block(block2)
 
         block2 = Block()
         chain.link_block(block2)
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
-        t.add_outflow(Outflow(amount=cb_amount-1, address=wallet.address))
+        t.add_outflow(Outflow(amount=cb_amount - 1, address=wallet.address))
         t.set_wallet(wallet)
         t.seal()
         t.sign()
@@ -441,7 +439,7 @@ def test_validate_txn_inflow(add_chain_block, app, time_machine, txid, wallet):
             chain.add_block(block)
         wallet2 = Wallet()
         now_dt = now()
-        then_dt = now_dt-datetime.timedelta(hours=1)
+        then_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(then_dt)
         chain, block = add_chain_block()
         cb = block.coinbase
@@ -502,13 +500,13 @@ def test_validate_block_coinbase(add_chain_block, app, subject, txid, wallet):
         block.merkle_root = block.get_merkle_root()
         block.timestamp = now_iso()
         block.mill()
-        with pytest.raises(InvalidBlockError, match="inflows"):
+        with pytest.raises(InvalidBlockError, match='inflows'):
             chain.add_block(block)
 
         block = Block()
         chain.link_block(block)
         block.link(0, GENESIS_HASH, TEST_TARGET)
-        block.seal(wallet, REWARD+1)
+        block.seal(wallet, REWARD + 1)
         block.mill()
         with pytest.raises(InvalidCoinbaseErrorRewardError):
             chain.add_block(block)
@@ -537,7 +535,7 @@ def test_validate_block_coinbase(add_chain_block, app, subject, txid, wallet):
         block2.merkle_root = block2.get_merkle_root()
         block2.timestamp = now_iso()
         block2.mill()
-        with pytest.raises(InvalidBlockError, match="InvalidCoinbaseError"):
+        with pytest.raises(InvalidBlockError, match='InvalidCoinbaseError'):
             chain.add_block(block2)
 
         t = Transaction()
@@ -570,7 +568,7 @@ def test_validate_block_coinbase(add_chain_block, app, subject, txid, wallet):
         block3.merkle_root = block3.get_merkle_root()
         block3.timestamp = now_iso()
         block3.mill()
-        with pytest.raises(InvalidBlockError, match="InvalidCoinbaseError"):
+        with pytest.raises(InvalidBlockError, match='InvalidCoinbaseError'):
             chain.add_block(block3)
 
 
