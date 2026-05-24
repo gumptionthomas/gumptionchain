@@ -148,6 +148,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cachetools"
+version = "5.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/8b/8e2ebf5ee26c21504de5ea2fb29cc6ae612b35fd05f959cdb641feb94ec4/cachetools-5.3.1.tar.gz", hash = "sha256:dce83f2d9b4e1f732a8cd44af8e8fab2dbe46201467fc98b3ef8f269092bf62b", size = 27985, upload-time = "2023-05-27T20:44:00.567Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/c9/c8a7710f2cedcb1db9224fdd4d8307c9e48cbddc46c18b515fefc0f1abbe/cachetools-5.3.1-py3-none-any.whl", hash = "sha256:95ef631eeaea14ba2e36f06437f36463aac3a096799e876ee55e5cdccb102590", size = 9288, upload-time = "2023-05-27T20:43:58.81Z" },
+]
+
+[[package]]
 name = "cancelchain"
 version = "1.4.1"
 source = { editable = "." }
@@ -205,7 +214,7 @@ requires-dist = [
     { name = "pg8000", specifier = ">=1.29" },
     { name = "pycryptodome", specifier = ">=3.18" },
     { name = "pyjwt", specifier = ">=2.7" },
-    { name = "pymerkle", specifier = ">=4.0,<5.0" },
+    { name = "pymerkle", specifier = ">=5" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.31" },
     { name = "rich", specifier = ">=13.4" },
@@ -1110,9 +1119,15 @@ wheels = [
 
 [[package]]
 name = "pymerkle"
-version = "4.0.0"
+version = "6.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/94/1c/c103f6c8385d15d787e036e94ce1735c2a1456483036b48f23adfa38638d/pymerkle-4.0.0.tar.gz", hash = "sha256:6f55f87faf7b24fc8a4a92363acb41e32ed7bd7ba78bddc2dfd8494c2ef7c1c6", size = 30392, upload-time = "2023-03-06T16:32:25.327Z" }
+dependencies = [
+    { name = "cachetools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/90/b96b3af828426da138107270e6942b5aac9525c6b1eddec73c9ecd63134f/pymerkle-6.1.0.tar.gz", hash = "sha256:bf43addba1c49da4f7fd905a6836f58f9e99294b2b34c6460b24f53156ed285a", size = 36178, upload-time = "2023-08-30T14:42:25.048Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1c/46/0b5c80ee9912fcd174d112c00f95d12f19e88dec00177c6b3a51b1330d4f/pymerkle-6.1.0-py3-none-any.whl", hash = "sha256:9ba32e71fc9bd53a65c2815414aca9e3c43b9d0376b3c73d41cb7b3814267a0a", size = 34289, upload-time = "2023-08-30T14:42:22.46Z" },
+]
 
 [[package]]
 name = "pyreadline3"
