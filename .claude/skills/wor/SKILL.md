@@ -15,7 +15,7 @@ Wait for PR reviews (e.g. Copilot), address any feedback, then report back.
 5. If Copilot left actionable feedback:
    - Address each comment (fix code, update tests if needed).
    - Run the full test suite (`uv run pytest`) to verify fixes.
-   - Format code (`uv run isort src/ tests/ && uv run pyink src/ tests/`).
+   - Format code (`uv run ruff format src tests`).
    - Commit and push the fixes.
    - Report a summary to the user: what Copilot said, what was changed.
 6. If Copilot approved with no actionable comments, report that to the user.
