@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG PYTHON_VERSION=3.10
+ARG PYTHON_VERSION=3.12
 FROM ghcr.io/astral-sh/uv:0.4-python${PYTHON_VERSION}-bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
