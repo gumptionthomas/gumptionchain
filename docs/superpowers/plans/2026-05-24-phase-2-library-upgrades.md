@@ -18,7 +18,7 @@
 - `docker --version` works and the daemon is running (only needed for Task 9 acceptance).
 - Python 3.12 is installable via uv. Verify ahead of time: `uv python install 3.12 && uv python install 3.13`.
 - The branch `docs/phase-2-design` exists locally and contains commit `572cca4` (the design spec). This plan adds the second commit on that branch, then ships both as the docs PR.
-- You have memory access to the user's `wor` and `mwg` workflows. They are mandatory between each PR push and merge. Never merge without Copilot review.
+- Each impl PR ends with `wor` (wait-on-review) and `mwg` (merge-when-green); see "Notes on the wor / mwg workflow" near the end of this document for the mechanics. Never merge without Copilot review.
 - Never push directly to `main`. Every change in this plan goes through a branch + PR.
 
 ---
@@ -411,7 +411,7 @@ Expected: uv recomputes the lock with Flask 3.x and Werkzeug 3.x. If a transitiv
 Run:
 ```bash
 uv sync --group dev
-uv run python -c "import flask, werkzeug, flask_caching; print(flask.__version__, werkzeug.__version__, flask_caching.__version__)"
+uv run python -c "from importlib.metadata import version; print(version('flask'), version('werkzeug'), version('Flask-Caching'))"
 ```
 Expected: Flask ≥ 3.0, Werkzeug ≥ 3.0, Flask-Caching ≥ 2.3.
 
@@ -1425,7 +1425,7 @@ Dependabot is configured (`.github/dependabot.yml`) to open dep-bump PRs Monday 
 
 ## Roll-back posture
 
-Every PR in this train is independently revertable via `gh pr revert <N>` because they're squash-merged. If a defect is discovered after merge:
+Every PR in this train is independently revertible via `git revert <merge-sha>` (or GitHub's "Revert" button on the merged PR page) because they're squash-merged. If a defect is discovered after merge:
 
 - For runtime regressions found *after* later PRs have already landed on top: prefer a forward-fix in a new PR over a revert, since reverting an earlier PR may conflict with later PRs' lockfile changes.
 - For lockfile-only regressions: a targeted `uv lock --upgrade-package <name>` in a new PR usually resolves.

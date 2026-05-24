@@ -22,7 +22,7 @@ Concretely: after Phase 2, `[project.dependencies]` has no remaining major-versi
 
 ## Decisions taken during brainstorming
 
-- **PR strategy:** series of small PRs, not one monolithic Phase 2 PR. Aligns with the project's "no scope creep" rule and the `wor`-before-merge habit; each step is independently reviewable and revertable.
+- **PR strategy:** series of small PRs, not one monolithic Phase 2 PR. Aligns with the project's "no scope creep" rule and the `wor`-before-merge habit; each step is independently reviewable and revertible.
 - **Python floor:** raise from 3.9 to **3.12**. Drops 3.10 and 3.11 from the CI matrix. Aggressive but bounded — 3.12 is still in active support, 3.13 stays on the matrix.
 - **pymerkle 5:** include in Phase 2. No hash-compat fixture gate is required because there is no production CancelChain to preserve (the `pymerkle>=4,<5` pin was defensive). If v5's API doesn't admit the existing `tree.prove_inclusion` / `verify_inclusion` usage in any reasonable way, the fallback is a small in-tree Merkle implementation (the use case is leaves = txids, no other complexity).
 - **Marshmallow:** not bumped. Phase 3 deletes it.
@@ -31,7 +31,7 @@ Concretely: after Phase 2, `[project.dependencies]` has no remaining major-versi
 
 ## Changes — the PR train
 
-Phase 2 ships as **seven sequential PRs**. Each is a squash merge, individually revertable, individually reviewable. Order matters only at the `uv.lock` level (each PR rewrites the lockfile); functional coupling between PRs is minimal.
+Phase 2 ships as **seven sequential PRs**. Each is a squash merge, individually revertible, individually reviewable. Order matters only at the `uv.lock` level (each PR rewrites the lockfile); functional coupling between PRs is minimal.
 
 ### PR-1. Python floor bump: 3.9 → 3.12
 
