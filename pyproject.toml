@@ -31,8 +31,8 @@ dependencies = [
   "blinker>=1.6",
   "celery>=5.3",
   "click>=8.1",
-  "Flask>=2.3",
-  "Flask-Caching>=2.0",
+  "Flask>=3.0",
+  "Flask-Caching>=2.3",
   "Flask-SQLAlchemy>=3.0",
   "gunicorn>=20.1",
   "humanfriendly>=10.0",
@@ -47,6 +47,7 @@ dependencies = [
   "requests>=2.31",
   "rich>=13.4",
   "sqlalchemy<2.0",
+  "werkzeug>=3.0",
 ]
 
 [project.scripts]

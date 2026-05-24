@@ -172,6 +172,7 @@ dependencies = [
     { name = "requests" },
     { name = "rich" },
     { name = "sqlalchemy" },
+    { name = "werkzeug" },
 ]
 
 [package.dev-dependencies]
@@ -193,8 +194,8 @@ requires-dist = [
     { name = "blinker", specifier = ">=1.6" },
     { name = "celery", specifier = ">=5.3" },
     { name = "click", specifier = ">=8.1" },
-    { name = "flask", specifier = ">=2.3" },
-    { name = "flask-caching", specifier = ">=2.0" },
+    { name = "flask", specifier = ">=3.0" },
+    { name = "flask-caching", specifier = ">=2.3" },
     { name = "flask-sqlalchemy", specifier = ">=3.0" },
     { name = "gunicorn", specifier = ">=20.1" },
     { name = "humanfriendly", specifier = ">=10.0" },
@@ -209,6 +210,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.31" },
     { name = "rich", specifier = ">=13.4" },
     { name = "sqlalchemy", specifier = "<2.0" },
+    { name = "werkzeug", specifier = ">=3.0" },
 ]
 
 [package.metadata.requires-dev]
