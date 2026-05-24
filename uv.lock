@@ -225,13 +225,13 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", extras = ["toml"], specifier = ">=7.5" },
-    { name = "mypy", specifier = ">=1.10" },
-    { name = "pre-commit", specifier = ">=3.7" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-cov", specifier = ">=5" },
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pre-commit", specifier = ">=4.0" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-cov", specifier = ">=5.0" },
     { name = "pytest-dotenv", specifier = ">=0.5" },
     { name = "requests-mock", specifier = ">=1.12" },
-    { name = "ruff", specifier = ">=0.6" },
+    { name = "ruff", specifier = ">=0.7" },
     { name = "time-machine", specifier = ">=2.14" },
 ]
 

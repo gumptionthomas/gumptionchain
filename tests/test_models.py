@@ -9,9 +9,7 @@ from cancelchain.transaction import Transaction
 
 def test_unspent_outflows(app, subject, time_stepper, wallet):
     with app.app_context():
-        time_step = time_stepper(
-            start=datetime.datetime.now(datetime.timezone.utc)
-        )
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
         _ = next(time_step)
         chain_a = Chain()
         block_1 = Block()
@@ -20,7 +18,7 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         block_1.mill()
         chain_a.add_block(block_1)
         cb_1 = block_1.coinbase
-        cb_1_amount = list(cb_1.outflows)[0].amount
+        cb_1_amount = next(iter(cb_1.outflows)).amount
         chain_a.to_db()
         dao_a = chain_a.to_dao()
 

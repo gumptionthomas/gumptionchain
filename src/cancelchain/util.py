@@ -18,13 +18,13 @@ def host_address(url):
 
 def iso_2_dt(s, fmt=ISO8601):
     dt = datetime.datetime.strptime(s, fmt)
-    return dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.replace(tzinfo=datetime.UTC)
 
 
 def dt_2_iso(dt, fmt=ISO8601):
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
-    dt = dt.astimezone(tz=datetime.timezone.utc)
+        dt = dt.replace(tzinfo=datetime.UTC)
+    dt = dt.astimezone(tz=datetime.UTC)
     return dt.strftime(fmt)
 
 
@@ -37,7 +37,7 @@ def dt_2_ciso(dt):
 
 
 def now():
-    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    return datetime.datetime.now(datetime.UTC).replace(microsecond=0)
 
 
 def now_iso():
