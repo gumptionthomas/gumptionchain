@@ -161,6 +161,7 @@ name = "cancelchain"
 version = "1.4.1"
 source = { editable = "." }
 dependencies = [
+    { name = "argon2-cffi" },
     { name = "base58check" },
     { name = "blinker" },
     { name = "celery" },
@@ -172,7 +173,6 @@ dependencies = [
     { name = "humanfriendly" },
     { name = "marshmallow" },
     { name = "millify" },
-    { name = "passlib", extra = ["argon2"] },
     { name = "pg8000" },
     { name = "pycryptodome" },
     { name = "pyjwt" },
@@ -199,6 +199,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argon2-cffi", specifier = ">=23.1" },
     { name = "base58check", specifier = ">=1.0" },
     { name = "blinker", specifier = ">=1.6" },
     { name = "celery", specifier = ">=5.3" },
@@ -210,7 +211,6 @@ requires-dist = [
     { name = "humanfriendly", specifier = ">=10.0" },
     { name = "marshmallow", specifier = ">=3.19" },
     { name = "millify", specifier = ">=0.1" },
-    { name = "passlib", extras = ["argon2"], specifier = ">=1.7" },
     { name = "pg8000", specifier = ">=1.29" },
     { name = "pycryptodome", specifier = ">=3.18" },
     { name = "pyjwt", specifier = ">=2.7" },
@@ -976,20 +976,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661", size = 228134, upload-time = "2026-04-24T20:15:23.917Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e", size = 100195, upload-time = "2026-04-24T20:15:22.081Z" },
-]
-
-[[package]]
-name = "passlib"
-version = "1.7.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b6/06/9da9ee59a67fae7761aab3ccc84fa4f3f33f125b370f1ccdb915bf967c11/passlib-1.7.4.tar.gz", hash = "sha256:defd50f72b65c5402ab2c573830a6978e5f202ad0d984793c8dde2c4152ebe04", size = 689844, upload-time = "2020-10-08T19:00:52.121Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/a4/ab6b7589382ca3df236e03faa71deac88cae040af60c071a78d254a62172/passlib-1.7.4-py2.py3-none-any.whl", hash = "sha256:aa6bca462b8d8bda89c70b382f0c298a20b5560af6cbfa2dce410c0a2fb669f1", size = 525554, upload-time = "2020-10-08T19:00:49.856Z" },
-]
-
-[package.optional-dependencies]
-argon2 = [
-    { name = "argon2-cffi" },
 ]
 
 [[package]]

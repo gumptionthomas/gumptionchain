@@ -1,10 +1,13 @@
 import datetime
 import uuid
 
-from passlib.hash import argon2, pbkdf2_sha256
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
 from cancelchain.database import db
 from cancelchain.wallet import Wallet
+
+_PASSWORD_HASHER = PasswordHasher()
 
 
 def rollback_session():
@@ -606,7 +609,7 @@ class ApiToken(db.Model):
 
     @property
     def expired(self):
-        now_dt = datetime.datetime.now(datetime.timezone.utc)
+        now_dt = datetime.datetime.now(datetime.UTC)
         now_dt = now_dt.replace(tzinfo=None)
         return self.timestamp < (now_dt - datetime.timedelta(seconds=60))
 
@@ -620,10 +623,7 @@ class ApiToken(db.Model):
     def refreshed_cipher(self):
         if self.expired or not (self.cipher and self.hashed):
             secret = str(uuid.uuid4())
-            try:
-                self.hashed = argon2.hash(secret)
-            except Exception:
-                self.hashed = pbkdf2_sha256.hash(secret)
+            self.hashed = _PASSWORD_HASHER.hash(secret)
             wallet = Wallet(b64ks=self.public_key)
             self.cipher = wallet.encrypt(secret.encode())
             self.commit()
@@ -635,8 +635,12 @@ class ApiToken(db.Model):
         self.commit()
 
     def verify(self, secret):
-        hm = argon2 if argon2.identify(self.hashed) else pbkdf2_sha256
-        return hm.verify(secret, self.hashed) and not self.expired
+        if self.expired or not self.hashed:
+            return False
+        try:
+            return _PASSWORD_HASHER.verify(self.hashed, secret)
+        except (VerifyMismatchError, InvalidHashError):
+            return False
 
     @classmethod
     def get(cls, address):
