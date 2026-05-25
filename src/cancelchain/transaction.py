@@ -372,13 +372,18 @@ class PendingTxnSet(MutableSet[Transaction]):
         if txn.timestamp_dt is None:
             msg = 'Transaction missing timestamp'
             raise InvalidTransactionError(msg)
-        # Validate all inflow references BEFORE committing the
-        # PendingTxnDAO row. Otherwise a partial txn could persist
-        # without the corresponding PendingIOflowDAO spend-tracking
-        # rows, leaving pending-spend bookkeeping corrupt.
+        # Validate all in/outflow identity fields BEFORE committing the
+        # PendingTxnDAO row so the operation is atomic — otherwise a
+        # partial pending row could persist without its spend-tracking
+        # PendingIOflowDAO companions, corrupting pending-spend
+        # bookkeeping. Mirrors the contract in `Transaction.to_dao()`.
         for idx, inflow in enumerate(txn.inflows):
             if inflow.outflow_txid is None or inflow.outflow_idx is None:
                 msg = f'Inflow {idx} missing outflow reference'
+                raise InvalidTransactionError(msg)
+        for idx, outflow in enumerate(txn.outflows):
+            if outflow.amount is None:
+                msg = f'Outflow {idx} missing amount'
                 raise InvalidTransactionError(msg)
         dao = PendingTxnDAO(
             txid=txn.txid,
@@ -388,16 +393,24 @@ class PendingTxnSet(MutableSet[Transaction]):
         dao.commit()
         for inflow in txn.inflows:
             ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)  # type: ignore[arg-type]
-            if ioflow_txn_dao is not None:
+            if ioflow_txn_dao is None:
+                continue
+            # outflow_idx may exceed the source txn's outflow count
+            # (defensive against post-validation race conditions); if so,
+            # skip spend-tracking for this inflow without raising.
+            try:
                 ioflow_dao = ioflow_txn_dao.outflows[inflow.outflow_idx]  # type: ignore[index]
-                if ioflow_dao is not None:
-                    PendingIOflowDAO(
-                        txid=txn.txid,
-                        outflow_txid=inflow.outflow_txid,
-                        outflow_idx=inflow.outflow_idx,
-                        pending_txn=dao,
-                        outflow=ioflow_dao,
-                    ).commit()
+            except IndexError:
+                continue
+            if ioflow_dao is None:
+                continue
+            PendingIOflowDAO(
+                txid=txn.txid,
+                outflow_txid=inflow.outflow_txid,
+                outflow_idx=inflow.outflow_idx,
+                pending_txn=dao,
+                outflow=ioflow_dao,
+            ).commit()
 
     def discard(self, txn: Transaction) -> None:
         # MutableSet.discard semantics: no-op if the element is absent.
