@@ -244,7 +244,7 @@ def test_db(add_chain_block, app, time_machine, wallet):
         block_copy = Block.from_db(block.block_hash)
         assert block == block_copy
         cb = block.coinbase
-        cb_amount = list(block.coinbase.outflows)[0].amount
+        cb_amount = next(iter(block.coinbase.outflows)).amount
         remit = 2 * CURMUDGEON_PER_GRUMBLE
         then_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(then_dt)
@@ -348,7 +348,7 @@ def test_dao(add_chain_block, app, time_machine, time_stepper, wallet):
 
 def test_validate_block(add_chain_block, app, time_machine, wallet):
     with app.app_context():
-        chain, block = add_chain_block()
+        chain, _block = add_chain_block()
         now_dt = now()
         then_dt = now_dt + datetime.timedelta(hours=1)
         time_machine.move_to(then_dt)
@@ -386,7 +386,7 @@ def test_validate_block_txn(add_chain_block, app, time_machine, wallet):
 
         _, block = add_chain_block(chain=chain)
         cb = block.coinbase
-        cb_amount = list(cb.outflows)[0].amount
+        cb_amount = next(iter(cb.outflows)).amount
 
         block2 = Block()
         chain.link_block(block2)
@@ -444,7 +444,7 @@ def test_validate_txn_inflow(add_chain_block, app, time_machine, txid, wallet):
         time_machine.move_to(then_dt)
         chain, block = add_chain_block()
         cb = block.coinbase
-        cb_amount = list(block.coinbase.outflows)[0].amount
+        cb_amount = next(iter(block.coinbase.outflows)).amount
         then_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(then_dt)
         t = Transaction()
@@ -514,7 +514,7 @@ def test_validate_block_coinbase(add_chain_block, app, subject, txid, wallet):
 
         _, block = add_chain_block(chain=chain)
         cb = block.coinbase
-        cb_amount = list(cb.outflows)[0].amount
+        cb_amount = next(iter(cb.outflows)).amount
 
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
@@ -583,7 +583,7 @@ def test_validate_io_address_mismatch(app, wallet):
         block.mill()
         chain.add_block(block)
         cb = block.coinbase
-        cb_amount = list(cb.outflows)[0].amount
+        cb_amount = next(iter(cb.outflows)).amount
 
         block2 = Block()
         chain.link_block(block2)
@@ -609,7 +609,7 @@ def test_validate_subject_ioflows(app, subject, wallet):
         block.mill()
         chain.add_block(block)
         cb = block.coinbase
-        cb_amount = list(cb.outflows)[0].amount
+        cb_amount = next(iter(cb.outflows)).amount
 
         block2 = Block()
         chain.link_block(block2)

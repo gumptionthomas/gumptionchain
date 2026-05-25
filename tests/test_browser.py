@@ -8,7 +8,7 @@ def test_index(app, mill_block, test_client, wallet):
         response = test_client.get('/')
         assert response.status_code == requests.codes.ok
         assert 'No chain' in str(response.data)
-        m, b = mill_block(wallet)
+        _m, b = mill_block(wallet)
         response = test_client.get('/')
         assert response.status_code == requests.codes.ok
         assert b.block_hash in str(response.data)
@@ -19,7 +19,7 @@ def test_chains(app, mill_block, test_client, wallet):
         response = test_client.get('/chains')
         assert response.status_code == requests.codes.ok
         assert 'No chains' in str(response.data)
-        m, b = mill_block(wallet)
+        _m, b = mill_block(wallet)
         response = test_client.get('/chains')
         assert response.status_code == requests.codes.ok
         assert b.block_hash in str(response.data)
@@ -29,7 +29,7 @@ def test_block(app, mill_block, test_client, wallet):
     with app.app_context():
         response = test_client.get('/block')
         assert response.status_code == requests.codes.not_found
-        m, b = mill_block(wallet)
+        _m, b = mill_block(wallet)
         response = test_client.get('/block')
         assert response.status_code == requests.codes.ok
         assert b.block_hash in str(response.data)
