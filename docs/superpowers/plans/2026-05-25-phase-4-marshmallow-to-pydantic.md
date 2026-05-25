@@ -139,101 +139,27 @@ uv run python -c "from importlib.metadata import version; print('pydantic', vers
 ```
 Expected: `pydantic 2.10.x` or newer.
 
-- [ ] **Step 4: Rewrite `schema.py`**
+- [ ] **Step 4: Add Pydantic aliases to `schema.py` (additive only)**
 
-Replace the entire contents of `src/cancelchain/schema.py` with:
+**Do NOT replace the file's contents.** PR-1 is fully additive — the existing Marshmallow `Address(fields.String)`, `Base64(fields.String)`, `MillHash(Base64)`, `Timestamp(fields.String)`, `PublicKey(Base64)`, and `SansNoneSchema(Schema)` classes are still used as callable Marshmallow field classes by `payload.py` (`address = Address()`, `outflow_txid = MillHash(required=True)`), `transaction.py`, and `block.py`. Replacing them with Pydantic `Annotated` aliases would break 12+ import-time call sites. The file-level `# mypy: disable-error-code="no-untyped-call,no-any-return"` directive also **stays** in PR-1 — the Marshmallow imports are still here.
+
+Edit `src/cancelchain/schema.py`. Add the `Annotated` import and the `pydantic` imports at the top of the file (alongside the existing Marshmallow imports):
 
 ```python
-from __future__ import annotations
-
-from dataclasses import asdict
 from typing import Annotated, Any
 
 from pydantic import AfterValidator, ValidationError
+```
 
-from cancelchain.exceptions import InvalidKeyError
-from cancelchain.util import iso_2_dt
-from cancelchain.wallet import (
-    ADDRESS_TAG,
-    Wallet,
-    b58decode,
-    b64decode,
-    b64encode,
-)
+Then **append** these blocks to the end of the file (after the existing `PublicKey(Base64)` class definition):
 
-
-def asdict_sans_none(dc: Any) -> dict[str, Any]:
-    return asdict(
-        dc, dict_factory=lambda x: {k: v for (k, v) in x if v is not None}
-    )
-
-
-def validate_address(public_key_b64: str | None, address: str | None) -> bool:
-    try:
-        wallet = Wallet(b64ks=public_key_b64)
-    except InvalidKeyError:
-        return False
-    return bool((wallet is not None) and address == wallet.address)
-
-
-def validate_address_format(address: str) -> bool:
-    try:
-        if (
-            address.startswith(ADDRESS_TAG)
-            and address.endswith(ADDRESS_TAG)
-            and len(
-                b58decode(
-                    address.removeprefix(ADDRESS_TAG).removesuffix(ADDRESS_TAG)
-                )
-            )
-            == 32
-        ):
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def validate_base64(s: str) -> bool:
-    try:
-        return bool(b64encode(b64decode(s)) == s)
-    except Exception:
-        pass
-    return False
-
-
-def validate_public_key(public_key_b64: str) -> bool:
-    try:
-        wallet = Wallet(b64ks=public_key_b64)
-    except InvalidKeyError:
-        return False
-    return wallet is not None and wallet.private_key is None
-
-
-def validate_signature(
-    public_key_b64: str | None,
-    signing_data: bytes,
-    signature: str | None,
-) -> bool:
-    try:
-        wallet = Wallet(b64ks=public_key_b64)
-    except InvalidKeyError:
-        return False
-    if wallet is not None:
-        return bool(wallet.validate_signature(signing_data, signature))
-    return False
-
-
-def validate_timestamp(s: str) -> bool:
-    try:
-        _ = iso_2_dt(s)
-        return True
-    except Exception:
-        pass
-    return False
-
-
-# --- Pydantic v2 custom type aliases ---
+```python
+# --- Pydantic v2 custom type aliases (introduced in Phase 4 / PR-1).
+# Names get a *Type suffix to avoid colliding with the Marshmallow
+# field classes above, which are still used as callables by payload.py,
+# transaction.py, and block.py until PRs 3 and 4 swap them out. PR-6
+# deletes the Marshmallow classes; the *Type aliases are permanent.
+#
 # AfterValidator runs after Pydantic's built-in coercion; the callback
 # either returns the value (possibly transformed) or raises ValueError,
 # which Pydantic wraps into a ValidationError for the caller.
@@ -274,11 +200,11 @@ def _check_public_key(s: str) -> str:
     return s
 
 
-Address = Annotated[str, AfterValidator(_check_address_format)]
-Base64 = Annotated[str, AfterValidator(_check_base64)]
-MillHash = Annotated[str, AfterValidator(_check_mill_hash)]
-Timestamp = Annotated[str, AfterValidator(_check_timestamp)]
-PublicKey = Annotated[str, AfterValidator(_check_public_key)]
+AddressType = Annotated[str, AfterValidator(_check_address_format)]
+Base64Type = Annotated[str, AfterValidator(_check_base64)]
+MillHashType = Annotated[str, AfterValidator(_check_mill_hash)]
+TimestampType = Annotated[str, AfterValidator(_check_timestamp)]
+PublicKeyType = Annotated[str, AfterValidator(_check_public_key)]
 
 
 def pydantic_errors_to_messages(e: ValidationError) -> dict[str, Any]:
@@ -300,13 +226,11 @@ def pydantic_errors_to_messages(e: ValidationError) -> dict[str, Any]:
     return result
 ```
 
-Notes on the rewrite:
-- `SansNoneSchema` class removed (lines 121–126 in original).
-- 5 Marshmallow field subclasses removed (lines 91–118 in original).
-- Marshmallow import removed; `pydantic` import added.
-- All validator functions kept verbatim (they're used by both the new `AfterValidator` callbacks AND by `transaction.py:validate_signature`-style direct calls in PR-3).
-- New `pydantic_errors_to_messages` helper for the Pydantic→Marshmallow-shaped error adapter (used in PRs 3, 4, 5).
-- File-level `# mypy: disable-error-code` directive removed (no Marshmallow imports remain).
+Notes:
+- **The existing Marshmallow `Address`, `Base64`, `MillHash`, `Timestamp`, `PublicKey`, and `SansNoneSchema` classes are untouched.** PR-6 deletes them after PRs 3, 4, 5 have removed every Marshmallow Schema in the codebase.
+- The 5 `*Type` aliases are the new Pydantic types. PRs 2, 3, 4, 5 import them under those names. PR-6 does not rename them.
+- `pydantic_errors_to_messages` adapter is used by PRs 3, 4, 5 at the catch sites that previously caught `marshmallow.ValidationError`.
+- File-level `# mypy: disable-error-code` directive **stays** in this PR (Marshmallow imports remain).
 
 - [ ] **Step 5: Verify mypy + ruff still clean**
 
@@ -315,71 +239,44 @@ uv run mypy
 uv run ruff check src tests
 uv run ruff format --check src tests
 ```
-All three must exit 0.
-
-If `mypy` reports new errors in `schema.py`, they're likely from removing the file-level directive. The most common cause is `validate_signature` calling `wallet.validate_signature(signing_data, signature)` where the wallet path returns `Any` (pycryptodome). If that surfaces, restore the directive narrowed to `"no-any-return"` only:
-```python
-# mypy: disable-error-code="no-any-return"
-```
+All three must exit 0. Because schema.py is purely additive in PR-1, no existing call site is affected — pre-existing mypy/ruff clean state should be preserved.
 
 - [ ] **Step 6: Test suite**
 
 ```bash
 uv run pytest
 ```
-Expected: 177 passed, 1 skipped. The schema.py changes alone shouldn't break tests because no caller is using the new Pydantic types yet — but the removed `SansNoneSchema` class WOULD break callers if any imported it. Verify by grep:
+Expected: 177 passed, 1 skipped. Existing Marshmallow Schemas still resolve their `Address(required=True)` etc. references to the unchanged Marshmallow classes. The new `*Type` aliases have no callers yet — they're inert exports.
 
-```bash
-grep -rn "SansNoneSchema" src/cancelchain/ tests/
-```
-Expected output: the only references are in `payload.py`, `transaction.py`, `block.py`'s import statements. Those will fail tests on this PR. So PR-1 MUST also remove those imports OR PR-1 must keep `SansNoneSchema` as a stub until PR-4.
-
-**Decision: keep `SansNoneSchema` as a no-op `Schema` alias in this PR**, removed in PR-2/3/4 as each file gets converted. Add at the bottom of `schema.py`:
-
-```python
-# Temporary alias for the duration of the Phase 4 migration. Removed
-# in PR-2/3/4 as each downstream file converts to BaseModel.
-from marshmallow import Schema as _MarshmallowSchema
-
-
-class SansNoneSchema(_MarshmallowSchema):
-    """Legacy Marshmallow base — kept only while PR-2/3/4 land."""
-```
-
-This preserves the existing post_dump None-stripping behavior for any file that still uses it during the transition. PR-2/3/4 remove their `SansNoneSchema` import as each one converts.
-
-- [ ] **Step 7: Re-verify tests**
-
-```bash
-uv run pytest
-```
-Expected: 177 passed, 1 skipped.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add pyproject.toml uv.lock src/cancelchain/schema.py
 git commit -m "$(cat <<'EOF'
-feat(deps): pydantic v2 + custom types as Annotated aliases
+feat(deps): add pydantic v2 + Annotated *Type aliases (additive)
 
-Adds pydantic>=2.10 to runtime dependencies. Rewrites schema.py:
+Adds pydantic>=2.10 to runtime dependencies. Adds to schema.py:
 
-- 5 custom Marshmallow field subclasses (Address, Base64, MillHash,
-  Timestamp, PublicKey) become Annotated[str, AfterValidator(...)]
-  type aliases. The existing validator functions (validate_address,
-  validate_base64, etc.) become the AfterValidator callbacks via small
-  _check_* wrappers that raise ValueError on failure (Pydantic re-wraps).
-- Adds pydantic_errors_to_messages helper that converts Pydantic's
+- 5 new Pydantic Annotated[str, AfterValidator(...)] aliases under
+  *Type suffix names (AddressType, Base64Type, MillHashType,
+  TimestampType, PublicKeyType). The Marshmallow Address/Base64/
+  MillHash/Timestamp/PublicKey field classes are NOT touched —
+  payload.py, transaction.py, and block.py still use them as
+  callable field classes (e.g., address = Address(required=True)).
+  PR-6 deletes the Marshmallow classes once PRs 3, 4, 5 have removed
+  every Marshmallow Schema. The *Type suffix is permanent.
+- pydantic_errors_to_messages helper that converts Pydantic's
   list-of-dict ValidationError.errors() to the nested-dict shape
   Marshmallow's e.messages exposes. Used by PRs 3/4/5 at the
   domain-layer catch sites so the downstream api.make_error_response
   and InvalidBlockError({...: e.messages}) wrappers don't see a shape
   change.
-- SansNoneSchema kept as a no-op Marshmallow alias only for the
-  duration of PR-2/3/4 (each removes its own import).
+- SansNoneSchema is unchanged (its @post_dump remove_none_values
+  hook still serves payload.py / transaction.py / block.py
+  Marshmallow Schemas).
 
-File-level # mypy: disable-error-code directive removed (no Marshmallow
-imports remain in schema.py).
+File-level # mypy: disable-error-code directive stays — Marshmallow
+imports remain in schema.py.
 
 Phase 4 / PR 1 of 6.
 
@@ -388,23 +285,22 @@ EOF
 )"
 ```
 
-- [ ] **Step 9: Push and open PR**
+- [ ] **Step 8: Push and open PR**
 
 ```bash
 git push -u origin feat/pydantic-schema-types
-gh pr create --base main --title "feat(deps): pydantic v2 + custom types as Annotated aliases" --body "$(cat <<'EOF'
+gh pr create --base main --title "feat(deps): add pydantic v2 + Annotated *Type aliases (additive)" --body "$(cat <<'EOF'
 ## Summary
 - Adds \`pydantic>=2.10\` to runtime deps.
-- Converts schema.py's 5 custom field subclasses (Address, Base64, MillHash, Timestamp, PublicKey) to \`Annotated[str, AfterValidator(...)]\` aliases.
+- Adds Annotated[str, AfterValidator(...)] aliases under *Type suffix names (AddressType, Base64Type, MillHashType, TimestampType, PublicKeyType).
 - Adds \`pydantic_errors_to_messages\` adapter helper for downstream PRs.
-- Drops the file-level mypy disable directive from schema.py.
-- Keeps \`SansNoneSchema\` as a transitional alias (removed by PR-2/3/4 as each downstream file converts).
+- **Fully additive** — Marshmallow Address/Base64/MillHash/Timestamp/PublicKey and SansNoneSchema are untouched (still used by payload.py / transaction.py / block.py until PRs 3 and 4 swap them out). PR-6 deletes the Marshmallow versions.
 
 Phase 4 / PR 1 of 6. Spec: \`docs/superpowers/specs/2026-05-25-phase-4-marshmallow-to-pydantic-design.md\`.
 
 ## Test plan
 - [x] \`uv run mypy\` exits 0.
-- [x] \`uv run pytest\` passes (177/178).
+- [x] \`uv run pytest\` passes (177/178). schema.py changes are purely additive.
 - [x] \`uv run ruff check\` + \`format --check\` pass.
 - [ ] CI green on 3.12 and 3.13.
 
@@ -413,7 +309,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 10: Stop — controller handles wor + mwg + sync**
+- [ ] **Step 9: Stop — controller handles wor + mwg + sync**
 
 ---
 
@@ -500,7 +396,7 @@ class OutflowModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     amount: int = Field(ge=1)
-    address: Address | None = None
+    address: AddressType | None = None
     subject: SubjectType | None = None
     forgive: SubjectType | None = None
     support: SubjectType | None = None
@@ -523,8 +419,23 @@ class OutflowModel(BaseModel):
 class InflowModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    outflow_txid: MillHash
+    outflow_txid: MillHashType
     outflow_idx: int = Field(ge=0)
+```
+
+The `from cancelchain.schema import Address, MillHash, SansNoneSchema` line above stays unchanged (the Marshmallow `OutflowSchema(SansNoneSchema)` still uses `address = Address()` etc.). The Pydantic models reference `AddressType` and `MillHashType` instead — add them to the schema import:
+
+```python
+# Before:
+from cancelchain.schema import Address, MillHash, SansNoneSchema
+# After:
+from cancelchain.schema import (
+    Address,
+    AddressType,
+    MillHash,
+    MillHashType,
+    SansNoneSchema,
+)
 ```
 
 Notes:
@@ -610,9 +521,21 @@ Edit `src/cancelchain/payload.py`. Delete:
 - The `class OutflowSchema(SansNoneSchema):` definition (including `@validates_schema validate_destinations` and `@post_load make_outflow` methods).
 - The `class InflowSchema(SansNoneSchema):` definition (including `@post_load make_inflow`).
 - The `from marshmallow import (...)` import line.
-- The `from cancelchain.schema import Address, MillHash, SansNoneSchema` line — replace with `from cancelchain.schema import Address, MillHash` (drop `SansNoneSchema`).
+- From the schema import, drop `Address`, `MillHash`, and `SansNoneSchema` (no longer needed — `OutflowModel` / `InflowModel` use `AddressType` / `MillHashType` exclusively):
+  ```python
+  # Before:
+  from cancelchain.schema import (
+      Address,
+      AddressType,
+      MillHash,
+      MillHashType,
+      SansNoneSchema,
+  )
+  # After:
+  from cancelchain.schema import AddressType, MillHashType
+  ```
 
-Rename the `SubjectType` alias to `Subject`:
+Rename the local `SubjectType` alias to `Subject` now that the Marshmallow `Subject(fields.String)` is gone:
 ```python
 # Before:
 SubjectType = Annotated[str, AfterValidator(_check_subject)]
@@ -662,11 +585,11 @@ from cancelchain.models import (
 )
 from cancelchain.payload import Inflow, InflowModel, Outflow, OutflowModel
 from cancelchain.schema import (
-    Address,
-    Base64,
-    MillHash,
-    PublicKey,
-    Timestamp,
+    AddressType,
+    Base64Type,
+    MillHashType,
+    PublicKeyType,
+    TimestampType,
     asdict_sans_none,
     pydantic_errors_to_messages,
     validate_address,
@@ -683,11 +606,11 @@ ADDRESS_MISMATCH_MSG = 'Address/public key mismatch'
 class TransactionModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    timestamp: Timestamp
-    txid: MillHash
-    address: Address
-    public_key: PublicKey
-    signature: Base64 | None = None
+    timestamp: TimestampType
+    txid: MillHashType
+    address: AddressType
+    public_key: PublicKeyType
+    signature: Base64Type | None = None
     inflows: Annotated[
         list[InflowModel], Field(min_length=0, max_length=MAX_FLOWS)
     ]
@@ -719,8 +642,7 @@ class CoinbaseTransactionModel(TransactionModel):
 ```
 
 Notes:
-- Import block reorganized: Marshmallow removed; `pydantic.ValidationError` added; `Annotated`, `Literal`, `Self` to typing; payload imports updated to `InflowModel`, `OutflowModel`; schema imports add `pydantic_errors_to_messages`.
-- `Address`, `Base64`, `MillHash`, `PublicKey`, `Timestamp`, `SansNoneSchema` imports updated to drop `SansNoneSchema`.
+- Import block reorganized: Marshmallow removed; `pydantic.ValidationError` added; `Annotated`, `Literal`, `Self` to typing; payload imports updated to `InflowModel`, `OutflowModel`; schema imports switched to the `*Type` Pydantic aliases plus `pydantic_errors_to_messages`.
 - File-level `# mypy: disable-error-code` directive removed (no Marshmallow imports).
 
 - [ ] **Step 4: Update call sites in `transaction.py`**
@@ -975,8 +897,8 @@ from cancelchain.exceptions import (
 from cancelchain.milling import mill_hash_str, milling_generator
 from cancelchain.models import BlockDAO
 from cancelchain.schema import (
-    MillHash,
-    Timestamp,
+    MillHashType,
+    TimestampType,
     asdict_sans_none,
     pydantic_errors_to_messages,
 )
@@ -998,12 +920,12 @@ class BlockModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     idx: int = Field(ge=0)
-    timestamp: Timestamp
-    block_hash: MillHash
-    prev_hash: MillHash
-    target: MillHash
+    timestamp: TimestampType
+    block_hash: MillHashType
+    prev_hash: MillHashType
+    target: MillHashType
     proof_of_work: int = Field(ge=0)
-    merkle_root: MillHash
+    merkle_root: MillHashType
     txns: Annotated[
         list[TransactionModel],
         Field(min_length=1, max_length=MAX_TRANSACTIONS),
@@ -1268,59 +1190,21 @@ class TransferTxnQuerySchema(Schema):
     address = fields.String(required=True, validate=validate_address_format)
 ```
 
-With:
+With (reusing the `*Type` aliases from `schema.py` — `AddressType` runs `_check_address_format`, which is `validate_address_format`; `PublicKeyType` runs `_check_public_key`, which is `validate_public_key`):
 
 ```python
-def _check_address_format_local(s: str) -> str:
-    if not validate_address_format(s):
-        msg = f'Invalid address format: {s!r}'
-        raise ValueError(msg)
-    return s
-
-
-def _check_public_key_local(s: str) -> str:
-    if not validate_public_key(s):
-        msg = f'Invalid public key: {s!r}'
-        raise ValueError(msg)
-    return s
-
-
-_PublicKeyField = Annotated[str, AfterValidator(_check_public_key_local)]
-_AddressFormatField = Annotated[
-    str, AfterValidator(_check_address_format_local)
-]
+from cancelchain.schema import AddressType, PublicKeyType
 
 
 class TransferTxnQueryModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    public_key: _PublicKeyField
+    public_key: PublicKeyType
     amount: int = Field(ge=1)
-    address: _AddressFormatField
+    address: AddressType
 ```
 
-Notes:
-- The query schemas use `validate_address_format` (different from `validate_address` which checks pk⇔address match). The custom `_AddressFormatField` reflects that.
-- The `_PublicKeyField` here matches the existing `validate_public_key` behavior in the query context, which is structurally identical to `schema.PublicKey` BUT uses a different validator path — keep them parallel.
-
-Alternative (cleaner): reuse `schema.PublicKey`. But that runs through `validate_public_key(public_key_b64)` which expects a full b64-encoded key. The query schema validates `public_key=...` from URL args which is also a b64 string. So they ARE the same. Use `schema.PublicKey` directly:
-
-```python
-from cancelchain.schema import Address as _AddressType
-from cancelchain.schema import PublicKey as _PublicKeyType
-
-# Note: `schema.Address` validates the CC-tagged address format, which
-# is what `validate_address_format` does here. Reuse.
-
-class TransferTxnQueryModel(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    public_key: _PublicKeyType
-    amount: int = Field(ge=1)
-    address: _AddressType
-```
-
-**Final decision: reuse `schema.Address` and `schema.PublicKey`** to avoid type duplication. Verify `schema.Address`'s `_check_address_format` matches the existing `validate_address_format` validator — yes, both run `validate_address_format(s)`. Same for `schema.PublicKey` ↔ `validate_public_key`.
+Note: the query schemas use `validate_address_format` (different from `validate_address`, which checks pk⇔address match). `schema.AddressType` runs exactly `validate_address_format` — same validator, reused.
 
 - [ ] **Step 4: Replace `SubjectTxnQuerySchema` (around line 405)**
 
@@ -1349,7 +1233,7 @@ _RawSubjectField = Annotated[str, AfterValidator(_check_raw_subject)]
 class SubjectTxnQueryModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    public_key: _PublicKeyType
+    public_key: PublicKeyType
     amount: int = Field(ge=1)
     subject: _RawSubjectField
 ```
@@ -1468,7 +1352,7 @@ feat(deps): API query schemas → Pydantic v2
 Replaces the 3 Marshmallow query schemas with Pydantic models:
 
 - TransferTxnQuerySchema → TransferTxnQueryModel (reuses
-  schema.Address and schema.PublicKey custom types).
+  schema.AddressType and schema.PublicKeyType custom types).
 - SubjectTxnQuerySchema → SubjectTxnQueryModel (with local raw-subject
   validator).
 - PendingTxnQuerySchema → PendingTxnQueryModel (with
@@ -1521,13 +1405,13 @@ EOF
 
 ---
 
-## Task 7: PR-6 — Remove `marshmallow` from runtime dependencies
+## Task 7: PR-6 — Delete Marshmallow classes and the `marshmallow` dependency
 
 **Files:**
+- Modify: `src/cancelchain/schema.py` (delete the now-orphaned Marshmallow classes)
 - Modify: `pyproject.toml`
-- Possibly modify: `src/cancelchain/schema.py` (remove the transitional `SansNoneSchema` alias if PR-1 left it)
-- Possibly modify: `src/cancelchain/transaction.py` (verify directive removal — should already be done in PR-3)
-- Possibly modify: `src/cancelchain/models.py` (review only — directive there is for `db.Model`, not marshmallow)
+- Verify: `src/cancelchain/transaction.py`, `src/cancelchain/payload.py`, `src/cancelchain/block.py` (file-level mypy directives — PR-3/PR-4 already removed them)
+- Don't touch: `src/cancelchain/models.py` (its mypy directive covers SA `db.Model` Any leaks, unrelated to Marshmallow; Phase 6 revisits)
 
 - [ ] **Step 1: Branch off main**
 
@@ -1536,15 +1420,36 @@ git checkout main && git pull --ff-only
 git checkout -b chore/remove-marshmallow
 ```
 
-- [ ] **Step 2: Verify no Marshmallow imports remain**
+- [ ] **Step 2: Confirm no Marshmallow imports remain outside `schema.py`**
 
 ```bash
 grep -rn "marshmallow\|Marshmallow" src/cancelchain/
 ```
 
-Expected: no matches. If `schema.py` still has the transitional `SansNoneSchema` alias from PR-1 (the `from marshmallow import Schema as _MarshmallowSchema`), remove it now.
+Expected: matches only inside `schema.py` itself (the Marshmallow `Address(fields.String)`, `Base64(fields.String)`, `MillHash(Base64)`, `Timestamp(fields.String)`, `PublicKey(Base64)`, and `SansNoneSchema(Schema)` classes plus their `from marshmallow import ...` line). All other source files should be Marshmallow-free.
 
-- [ ] **Step 3: Edit `pyproject.toml`**
+- [ ] **Step 3: Delete the Marshmallow classes from `schema.py`**
+
+Edit `src/cancelchain/schema.py`. Delete:
+- The `from marshmallow import Schema, fields, post_dump, validate` line.
+- The `class Address(fields.String):` block.
+- The `class Base64(fields.String):` block.
+- The `class MillHash(Base64):` block.
+- The `class Timestamp(fields.String):` block.
+- The `class PublicKey(Base64):` block.
+- The `class SansNoneSchema(Schema):` block (including its `@post_dump remove_none_values` method).
+- The file-level `# mypy: disable-error-code="no-untyped-call,no-any-return"` directive at the top of the file (the suppressions covered Marshmallow Any leaks, which no longer apply).
+
+Keep everything else:
+- The `asdict_sans_none` utility.
+- The validator functions (`validate_address`, `validate_address_format`, `validate_base64`, `validate_public_key`, `validate_signature`, `validate_timestamp`).
+- The `_check_*` Pydantic wrappers.
+- The `AddressType`, `Base64Type`, `MillHashType`, `TimestampType`, `PublicKeyType` Annotated aliases (no rename — `*Type` suffix is permanent).
+- The `pydantic_errors_to_messages` adapter.
+
+After this edit, `schema.py` imports only from `dataclasses`, `typing`, `pydantic`, and `cancelchain.*` (no Marshmallow).
+
+- [ ] **Step 4: Edit `pyproject.toml`**
 
 Remove the line:
 ```toml
@@ -1589,18 +1494,24 @@ All must exit 0.
 ```bash
 git add pyproject.toml uv.lock src/cancelchain/schema.py
 git commit -m "$(cat <<'EOF'
-chore(deps): remove marshmallow from runtime dependencies
+chore(deps): delete Marshmallow classes and remove the runtime dep
 
-After PRs 1-5 swapped every Marshmallow Schema for a Pydantic v2
-BaseModel, no source code under src/cancelchain/ imports marshmallow.
-This PR finishes the migration:
+After PRs 1-5 swapped every Marshmallow Schema in src/cancelchain/
+for a Pydantic v2 BaseModel, the Marshmallow Address(fields.String),
+Base64(fields.String), MillHash(Base64), Timestamp(fields.String),
+PublicKey(Base64), and SansNoneSchema(Schema) classes in schema.py
+became orphans. This PR:
 
-- Removes \`marshmallow>=3.19\` from [project.dependencies].
+- Deletes those 6 Marshmallow classes from schema.py and the
+  from marshmallow import Schema, fields, post_dump, validate line.
+- Drops the file-level # mypy: disable-error-code directive from
+  schema.py (no Marshmallow Any leaks remain to suppress).
+- Removes marshmallow>=3.19 from [project.dependencies].
 - Removes [[tool.mypy.overrides]] module = ["marshmallow", "marshmallow.*"].
-- Removes the transitional SansNoneSchema alias from schema.py (if PR-1
-  added one).
 
-uv lock regenerated; marshmallow no longer in uv.lock.
+The Pydantic *Type aliases (AddressType, Base64Type, MillHashType,
+TimestampType, PublicKeyType) and the validator functions are kept
+unchanged. uv lock regenerated; marshmallow no longer in uv.lock.
 
 Phase 4 / PR 6 of 6 (final PR of Phase 4).
 
@@ -1613,11 +1524,12 @@ EOF
 
 ```bash
 git push -u origin chore/remove-marshmallow
-gh pr create --base main --title "chore(deps): remove marshmallow from runtime dependencies" --body "$(cat <<'EOF'
+gh pr create --base main --title "chore(deps): delete Marshmallow classes and remove the runtime dep" --body "$(cat <<'EOF'
 ## Summary
-- Removes \`marshmallow>=3.19\` from \`[project.dependencies]\`.
-- Removes the \`[[tool.mypy.overrides]]\` block for \`marshmallow.*\`.
-- Removes the transitional \`SansNoneSchema\` alias from \`schema.py\` (if PR-1 left one).
+- Deletes 6 Marshmallow classes from \`schema.py\` (\`Address\`, \`Base64\`, \`MillHash\`, \`Timestamp\`, \`PublicKey\`, \`SansNoneSchema\`) along with the \`from marshmallow import ...\` line. All callers were retired by PRs 3 / 4 / 5.
+- Drops the file-level mypy disable directive from \`schema.py\`.
+- Removes \`marshmallow>=3.19\` from \`[project.dependencies]\` and the \`[[tool.mypy.overrides]]\` block for \`marshmallow.*\`.
+- The Pydantic \`*Type\` aliases stay (no rename to bare names).
 - \`uv lock\` regenerated; \`marshmallow\` no longer in \`uv.lock\`.
 
 Phase 4 / PR 6 of 6 (final PR).
