@@ -223,24 +223,44 @@ class Transaction:
         return TransactionSchema().dumps(self.to_dict())
 
     def to_dao(self) -> TransactionDAO:
-        return TransactionDAO.get(self.txid) or TransactionDAO(
-            self.txid,
+        # to_dao() is only meaningful after the txn has been sealed: txid
+        # is computed and all in/outflow identity fields are set. The
+        # dataclass declares them Optional to allow staged construction;
+        # validate them here so mypy strict can narrow at the domain↔DAO
+        # boundary AND the persisted row matches the txid signing data
+        # (silently dropping inflows or zero-coercing amounts would break
+        # both invariants — see PR #47 review).
+        if self.txid is None:
+            raise UnsealedTransactionError()
+        if self.timestamp_dt is None:
+            msg = 'Transaction missing timestamp'
+            raise InvalidTransactionError(msg)
+        for idx, inflow in enumerate(self.inflows):
+            if inflow.outflow_txid is None or inflow.outflow_idx is None:
+                msg = f'Inflow {idx} missing outflow reference'
+                raise InvalidTransactionError(msg)
+        for idx, outflow in enumerate(self.outflows):
+            if outflow.amount is None:
+                msg = f'Outflow {idx} missing amount'
+                raise InvalidTransactionError(msg)
+        txid = self.txid
+        timestamp_dt = self.timestamp_dt
+        return TransactionDAO.get(txid) or TransactionDAO(
+            txid,
             self.version,
-            self.timestamp_dt,
+            timestamp_dt,
             address=self.address,
             public_key=self.public_key,
             signature=self.signature,
             inflow_daos=[
-                InflowDAO(
-                    self.txid, idx, inflow.outflow_txid, inflow.outflow_idx
-                )
+                InflowDAO(txid, idx, inflow.outflow_txid, inflow.outflow_idx)  # type: ignore[arg-type]
                 for idx, inflow in enumerate(self.inflows)
             ],
             outflow_daos=[
                 OutflowDAO(
-                    self.txid,
+                    txid,
                     idx,
-                    outflow.amount,
+                    outflow.amount,  # type: ignore[arg-type]
                     address=outflow.address,
                     subject=outflow.subject,
                     forgive=outflow.forgive,
@@ -334,7 +354,7 @@ class Transaction:
 
 class PendingTxnSet(MutableSet[Transaction]):
     def __contains__(self, txn: object) -> bool:
-        if not isinstance(txn, Transaction):
+        if not isinstance(txn, Transaction) or txn.txid is None:
             return False
         return PendingTxnDAO.get(txn.txid) is not None
 
@@ -347,22 +367,50 @@ class PendingTxnSet(MutableSet[Transaction]):
         return PendingTxnDAO.count()
 
     def add(self, txn: Transaction) -> None:
+        if txn.txid is None:
+            raise UnsealedTransactionError()
+        if txn.timestamp_dt is None:
+            msg = 'Transaction missing timestamp'
+            raise InvalidTransactionError(msg)
+        # Validate all in/outflow identity fields BEFORE committing the
+        # PendingTxnDAO row so the operation is atomic — otherwise a
+        # partial pending row could persist without its spend-tracking
+        # PendingIOflowDAO companions, corrupting pending-spend
+        # bookkeeping. Mirrors the contract in `Transaction.to_dao()`.
+        for idx, inflow in enumerate(txn.inflows):
+            if inflow.outflow_txid is None or inflow.outflow_idx is None:
+                msg = f'Inflow {idx} missing outflow reference'
+                raise InvalidTransactionError(msg)
+        for idx, outflow in enumerate(txn.outflows):
+            if outflow.amount is None:
+                msg = f'Outflow {idx} missing amount'
+                raise InvalidTransactionError(msg)
         dao = PendingTxnDAO(
-            txid=txn.txid, timestamp=txn.timestamp_dt, json_data=txn.to_json()
+            txid=txn.txid,
+            timestamp=txn.timestamp_dt,
+            json_data=txn.to_json(),
         )
         dao.commit()
         for inflow in txn.inflows:
-            ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)
-            if ioflow_txn_dao is not None:
-                ioflow_dao = ioflow_txn_dao.outflows[inflow.outflow_idx]
-                if ioflow_dao is not None:
-                    PendingIOflowDAO(
-                        txid=txn.txid,
-                        outflow_txid=inflow.outflow_txid,
-                        outflow_idx=inflow.outflow_idx,
-                        pending_txn=dao,
-                        outflow=ioflow_dao,
-                    ).commit()
+            ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)  # type: ignore[arg-type]
+            if ioflow_txn_dao is None:
+                continue
+            # outflow_idx may exceed the source txn's outflow count
+            # (defensive against post-validation race conditions); if so,
+            # skip spend-tracking for this inflow without raising.
+            try:
+                ioflow_dao = ioflow_txn_dao.outflows[inflow.outflow_idx]  # type: ignore[index]
+            except IndexError:
+                continue
+            if ioflow_dao is None:
+                continue
+            PendingIOflowDAO(
+                txid=txn.txid,
+                outflow_txid=inflow.outflow_txid,
+                outflow_idx=inflow.outflow_idx,
+                pending_txn=dao,
+                outflow=ioflow_dao,
+            ).commit()
 
     def discard(self, txn: Transaction) -> None:
         # MutableSet.discard semantics: no-op if the element is absent.

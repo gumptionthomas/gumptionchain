@@ -144,3 +144,74 @@ def test_pending_txns(app, subject, wallet):
         assert next(iter(pending)) == txn
         pending.discard(txn)
         assert len(pending) == 0
+
+
+def test_to_dao_unsealed_raises(subject):
+    """to_dao() raises UnsealedTransactionError when txid is None."""
+    txn = Transaction()
+    txn.add_outflow(Outflow(amount=1, subject=subject))
+    assert txn.txid is None
+    with pytest.raises(UnsealedTransactionError):
+        txn.to_dao()
+
+
+def test_to_dao_inflow_missing_outflow_ref_raises(subject):
+    """Transaction.to_dao() raises if an inflow has None outflow_txid/idx."""
+    txn = Transaction()
+    txn.add_inflow(Inflow(outflow_txid=None, outflow_idx=0))
+    txn.add_outflow(Outflow(amount=1, subject=subject))
+    txn.seal()
+    with pytest.raises(
+        InvalidTransactionError, match='Inflow 0 missing outflow reference'
+    ):
+        txn.to_dao()
+
+
+def test_to_dao_outflow_missing_amount_raises(subject):
+    """Transaction.to_dao() raises if an outflow has None amount."""
+    txn = Transaction()
+    txn.add_outflow(Outflow(amount=None, subject=subject))
+    txn.seal()
+    with pytest.raises(
+        InvalidTransactionError, match='Outflow 0 missing amount'
+    ):
+        txn.to_dao()
+
+
+def test_pending_add_unsealed_raises(app, subject, wallet):
+    """PendingTxnSet.add() raises UnsealedTransactionError on unsealed txn."""
+    with app.app_context():
+        pending = PendingTxnSet()
+        txn = Transaction()
+        txn.add_outflow(Outflow(amount=1, subject=subject))
+        assert txn.txid is None
+        with pytest.raises(UnsealedTransactionError):
+            pending.add(txn)
+
+
+def test_pending_add_inflow_missing_ref_raises(app, subject, wallet):
+    """PendingTxnSet.add() raises on inflow with None outflow_txid/idx."""
+    with app.app_context():
+        pending = PendingTxnSet()
+        txn = Transaction()
+        txn.add_inflow(Inflow(outflow_txid=None, outflow_idx=0))
+        txn.add_outflow(Outflow(amount=1, subject=subject))
+        txn.seal()
+        with pytest.raises(
+            InvalidTransactionError,
+            match='Inflow 0 missing outflow reference',
+        ):
+            pending.add(txn)
+
+
+def test_pending_add_outflow_missing_amount_raises(app, subject, wallet):
+    """PendingTxnSet.add() raises on outflow with None amount."""
+    with app.app_context():
+        pending = PendingTxnSet()
+        txn = Transaction()
+        txn.add_outflow(Outflow(amount=None, subject=subject))
+        txn.seal()
+        with pytest.raises(
+            InvalidTransactionError, match='Outflow 0 missing amount'
+        ):
+            pending.add(txn)

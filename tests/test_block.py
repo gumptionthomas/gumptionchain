@@ -170,3 +170,11 @@ def test_db(app, reward, wallet):
         block.to_db()
         block_copy = Block.from_db(block.block_hash)
         assert block_copy == block
+
+
+def test_to_dao_partial_block_raises():
+    """Block.to_dao() raises InvalidBlockError on missing identity fields."""
+    block = Block()
+    assert block.block_hash is None
+    with pytest.raises(InvalidBlockError, match='missing identity fields'):
+        block.to_dao()

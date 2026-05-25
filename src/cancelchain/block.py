@@ -298,6 +298,21 @@ class Block:
         return BlockSchema().dumps(self.to_dict())
 
     def to_dao(self) -> BlockDAO:
+        # to_dao() is only meaningful after the block is sealed: all
+        # identity fields (hash, idx, prev_hash, timestamp, merkle_root,
+        # proof_of_work) are set. The dataclass declares them Optional
+        # to allow staged construction; enforce them here so mypy strict
+        # can narrow at the domain↔DAO boundary.
+        if (
+            self.block_hash is None
+            or self.idx is None
+            or self.prev_hash is None
+            or self.timestamp_dt is None
+            or self.merkle_root is None
+            or self.proof_of_work is None
+        ):
+            msg = 'Block missing identity fields; cannot persist'
+            raise InvalidBlockError(msg)
         return BlockDAO.get(self.block_hash) or BlockDAO(
             self.block_hash,
             self.version,

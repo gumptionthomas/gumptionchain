@@ -636,3 +636,18 @@ def test_validate_subject_ioflows(app, subject, wallet):
         chain.seal_block(block3, wallet)
         block3.mill()
         chain.add_block(block3)
+
+
+def test_to_dao_create_without_block_hash_raises():
+    """to_dao(create=True) raises InvalidChainError on None block_hash."""
+    chain = Chain()
+    assert chain.block_hash is None
+    with pytest.raises(InvalidChainError, match='Cannot create ChainDAO'):
+        chain.to_dao(create=True)
+
+
+def test_to_dao_without_block_hash_returns_none():
+    """Chain.to_dao() (no create) returns None when block_hash is None."""
+    chain = Chain()
+    assert chain.block_hash is None
+    assert chain.to_dao() is None
