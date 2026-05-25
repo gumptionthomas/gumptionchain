@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import _hashlib
 import multiprocessing
 from collections.abc import Callable, Generator, Iterable
 from hashlib import sha256, sha512
@@ -15,7 +14,20 @@ class MillableBlock(Protocol):
     def solve(self, proof_of_work: int) -> None: ...
 
 
-def mill_hash(data: bytes | str) -> _hashlib.HASH:
+class _HashProto(Protocol):
+    """Structural type for the hash object returned by `hashlib.sha256()`.
+
+    The stdlib doesn't expose a public name for this; importing the
+    private `_hashlib.HASH` is fragile (and absent on OpenSSL-less Python
+    builds), so this minimal Protocol captures only the surface
+    `mill_hash`'s callers actually use.
+    """
+
+    def digest(self) -> bytes: ...
+    def hexdigest(self) -> str: ...
+
+
+def mill_hash(data: bytes | str) -> _HashProto:
     if isinstance(data, str):
         data = data.encode()
     return sha256(sha512(data).digest())

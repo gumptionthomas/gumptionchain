@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+from typing import Any
+
+# `message` may be a string, bytes, a list of messages, or a mapping
+# (marshmallow `validate()` returns dicts like `{'field': ['msg', ...]}`,
+# and other modules re-raise nested errors as
+# `InvalidBlockError({f'Transaction {txid}': e.messages})`).
+# `messages` preserves the original structure so JSON-serializing the
+# error in api.py keeps the field-level detail intact.
+Message = str | bytes | list[Any] | dict[str, Any]
+
 
 class CCError(Exception):
-    def __init__(self, message: str | bytes | list[str] | None = None) -> None:
-        msg: str | bytes | list[str] = message or self.__class__.__name__
+    def __init__(self, message: Message | None = None) -> None:
+        msg: Message = message or self.__class__.__name__
         super().__init__(msg)
-        self.messages: list[str | bytes]
+        self.messages: Message
         if isinstance(msg, (str, bytes)):
             self.messages = [msg]
         else:
-            self.messages = list(msg)
+            self.messages = msg
 
 
 class InvalidWalletError(CCError):
