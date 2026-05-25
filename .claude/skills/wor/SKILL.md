@@ -17,6 +17,8 @@ Wait for PR reviews (e.g. Copilot), address any feedback, then report back.
    - Run the full test suite (`uv run pytest`) to verify fixes.
    - Format code (`uv run ruff format src tests`).
    - Commit and push the fixes.
+   - **Post replies to each Copilot comment**, then **trigger a fresh Copilot review** with `gh pr comment {n} --body "/copilot review"`. Copilot's default mode only auto-reviews the initial push; the slash command is required to re-review subsequent fix pushes.
+   - Resume polling for the next review round.
    - Report a summary to the user: what Copilot said, what was changed.
 6. If Copilot approved with no actionable comments, report that to the user.
 7. After reporting, wait for user instructions — do NOT auto-merge.
