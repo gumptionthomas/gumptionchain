@@ -1,4 +1,4 @@
-from conftest import TEST_SECRET_KEY
+import os
 
 from cancelchain.config import EnvAppSettings
 
@@ -12,4 +12,7 @@ def test_environ_settings():
 
 
 def test_flask_config(config_app):
-    assert config_app.config.get('SECRET_KEY') == TEST_SECRET_KEY
+    # `config_app` builds `create_app()` with no overrides, so
+    # `SECRET_KEY` should reflect whatever `Flask.config.from_prefixed_env`
+    # loaded from `FLASK_SECRET_KEY` (set in `tests/.test.env`).
+    assert config_app.config.get('SECRET_KEY') == os.environ['FLASK_SECRET_KEY']

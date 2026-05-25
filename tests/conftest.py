@@ -28,7 +28,8 @@ SUBJECT_RAW = 'failing tests'
 SUBJECT_1 = encode_subject('bugs')
 SUBJECT_2 = encode_subject('vogons')
 TXID_1 = '0' * 64
-# HS256 requires ≥32 bytes; this is 40 bytes for safety (>1x minimum)
+# HS256 requires ≥32 bytes; this is 35 bytes (above the threshold so
+# pyjwt 2.13+ doesn't emit InsecureKeyLengthWarning during tests).
 TEST_SECRET_KEY = 'test-secret-key-for-phase-3-32bytes'
 WALLET_PRIVATE_KEY_B58 = (
     '7LsR8WfToH83zUcc8BQNYUMAPr2BTGMunRYSi8iq9sgimBs3hftZSZ2EjnLd5HwdUhNMQYv'
