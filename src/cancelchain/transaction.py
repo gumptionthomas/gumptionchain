@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # mypy: disable-error-code="no-untyped-call,no-any-return"
-from collections.abc import Generator, MutableSet
+from collections.abc import Generator, Iterator, MutableSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from json import JSONDecodeError
@@ -378,5 +378,5 @@ class PendingTxnSet(MutableSet[Transaction]):
         self,
         earliest: datetime | None = None,
         expired: datetime | None = None,
-    ) -> list[str]:
+    ) -> Iterator[str]:
         return PendingTxnDAO.json_datas(earliest=earliest, expired=expired)
