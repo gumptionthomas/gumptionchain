@@ -128,7 +128,7 @@ Expected: new branch from latest main (head should be the docs PR's squash commi
 
 - [ ] **Step 2: Add `pydantic>=2.10` to runtime dependencies**
 
-Edit `pyproject.toml`. In `[project] dependencies`, insert `"pydantic>=2.10",` in alphabetical position (between `pyjwt` and `pymerkle`).
+Edit `pyproject.toml`. In `[project] dependencies`, insert `"pydantic>=2.10",` in alphabetical position — between `"pycryptodome>=3.20"` and `"pyjwt>=2.9"` (pycryptodome < pydantic < pyjwt).
 
 - [ ] **Step 3: Lock and install**
 
@@ -417,12 +417,14 @@ EOF
 
 ---
 
-## Task 3: PR-2 — `payload.py` schemas
+## Task 3: PR-2 — `payload.py` schemas (additive)
 
 **Files:**
 - Modify: `src/cancelchain/payload.py`
 
-Replace `OutflowSchema` and `InflowSchema` (Marshmallow) with `OutflowModel` and `InflowModel` (Pydantic). The `Outflow` and `Inflow` `@dataclass` definitions are unchanged. The `Subject` custom field becomes an `Annotated` alias local to this file.
+**This PR adds Pydantic models alongside the existing Marshmallow schemas — it does NOT delete the Marshmallow versions.** The Marshmallow `OutflowSchema`, `InflowSchema`, and `Subject(fields.String)` classes stay in place because `TransactionSchema.outflows = fields.List(fields.Nested(OutflowSchema), ...)` in `transaction.py` still needs them — `fields.Nested` requires a Marshmallow `Schema` subclass and cannot bridge to a Pydantic `BaseModel`. PR-3 swaps `TransactionSchema` to `TransactionModel` AND deletes the Marshmallow `OutflowSchema` / `InflowSchema` / `Subject` in the same commit.
+
+To avoid a name collision with the existing Marshmallow `Subject(fields.String)`, the new Pydantic subject alias is named **`SubjectType`** in this PR. PR-3 deletes the Marshmallow `Subject` class and renames `SubjectType` → `Subject` in the same commit.
 
 - [ ] **Step 1: Branch off main**
 
@@ -431,17 +433,39 @@ git checkout main && git pull --ff-only
 git checkout -b feat/pydantic-payload
 ```
 
-- [ ] **Step 2: Rewrite `payload.py`**
+- [ ] **Step 2: Add new imports at the top of `payload.py`**
 
-Replace the entire contents of `src/cancelchain/payload.py` with:
+The existing imports look like:
+```python
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from dataclasses import dataclass
+from typing import Any
+
+from marshmallow import (
+    ValidationError,
+    fields,
+    post_load,
+    validate,
+    validates_schema,
+)
+
+from cancelchain.schema import Address, MillHash, SansNoneSchema
+```
+
+Add `Annotated` and `Self` to the typing import, and add the Pydantic block alongside (do NOT remove the Marshmallow imports):
 
 ```python
-from __future__ import annotations
-
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
 from typing import Annotated, Any, Self
 
+from marshmallow import (
+    ValidationError,
+    fields,
+    post_load,
+    validate,
+    validates_schema,
+)
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -450,181 +474,17 @@ from pydantic import (
     model_validator,
 )
 
-from cancelchain.schema import Address, MillHash
-
-MIN_SUBJECT_LENGTH = 1
-MAX_SUBJECT_LENGTH = 79
-INVALID_DESTINATION_MSG = 'Invalid destinations'
-INVALID_PADDING_MSG = 'Invalid padding'
-
-
-def encode_subject(raw_subject: str) -> str:
-    return urlsafe_b64encode(raw_subject.encode()).rstrip(b'=').decode()
-
-
-def decode_subject(subject: str) -> str:
-    if subject.endswith('='):
-        raise TypeError(INVALID_PADDING_MSG)
-    subject_bytes = subject.encode()
-    subject_bytes += b'=' * (-len(subject_bytes) % 4)
-    return urlsafe_b64decode(subject_bytes).decode()
-
-
-def validate_subject(subject: str) -> bool:
-    try:
-        raw_subject = decode_subject(subject)
-        if MIN_SUBJECT_LENGTH <= len(raw_subject) <= MAX_SUBJECT_LENGTH:
-            return encode_subject(raw_subject) == subject
-    except Exception:
-        pass
-    return False
-
-
-def validate_raw_subject(raw_subject: str) -> bool:
-    try:
-        if MIN_SUBJECT_LENGTH <= len(raw_subject) <= MAX_SUBJECT_LENGTH:
-            return decode_subject(encode_subject(raw_subject)) == raw_subject
-    except Exception:
-        pass
-    return False
-
-
-def _check_subject(s: str) -> str:
-    if not validate_subject(s):
-        msg = f'Invalid subject: {s!r}'
-        raise ValueError(msg)
-    return s
-
-
-Subject = Annotated[str, AfterValidator(_check_subject)]
-
-
-class OutflowModel(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    amount: int = Field(ge=1)
-    address: Address | None = None
-    subject: Subject | None = None
-    forgive: Subject | None = None
-    support: Subject | None = None
-
-    @model_validator(mode='after')
-    def validate_destinations(self) -> Self:
-        options = [
-            v
-            for v in (self.subject, self.forgive, self.support)
-            if v is not None
-        ]
-        if not (
-            (self.address and not options)
-            or (options and len(options) == 1 and not self.address)
-        ):
-            raise ValueError(INVALID_DESTINATION_MSG)
-        return self
-
-
-@dataclass
-class Outflow:
-    amount: int | None = None
-    address: str | None = None
-    subject: str | None = None
-    forgive: str | None = None
-    support: str | None = None
-
-    @property
-    def data_csv(self) -> str:
-        return ','.join(
-            [
-                str(self.amount),
-                self.address if self.address is not None else '',
-                self.subject if self.subject is not None else '',
-                self.forgive if self.forgive is not None else '',
-                self.support if self.support is not None else '',
-            ]
-        )
-
-    @property
-    def schadenfreude(self) -> int:
-        if self.subject is not None and self.amount is not None:
-            return int(self.amount / 2)
-        return 0
-
-    @property
-    def grace(self) -> int:
-        if self.forgive is not None and self.amount is not None:
-            return int(self.amount / 2)
-        return 0
-
-    @property
-    def mudita(self) -> int:
-        if self.support is not None and self.amount is not None:
-            return self.amount
-        return 0
-
-
-class InflowModel(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    outflow_txid: MillHash
-    outflow_idx: int = Field(ge=0)
-
-
-@dataclass
-class Inflow:
-    outflow_txid: str | None = None
-    outflow_idx: int | None = None
-
-    @property
-    def data_csv(self) -> str:
-        return ','.join([str(self.outflow_txid), str(self.outflow_idx)])
+from cancelchain.schema import Address, MillHash, SansNoneSchema
 ```
 
-Notes:
-- `OutflowSchema` → `OutflowModel`; `InflowSchema` → `InflowModel`.
-- `Subject(fields.String)` → `Subject = Annotated[str, AfterValidator(_check_subject)]`.
-- `@validates_schema validate_destinations` → `@model_validator(mode='after')` operating on `self` instead of `data`.
-- `@post_load make_outflow` / `make_inflow` removed — callers in PR-3 do `Outflow(**OutflowModel.model_validate(d).model_dump())`.
-- `SansNoneSchema` import removed (file no longer uses it).
-- File-level `# mypy: disable-error-code` directive removed (no Marshmallow imports remain).
-- `Outflow` / `Inflow` dataclasses unchanged.
+- [ ] **Step 3: Append the Pydantic models at the end of `payload.py`**
 
-- [ ] **Step 3: Verify**
-
-```bash
-uv run mypy
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run pytest
-```
-
-Expected: tests still 177 passed, 1 skipped. The other files (`transaction.py`, `block.py`) still import `OutflowSchema`/`InflowSchema` — that import will fail at module load. So at this point those files need updating, OR we keep transitional aliases.
-
-**Decision: add transitional aliases at the bottom of `payload.py` and remove them in PR-3:**
+After the existing `Inflow` dataclass at the bottom of the file, add:
 
 ```python
-# Temporary aliases for the duration of the Phase 4 migration.
-# PR-3 (transaction.py) drops the OutflowSchema/InflowSchema imports.
-OutflowSchema = OutflowModel
-InflowSchema = InflowModel
-```
+# --- Pydantic v2 models (used by PR-3 onwards). The Marshmallow
+# Schemas above stay in place until PR-3 swaps transaction.py.
 
-This makes the existing `from cancelchain.payload import InflowSchema, OutflowSchema` in `transaction.py` continue to resolve, but the value is now a Pydantic model. Any code that calls `.load()`, `.loads()`, `.dumps()`, etc. will fail — but those calls are only in `transaction.py`'s `TransactionSchema.outflows = fields.List(fields.Nested(OutflowSchema), ...)` and `block.py`'s analogous lines. `fields.Nested` accepts a Marshmallow `Schema` class, not a Pydantic `BaseModel`, so this WILL break.
-
-**Better decision: instead of trying to keep dual compatibility, this PR MUST also be the one that breaks the transaction.py/block.py imports — meaning PR-2 and PR-3 should land together.**
-
-Re-scope: **PR-2 just adds `OutflowModel`/`InflowModel` as NEW names; keep `OutflowSchema`/`InflowSchema` as Marshmallow Schemas for now.** PR-3 swaps `transaction.py`'s `TransactionSchema` to use `OutflowModel`/`InflowModel` in `fields.Nested` — wait, that still doesn't work because Marshmallow's `fields.Nested` requires a Marshmallow Schema.
-
-The fundamental issue: nested schemas can't bridge Marshmallow ↔ Pydantic. So PR-2 must keep `OutflowSchema`/`InflowSchema` working as Marshmallow Schemas (because PR-3 still uses them), and the actual `OutflowModel`/`InflowModel` get introduced as new classes that don't get used until PR-3.
-
-**Final decision: PR-2 ADDS `OutflowModel`/`InflowModel` alongside the existing `OutflowSchema`/`InflowSchema`. No deletion of the Marshmallow classes in PR-2; that happens in PR-3 when `transaction.py` switches.**
-
-Revised plan for Step 2: rewrite `payload.py` to KEEP the existing Marshmallow `OutflowSchema`/`InflowSchema` AND ADD new `OutflowModel`/`InflowModel`. Both work; nothing breaks. PR-3 deletes the Marshmallow classes in the same commit it swaps `transaction.py`.
-
-Replace Step 2 above with: **append to existing `src/cancelchain/payload.py` (keep the existing OutflowSchema, InflowSchema, Subject(fields.String) intact)**, adding only:
-
-```python
-# --- Pydantic v2 models (used by PR-3 onwards). Marshmallow Schemas
-# above are kept until PR-3 swaps transaction.py.
 
 def _check_subject(s: str) -> str:
     if not validate_subject(s):
@@ -667,24 +527,12 @@ class InflowModel(BaseModel):
     outflow_idx: int = Field(ge=0)
 ```
 
-Top-of-file imports get the additions:
-```python
-from typing import Annotated, Any, Self
+Notes:
+- Marshmallow `OutflowSchema`, `InflowSchema`, `Subject(fields.String)`, `SansNoneSchema` import are all **kept** — PR-3 deletes them.
+- `SubjectType` is named with the `Type` suffix to avoid colliding with the existing Marshmallow `Subject(fields.String)` class. PR-3 renames it to `Subject` once the Marshmallow class is gone.
+- The file-level `# mypy: disable-error-code` directive **stays** in this PR (Marshmallow imports still present). PR-3 removes it.
 
-from pydantic import (
-    AfterValidator,
-    BaseModel,
-    ConfigDict,
-    Field,
-    model_validator,
-)
-
-from cancelchain.schema import Address, MillHash
-```
-
-`SubjectType` (renamed from `Subject` to avoid collision with the existing Marshmallow `Subject(fields.String)` class — PR-3 drops the Marshmallow `Subject` and we can rename `SubjectType` → `Subject` then).
-
-- [ ] **Step 4: Test suite**
+- [ ] **Step 4: Verify and test**
 
 ```bash
 uv run pytest
@@ -924,6 +772,21 @@ Replace with:
         )
 ```
 
+**Nested reconstruction is required for `from_dict` and `from_json`.** `TransactionModel.model_dump()` returns `inflows`/`outflows` as `list[dict]`, but the `Transaction` dataclass expects `list[Inflow]` / `list[Outflow]`. Marshmallow's `@post_load` cascade did the conversion implicitly; Pydantic does not, so we do it explicitly with a private helper.
+
+Add this helper near the top of the file (just below the `*Model` class definitions):
+
+```python
+def _txn_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a TransactionModel.model_dump() dict's nested lists from
+    list[dict] to list[Inflow] / list[Outflow] before passing to the
+    Transaction dataclass constructor.
+    """
+    data['inflows'] = [Inflow(**i) for i in data.get('inflows', [])]
+    data['outflows'] = [Outflow(**o) for o in data.get('outflows', [])]
+    return data
+```
+
 Find `Transaction.from_dict`:
 
 ```python
@@ -946,7 +809,7 @@ Replace with:
             raise InvalidTransactionError(
                 pydantic_errors_to_messages(e)
             ) from e
-        return cls(**model.model_dump())
+        return cls(**_txn_from_model_data(model.model_dump()))
 ```
 
 Find `Transaction.from_json`:
@@ -975,8 +838,10 @@ Replace with:
             ) from e
         except JSONDecodeError as e:
             raise InvalidTransactionError(str(e)) from e
-        return cls(**model.model_dump())
+        return cls(**_txn_from_model_data(model.model_dump()))
 ```
+
+Without the `_txn_from_model_data` step, `Transaction.inflows[0].outflow_txid` would raise `AttributeError` because the elements are plain dicts, not `Inflow` instances. Block-level reconstruction (PR-4) imports this helper too — see Task 5 Step 4.
 
 - [ ] **Step 5: Verify**
 
@@ -1195,6 +1060,28 @@ Replace with:
         )
 ```
 
+**Nested reconstruction.** `BlockModel.model_dump()` returns `txns` as `list[dict]`, but `Block` expects `list[Transaction]`. Each of those nested dicts in turn has `inflows`/`outflows` as `list[dict]` that need to become `list[Inflow]` / `list[Outflow]`. The `_txn_from_model_data` helper from PR-3 (in `transaction.py`) does the inner conversion; reuse it for the inflow/outflow part and wrap with `Transaction(**...)` for each txn.
+
+Add this private helper near the top of `block.py` (just below `BlockModel`):
+
+```python
+from cancelchain.transaction import _txn_from_model_data  # noqa: PLC2701
+
+
+def _block_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a BlockModel.model_dump() dict's txns list from
+    list[dict] to list[Transaction] (with nested Inflow/Outflow
+    instances already reconstructed) before passing to the Block
+    dataclass constructor.
+    """
+    data['txns'] = [
+        Transaction(**_txn_from_model_data(t)) for t in data.get('txns', [])
+    ]
+    return data
+```
+
+If `noqa: PLC2701` (private-name import) feels unclean, an acceptable alternative is to expose `_txn_from_model_data` under a public name (e.g., `txn_from_model_data`) in PR-3 by removing the underscore; that's a one-line plan tweak you can do at implementation time.
+
 Find `Block.from_dict`:
 
 ```python
@@ -1217,7 +1104,7 @@ Replace with:
             raise InvalidBlockError(
                 pydantic_errors_to_messages(e)
             ) from e
-        return cls(**model.model_dump())
+        return cls(**_block_from_model_data(model.model_dump()))
 ```
 
 Find `Block.from_json`:
@@ -1246,8 +1133,23 @@ Replace with:
             ) from e
         except JSONDecodeError as e:
             raise InvalidBlockError(str(e)) from e
-        return cls(**model.model_dump())
+        return cls(**_block_from_model_data(model.model_dump()))
 ```
+
+Also update the test at `tests/test_block.py:158` — Pydantic phrases the txn-overflow violation differently:
+
+```python
+# Before:
+with pytest.raises(
+    InvalidBlockError, match='Length must be between 1 and 100'
+):
+# After:
+with pytest.raises(
+    InvalidBlockError, match='List should have at most 100 items'
+):
+```
+
+Plus any other Marshmallow-specific message assertions surfaced by the test run (see the spec's "Test-message risk" note). Run pytest first and fix message matches one at a time.
 
 - [ ] **Step 4: Verify**
 
@@ -1260,33 +1162,7 @@ uv run pytest
 
 Expected: 177 passed, 1 skipped. Highest-risk tests: `tests/test_block.py` (13 tests including `test_to_dao_partial_block_raises`), `tests/test_chain.py` (24+ tests that exercise blocks end-to-end).
 
-The `model_dump()` call on a `BlockModel` produces a dict with `txns: list[dict]` (nested `TransactionModel` dumps). The `cls(**model.model_dump())` call passes those nested dicts to `Block.__init__`, which expects `txns: list[Transaction]`. Verify by looking at the original `BlockSchema.@post_load make_block`:
-
-```python
-@post_load
-def make_block(self, data: dict[str, Any], **kwargs: Any) -> Block:
-    return Block(**data)
-```
-
-The original did the same — `Block(**data)` with `data['txns']` being a `list[Transaction]` because Marshmallow's `@post_load` cascades up through `@post_load make_transaction` (which converts each nested dict to a `Transaction`).
-
-With Pydantic, `model.model_dump()` returns plain dicts — `txns` becomes `list[dict]`, not `list[Transaction]`. So `cls(**model.model_dump())` passes `txns=list[dict]` to `Block.__init__`, which won't construct `Transaction` instances.
-
-**Fix:** in `Block.from_dict` and `Block.from_json`, manually convert nested txns:
-
-```python
-@classmethod
-def from_dict(cls, d: dict[str, Any]) -> Self:
-    try:
-        model = BlockModel.model_validate(d)
-    except ValidationError as e:
-        raise InvalidBlockError(pydantic_errors_to_messages(e)) from e
-    data = model.model_dump()
-    data['txns'] = [Transaction(**t) for t in data['txns']]
-    return cls(**data)
-```
-
-Same adjustment in `Block.from_json`. Apply both before Step 5.
+If `model_dump()`-related `AttributeError`s appear (e.g., `'dict' object has no attribute 'outflows'`), confirm `_block_from_model_data` is wired into both `from_dict` and `from_json` and that `_txn_from_model_data` was added in PR-3.
 
 - [ ] **Step 5: Commit**
 

@@ -8,7 +8,9 @@
 
 Modernize the validation/serialization layer onto Pydantic v2, the de-facto Python standard for typed data validation. Removes a runtime dependency, eliminates the untyped-boundary leaks that forced file-level `# mypy: disable-error-code` directives in `schema.py` and `transaction.py`, and aligns the project with the broader Python ecosystem.
 
-Concretely: after Phase 4, `[project.dependencies]` no longer contains `marshmallow`, `[[tool.mypy.overrides]]` for `marshmallow.*` is gone, and the existing test suite (177 passing) still passes byte-for-byte through the same JSON round-trips.
+Concretely: after Phase 4, `[project.dependencies]` no longer contains `marshmallow`, `[[tool.mypy.overrides]]` for `marshmallow.*` is gone, and the existing test suite (177 passing) still passes through the same JSON round-trips.
+
+**Test-message risk.** A small number of negative-path tests assert on Marshmallow-specific error message text (e.g., `tests/test_block.py:158` checks `match='Length must be between 1 and 100'`). The Pydantic→messages adapter (`pydantic_errors_to_messages` in PR-1) preserves the dict *shape* downstream consumers expect, but it does not normalize message *text* — Pydantic phrases length violations as `'List should have at most 100 items after validation, not 101'`. These assertions must be updated to the equivalent Pydantic wording in the PR that introduces the swap for their domain object (PR-3 for transaction tests, PR-4 for block tests). Tests that match on stable application-level constants (e.g., `'Address/public key mismatch'`, `'Invalid destinations'`, `'Missed target'`) are unaffected.
 
 ## Non-goals (deferred to Phase 5+)
 
@@ -128,7 +130,7 @@ In `schema.py`:
 
 **Changes:**
 
-Replace `OutflowSchema(SansNoneSchema)` and `InflowSchema(SansNoneSchema)` with `OutflowModel(BaseModel)` and `InflowModel(BaseModel)`.
+**Add** `OutflowModel(BaseModel)` and `InflowModel(BaseModel)` alongside the existing `OutflowSchema(SansNoneSchema)` and `InflowSchema(SansNoneSchema)`. The Marshmallow versions stay in place for this PR because `TransactionSchema.outflows = fields.List(fields.Nested(OutflowSchema), ...)` in `transaction.py` requires a Marshmallow `Schema` subclass — `fields.Nested` cannot bridge to a Pydantic `BaseModel`. PR-3 deletes the Marshmallow versions (and the `Subject(fields.String)` local class) in the same commit it swaps `TransactionSchema` over.
 
 Pattern (illustrative — the actual code follows existing field/validator constraints):
 
@@ -172,7 +174,7 @@ class InflowModel(BaseModel):
 
 Drop the `@post_load make_outflow` / `make_inflow` hooks. The `Outflow` / `Inflow` dataclasses stay; no caller in PR-2 needs to convert from the model yet (the conversion happens at higher layers in later PRs).
 
-**Acceptance:** `mypy` + `ruff` clean; tests green. `OutflowSchema` / `InflowSchema` no longer exist in `payload.py`; `OutflowModel` / `InflowModel` are exported.
+**Acceptance:** `mypy` + `ruff` clean; tests green. `OutflowModel` / `InflowModel` are exported. The Marshmallow `OutflowSchema` / `InflowSchema` / `Subject(fields.String)` are still present (deleted by PR-3).
 
 ### PR-3. `transaction.py`: txn schemas + call sites
 
@@ -233,9 +235,16 @@ Updates to call sites within `transaction.py`:
 
 - `TransactionSchema().dumps(self.to_dict())` → `TransactionModel(**self.to_dict()).model_dump_json(exclude_none=True)`. The `exclude_none=True` replicates `SansNoneSchema`'s old `@post_dump`.
 
-- `TransactionSchema().load(d)` → `Transaction(**TransactionModel.model_validate(d).model_dump())`. The explicit dataclass construction at the call site replaces the old `@post_load make_transaction` hook.
+- `TransactionSchema().load(d)` → explicit dataclass construction that replaces the old `@post_load make_transaction` hook. **Nested reconstruction is required:** `TransactionModel.model_dump()` returns `inflows`/`outflows` as `list[dict]`, but the `Transaction` dataclass expects `list[Inflow]` / `list[Outflow]`. Marshmallow's `@post_load` cascade did the conversion implicitly; in Pydantic we do it explicitly:
+  ```python
+  data = TransactionModel.model_validate(d).model_dump()
+  data['inflows'] = [Inflow(**i) for i in data['inflows']]
+  data['outflows'] = [Outflow(**o) for o in data['outflows']]
+  return Transaction(**data)
+  ```
+  Without this, attribute access (`outflow.amount`, `inflow.outflow_txid`) breaks at runtime because the list elements are plain dicts.
 
-- `TransactionSchema().loads(j)` → `TransactionModel.model_validate_json(j)` then same dataclass construction.
+- `TransactionSchema().loads(j)` → `TransactionModel.model_validate_json(j)` then the same nested-reconstruction conversion.
 
 - `from marshmallow import ...` import line is removed; `from pydantic import ...` replaces it.
 
@@ -279,8 +288,14 @@ The `txns` field's `list[TransactionModel]` inheritance — pick either `Transac
 Call-site updates in `block.py`:
 - `BlockSchema().validate(self.to_dict())` → `BlockModel.model_validate(self.to_dict())` in try/except.
 - `BlockSchema().dumps(self.to_dict())` → `BlockModel(**self.to_dict()).model_dump_json(exclude_none=True)`.
-- `BlockSchema().load(d)` → `Block(**BlockModel.model_validate(d).model_dump())`.
-- `BlockSchema().loads(j)` → `BlockModel.model_validate_json(j)` then same.
+- `BlockSchema().load(d)` → explicit reconstruction. `BlockModel.model_dump()` returns `txns` as `list[dict]`, but `Block` expects `list[Transaction]`. Reconstruct nested `Transaction` instances (which in turn reconstruct their nested `Inflow`/`Outflow` — share the helper from PR-3) before passing to `Block(**data)`:
+  ```python
+  data = BlockModel.model_validate(d).model_dump()
+  data['txns'] = [_txn_from_dump(t) for t in data['txns']]
+  return Block(**data)
+  ```
+  where `_txn_from_dump(t)` rebuilds the `Inflow`/`Outflow` lists and constructs a `Transaction`. Without this, downstream `block.txns[0].sign()` / `txn.outflows[0].amount` access breaks at runtime.
+- `BlockSchema().loads(j)` → `BlockModel.model_validate_json(j)` then same nested reconstruction.
 
 Drop `from marshmallow import ValidationError`. Catch sites use `pydantic.ValidationError`.
 
