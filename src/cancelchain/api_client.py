@@ -1,9 +1,15 @@
+from __future__ import annotations
+
+import datetime
 import json
 from urllib.parse import urljoin
 
 import requests
 
+from cancelchain.block import Block
+from cancelchain.transaction import Transaction
 from cancelchain.util import dt_2_ciso, host_address
+from cancelchain.wallet import Wallet
 
 OK = requests.codes.ok
 UNAUTHORIZED = requests.codes.unauthorized
@@ -11,13 +17,16 @@ PEER_HOST_HEADER = 'Peer-Hosts'
 ADDRESS_MISMATCH_MSG = 'Address/wallet mismatch'
 
 
-def json_header(headers=None):
+def json_header(headers: dict[str, str] | None = None) -> dict[str, str]:
     headers = headers or {}
     headers['Content-Type'] = 'application/json'
     return headers
 
 
-def peer_header(visited_hosts, headers=None):
+def peer_header(
+    visited_hosts: list[str] | None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, str]:
     headers = headers or {}
     if visited_hosts:
         headers[PEER_HOST_HEADER] = ','.join(visited_hosts)
@@ -25,16 +34,21 @@ def peer_header(visited_hosts, headers=None):
 
 
 class ApiClient:
-    def __init__(self, host, wallet, timeout=None):
+    def __init__(
+        self,
+        host: str,
+        wallet: Wallet,
+        timeout: int | float | None = None,
+    ) -> None:
         host, address = host_address(host)
         if address and address != wallet.address:
-            raise Exception(ADDRESS_MISMATCH_MSG)
+            raise ValueError(ADDRESS_MISMATCH_MSG)
         self.host = host
         self.wallet = wallet
-        self.token = None
-        self.timeout = timeout if timeout is not None else 10
+        self.token: str | None = None
+        self.timeout: int | float = timeout if timeout is not None else 10
 
-    def request_token(self, rfs=True):
+    def request_token(self, rfs: bool = True) -> str | None:  # noqa: FBT001
         r = requests.get(
             urljoin(self.host, f'/api/token/{self.wallet.address}'),
             timeout=self.timeout,
@@ -52,18 +66,23 @@ class ApiClient:
             if rfs:
                 r.raise_for_status()
             if r.status_code == OK:
-                return r.json().get('token')
+                token: str | None = r.json().get('token')
+                return token
         return None
 
-    def get_token(self, rfs=True):
+    def get_token(self, rfs: bool = True) -> str | None:  # noqa: FBT001
         if self.token is None:
             self.token = self.request_token(rfs=rfs)
         return self.token
 
-    def reset_token(self):
+    def reset_token(self) -> None:
         self.token = None
 
-    def auth_header(self, headers=None, rfs=True):
+    def auth_header(
+        self,
+        headers: dict[str, str] | None = None,
+        rfs: bool = True,  # noqa: FBT001
+    ) -> dict[str, str]:
         headers = headers or {}
         token = self.get_token(rfs=rfs)
         if token:
@@ -72,13 +91,14 @@ class ApiClient:
 
     def get(
         self,
-        path,
-        headers=None,
-        params=None,
-        timeout=None,
-        raise_for_status=True,
-    ):
+        path: str,
+        headers: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         timeout = self.timeout if timeout is None else timeout
+        r: requests.Response
         for _i in range(2):
             headers = self.auth_header(headers=headers, rfs=raise_for_status)
             r = requests.get(
@@ -96,9 +116,15 @@ class ApiClient:
         return r
 
     def post(
-        self, path, headers=None, data=None, timeout=None, raise_for_status=True
-    ):
+        self,
+        path: str,
+        headers: dict[str, str] | None = None,
+        data: str | bytes | None = None,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         timeout = self.timeout if timeout is None else timeout
+        r: requests.Response
         for _i in range(2):
             headers = self.auth_header(headers=headers, rfs=raise_for_status)
             r = requests.post(
@@ -116,13 +142,18 @@ class ApiClient:
         return r
 
     def get_transfer_transaction(
-        self, public_key, amount, address, timeout=None, raise_for_status=True
-    ):
+        self,
+        public_key: str,
+        amount: int,
+        address: str,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             '/api/transaction/transfer',
             params={
                 'public_key': public_key,
-                'amount': amount,
+                'amount': str(amount),
                 'address': address,
             },
             timeout=timeout,
@@ -130,13 +161,18 @@ class ApiClient:
         )
 
     def get_subject_transaction(
-        self, public_key, amount, subject, timeout=None, raise_for_status=True
-    ):
+        self,
+        public_key: str,
+        amount: int,
+        subject: str,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             '/api/transaction/subject',
             params={
                 'public_key': public_key,
-                'amount': amount,
+                'amount': str(amount),
                 'subject': subject,
             },
             timeout=timeout,
@@ -144,13 +180,18 @@ class ApiClient:
         )
 
     def get_forgive_transaction(
-        self, public_key, amount, subject, timeout=None, raise_for_status=True
-    ):
+        self,
+        public_key: str,
+        amount: int,
+        subject: str,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             '/api/transaction/forgive',
             params={
                 'public_key': public_key,
-                'amount': amount,
+                'amount': str(amount),
                 'subject': subject,
             },
             timeout=timeout,
@@ -158,13 +199,18 @@ class ApiClient:
         )
 
     def get_support_transaction(
-        self, public_key, amount, subject, timeout=None, raise_for_status=True
-    ):
+        self,
+        public_key: str,
+        amount: int,
+        subject: str,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             '/api/transaction/support',
             params={
                 'public_key': public_key,
-                'amount': amount,
+                'amount': str(amount),
                 'subject': subject,
             },
             timeout=timeout,
@@ -172,8 +218,12 @@ class ApiClient:
         )
 
     def post_transaction(
-        self, txn, visited_hosts=None, timeout=None, raise_for_status=True
-    ):
+        self,
+        txn: Transaction,
+        visited_hosts: list[str] | None = None,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         headers = peer_header(visited_hosts, headers=json_header())
         return self.post(
             f'/api/transaction/{txn.txid}',
@@ -184,9 +234,12 @@ class ApiClient:
         )
 
     def get_pending_transactions(
-        self, earliest=None, timeout=None, raise_for_status=True
-    ):
-        params = None
+        self,
+        earliest: datetime.datetime | None = None,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
+        params: dict[str, str] | None = None
         if earliest is not None:
             params = {'earliest': dt_2_ciso(earliest)}
         return self.get(
@@ -196,7 +249,12 @@ class ApiClient:
             raise_for_status=raise_for_status,
         )
 
-    def get_block(self, block_hash=None, timeout=None, raise_for_status=True):
+    def get_block(
+        self,
+        block_hash: str | None = None,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             f'/api/block/{block_hash}' if block_hash else '/api/block',
             timeout=timeout,
@@ -204,8 +262,12 @@ class ApiClient:
         )
 
     def post_block(
-        self, block, visited_hosts=None, timeout=None, raise_for_status=True
-    ):
+        self,
+        block: Block,
+        visited_hosts: list[str] | None = None,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         headers = peer_header(visited_hosts, headers=json_header())
         return self.post(
             f'/api/block/{block.block_hash}',
@@ -215,21 +277,36 @@ class ApiClient:
             raise_for_status=raise_for_status,
         )
 
-    def get_wallet_balance(self, address, timeout=None, raise_for_status=True):
+    def get_wallet_balance(
+        self,
+        address: str,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             f'/api/wallet/{address}/balance',
             timeout=timeout,
             raise_for_status=raise_for_status,
         )
 
-    def get_subject_balance(self, subject, timeout=None, raise_for_status=True):
+    def get_subject_balance(
+        self,
+        subject: str,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             f'/api/subject/{subject}/balance',
             timeout=timeout,
             raise_for_status=raise_for_status,
         )
 
-    def get_subject_support(self, subject, timeout=None, raise_for_status=True):
+    def get_subject_support(
+        self,
+        subject: str,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> requests.Response:
         return self.get(
             f'/api/subject/{subject}/support',
             timeout=timeout,
