@@ -389,7 +389,6 @@ def export_blocks_command(file):
         node = Node(logger=current_app.logger)
         lc = node.longest_chain
         lc_dao = lc.to_dao()
-        progress = None
         last_block = None
         append_blocks = False
         if os.path.isfile(file) and (last_line := read_last_line(file)):

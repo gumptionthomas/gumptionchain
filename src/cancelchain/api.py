@@ -451,7 +451,7 @@ blueprint.add_url_rule(
 class PendingTxnQuerySchema(Schema):
     earliest = fields.Function(
         lambda obj: dt_2_ciso(obj.earliest),
-        deserialize=lambda v: ciso_2_dt(v),
+        deserialize=ciso_2_dt,
         required=False,
     )
 

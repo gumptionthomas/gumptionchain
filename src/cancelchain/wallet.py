@@ -170,6 +170,8 @@ class Wallet:
     def __repr__(self):
         return f'Wallet({self.address})'
 
+    __hash__ = None  # not used as dict key/set member
+
     def __eq__(self, other):
         return self.key == other.key
 

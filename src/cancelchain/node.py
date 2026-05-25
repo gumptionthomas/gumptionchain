@@ -42,7 +42,7 @@ class Node:
             host, _ = host_address(self.host)
             visited_hosts.append(host)
         for peer in self.peers:
-            host, address = host_address(peer)
+            host, _address = host_address(peer)
             if host not in visited_hosts:
                 try:
                     self.clients.get(peer).post_transaction(
@@ -85,7 +85,7 @@ class Node:
             host, _ = host_address(self.host)
             visited_hosts.append(host)
         for peer in self.peers:
-            host, address = host_address(peer)
+            host, _address = host_address(peer)
             if host not in visited_hosts:
                 try:
                     r = self.clients.get(peer).post_block(
@@ -164,10 +164,10 @@ class Node:
 
     def request_latest_blocks(self, peer=None):
         peers = [peer] if peer is not None else self.peers
-        for peer in peers:
+        for p in peers:
             try:
-                r = self.clients.get(peer).get_block()
-                yield Block.from_json(r.text), peer
+                r = self.clients.get(p).get_block()
+                yield Block.from_json(r.text), p
             except requests.RequestException as re:
                 self.logger.error(re)
             except Exception as e:

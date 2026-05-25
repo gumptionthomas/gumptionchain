@@ -25,11 +25,21 @@ __version__ = _pkg_version('cancelchain')
 
 
 def create_app(app=None, config_map=None, register_browser=True):
-    from .application import init_app
-    from .cache import cache
-    from .config import EnvAppSettings
-    from .database import db
-    from .tasks import init_tasks
+    from .application import (  # noqa: PLC0415 — circular: application imports cancelchain
+        init_app,
+    )
+    from .cache import (  # noqa: PLC0415 — deferred alongside application for consistency
+        cache,
+    )
+    from .config import (  # noqa: PLC0415 — deferred alongside application for consistency
+        EnvAppSettings,
+    )
+    from .database import (  # noqa: PLC0415 — deferred alongside application for consistency
+        db,
+    )
+    from .tasks import (  # noqa: PLC0415 — deferred alongside application for consistency
+        init_tasks,
+    )
 
     app = app or Flask(__name__)
 
