@@ -126,8 +126,12 @@ def milling_generator(
     worksize: int | None = None,
     progress: Any = None,
 ) -> Generator[int | None, None, None]:
-    _rounds = rounds or 1
-    _worksize = worksize or 100000
+    # Explicit None check (rather than `rounds or 1`) so that an
+    # intentional `rounds=0` flows through to `mill_block`'s
+    # `range(rounds) if rounds else count()` branch as the "infinite"
+    # case, preserving the downstream API contract.
+    _rounds = rounds if rounds is not None else 1
+    _worksize = worksize if worksize is not None else 100000
     progress_next: Callable[..., None] = (
         progress.next if progress else lambda n=1: None
     )

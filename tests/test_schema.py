@@ -31,8 +31,8 @@ def test_validate_public_key_returns_false_on_empty_key():
 
 
 def test_validate_signature_returns_false_on_malformed_key():
-    assert validate_signature('not-a-valid-base64-key', 'data', 'sig') is False
+    assert validate_signature('not-a-valid-base64-key', b'data', 'sig') is False
 
 
 def test_validate_signature_returns_false_on_empty_key():
-    assert validate_signature('', 'data', 'sig') is False
+    assert validate_signature('', b'data', 'sig') is False
