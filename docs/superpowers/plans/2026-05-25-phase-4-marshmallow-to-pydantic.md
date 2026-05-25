@@ -12,10 +12,10 @@
 
 ## Prerequisites
 
-- Working directory: `/home/gumptionthomas/Development/cancelchain`. Use absolute paths or `cd` once.
+- Working directory: the cancelchain repo root (whatever path it lives at). Run all commands from there.
 - `uv --version` 0.4.x or newer; `gh --version` works and `gh auth status` shows authenticated.
-- Phase 3 fully merged. `git log --oneline -5` should show `525ccf5 fix(tests): harden FLASK_SECRET_KEY against pyjwt insecure-key warning (#49)` at or near the top.
-- The branch `docs/phase-4-design` exists locally with commit `a644741` (the design spec). This plan adds the second commit on that branch and ships both as the docs PR.
+- Phase 3 fully merged. Verify with `gh pr view 49 --json state,mergedAt --jq .state` returning `MERGED`, plus `grep -c 'pydantic' pyproject.toml` returning 0 (Phase 3 left no pydantic dep).
+- The branch `docs/phase-4-design` exists locally with the design spec already committed. This plan adds the second commit on that branch and ships both as the docs PR.
 - CI hard-gates `ruff check` and `mypy` (as of Phase 3 / PR-8). Every PR must keep both clean.
 - Test baseline: **177 passed, 1 skipped**. Phase 4 should preserve that count (no new tests required, no regressions).
 - Each impl PR ends with `wor` (Copilot review wait + reply) and `mwg` (merge when green); the controller (orchestrator) handles those, not the implementer subagent.
@@ -715,7 +715,7 @@ Replace with:
 Add this helper near the top of the file (just below the `*Model` class definitions):
 
 ```python
-def _txn_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
+def txn_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
     """Convert a TransactionModel.model_dump() dict's nested lists from
     list[dict] to list[Inflow] / list[Outflow] before passing to the
     Transaction dataclass constructor.
@@ -747,7 +747,7 @@ Replace with:
             raise InvalidTransactionError(
                 pydantic_errors_to_messages(e)
             ) from e
-        return cls(**_txn_from_model_data(model.model_dump()))
+        return cls(**txn_from_model_data(model.model_dump()))
 ```
 
 Find `Transaction.from_json`:
@@ -776,10 +776,10 @@ Replace with:
             ) from e
         except JSONDecodeError as e:
             raise InvalidTransactionError(str(e)) from e
-        return cls(**_txn_from_model_data(model.model_dump()))
+        return cls(**txn_from_model_data(model.model_dump()))
 ```
 
-Without the `_txn_from_model_data` step, `Transaction.inflows[0].outflow_txid` would raise `AttributeError` because the elements are plain dicts, not `Inflow` instances. Block-level reconstruction (PR-4) imports this helper too — see Task 5 Step 4.
+Without the `txn_from_model_data` step, `Transaction.inflows[0].outflow_txid` would raise `AttributeError` because the elements are plain dicts, not `Inflow` instances. Block-level reconstruction (PR-4) imports this helper too — see Task 5 Step 4.
 
 - [ ] **Step 5: Verify**
 
@@ -999,14 +999,23 @@ Replace with:
         )
 ```
 
-**Nested reconstruction.** `BlockModel.model_dump()` returns `txns` as `list[dict]`, but `Block` expects `list[Transaction]`. Each of those nested dicts in turn has `inflows`/`outflows` as `list[dict]` that need to become `list[Inflow]` / `list[Outflow]`. The `_txn_from_model_data` helper from PR-3 (in `transaction.py`) does the inner conversion; reuse it for the inflow/outflow part and wrap with `Transaction(**...)` for each txn.
+**Nested reconstruction.** `BlockModel.model_dump()` returns `txns` as `list[dict]`, but `Block` expects `list[Transaction]`. Each of those nested dicts in turn has `inflows`/`outflows` as `list[dict]` that need to become `list[Inflow]` / `list[Outflow]`. The `txn_from_model_data` helper from PR-3 (in `transaction.py`) does the inner conversion; reuse it for the inflow/outflow part and wrap with `Transaction(**...)` for each txn.
 
-Add this private helper near the top of `block.py` (just below `BlockModel`):
+**Important:** PR-3 must expose this helper under a **public** name (`txn_from_model_data`, no leading underscore). The Task 4 (PR-3) plan was updated to use the public name precisely so PR-4 can import it normally at the top of `block.py` — avoiding both `noqa: PLC2701` (private-name import) and `ruff E402` (imports not at top of file).
+
+Add `txn_from_model_data` to `block.py`'s existing top-level `from cancelchain.transaction import Transaction, TransactionModel` line:
 
 ```python
-from cancelchain.transaction import _txn_from_model_data  # noqa: PLC2701
+from cancelchain.transaction import (
+    Transaction,
+    TransactionModel,
+    txn_from_model_data,
+)
+```
 
+Then define `_block_from_model_data` as a module-level helper (also at the top of the file, after the imports — placement is the implementer's call as long as it's not interleaved between imports and class definitions):
 
+```python
 def _block_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
     """Convert a BlockModel.model_dump() dict's txns list from
     list[dict] to list[Transaction] (with nested Inflow/Outflow
@@ -1014,12 +1023,10 @@ def _block_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
     dataclass constructor.
     """
     data['txns'] = [
-        Transaction(**_txn_from_model_data(t)) for t in data.get('txns', [])
+        Transaction(**txn_from_model_data(t)) for t in data.get('txns', [])
     ]
     return data
 ```
-
-If `noqa: PLC2701` (private-name import) feels unclean, an acceptable alternative is to expose `_txn_from_model_data` under a public name (e.g., `txn_from_model_data`) in PR-3 by removing the underscore; that's a one-line plan tweak you can do at implementation time.
 
 Find `Block.from_dict`:
 
@@ -1101,7 +1108,7 @@ uv run pytest
 
 Expected: 177 passed, 1 skipped. Highest-risk tests: `tests/test_block.py` (13 tests including `test_to_dao_partial_block_raises`), `tests/test_chain.py` (24+ tests that exercise blocks end-to-end).
 
-If `model_dump()`-related `AttributeError`s appear (e.g., `'dict' object has no attribute 'outflows'`), confirm `_block_from_model_data` is wired into both `from_dict` and `from_json` and that `_txn_from_model_data` was added in PR-3.
+If `model_dump()`-related `AttributeError`s appear (e.g., `'dict' object has no attribute 'outflows'`), confirm `_block_from_model_data` is wired into both `from_dict` and `from_json` and that `txn_from_model_data` was added in PR-3.
 
 - [ ] **Step 5: Commit**
 
@@ -1219,12 +1226,9 @@ class TransferTxnQuerySchema(Schema):
     address = fields.String(required=True, validate=validate_address_format)
 ```
 
-With (reusing the `*Type` aliases from `schema.py` — `AddressType` runs `_check_address_format`, which is `validate_address_format`; `PublicKeyType` runs `_check_public_key`, which is `validate_public_key`):
+With (reusing the `*Type` aliases from `schema.py` — `AddressType` runs `_check_address_format`, which is `validate_address_format`; `PublicKeyType` runs `_check_public_key`, which is `validate_public_key`; `AddressType` and `PublicKeyType` were already added to the top-level schema import in Step 2):
 
 ```python
-from cancelchain.schema import AddressType, PublicKeyType
-
-
 class TransferTxnQueryModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 

@@ -27,7 +27,7 @@ Concretely: after Phase 4, `[project.dependencies]` no longer contains `marshmal
 - **Scope: Path B (swap-in-place).** Considered Path A (replace dataclasses with `BaseModel`) and Path C (`pydantic.dataclasses.dataclass`); both conflict with the staged-construction lifecycle the domain types use. Path B is the minimum scope change that achieves the stated Phase 4 goal.
 - **PR strategy: bottom-up by dependency.** 6 PRs in `schema → payload → transaction → block → api → cleanup` order. Each PR is self-contained — no long-lived dual implementations.
 - **Pydantic version: `>=2.10`**. Pydantic v2.10 (2024-Q4) added the model-validator return-type contract and `Annotated[..., AfterValidator(...)]` ergonomics this design relies on.
-- **`@post_load` removal.** Marshmallow's `@post_load` makes `Schema().load(d)` return a domain instance. Pydantic v2 doesn't have a clean equivalent (a `@model_validator(mode='after')` that returns a different type would be confusing). Callers do the conversion explicitly. **Important:** when the model has nested-list fields (`inflows`, `outflows`, `txns`), `model_dump()` returns those as `list[dict]` — they need explicit reconstruction into `Inflow` / `Outflow` / `Transaction` dataclasses before being passed to the outer constructor. PR-3 introduces a `_txn_from_model_data` helper for this; PR-4 wraps it for the Block case. See the PR-3 and PR-4 sections below for the concrete patterns.
+- **`@post_load` removal.** Marshmallow's `@post_load` makes `Schema().load(d)` return a domain instance. Pydantic v2 doesn't have a clean equivalent (a `@model_validator(mode='after')` that returns a different type would be confusing). Callers do the conversion explicitly. **Important:** when the model has nested-list fields (`inflows`, `outflows`, `txns`), `model_dump()` returns those as `list[dict]` — they need explicit reconstruction into `Inflow` / `Outflow` / `Transaction` dataclasses before being passed to the outer constructor. PR-3 introduces a public `txn_from_model_data` helper for this; PR-4 imports it and wraps it for the Block case. See the PR-3 and PR-4 sections below for the concrete patterns.
 - **`SansNoneSchema` retirement.** The "drop None on dump" behavior moves to the call site via `model.model_dump(exclude_none=True)` where needed; the existing `asdict_sans_none(dc)` utility (for dataclass `.to_dict()`) is unchanged.
 - **No long-lived parallel Marshmallow + Pydantic.** Each PR swaps its file's Schema(s) for Model(s) in one step; the file goes from "all Marshmallow" to "all Pydantic" in one commit. No transient "both work" gap.
 
@@ -220,7 +220,7 @@ Updates to call sites within `transaction.py`:
 
 - `from marshmallow import ...` import line is removed; `from pydantic import ...` replaces it.
 
-- File-level `# mypy: disable-error-code="no-untyped-call,no-any-return"` directive: leave it for now. PR-6 verifies whether the directive can be removed entirely or narrowed.
+- Remove the file-level `# mypy: disable-error-code="no-untyped-call,no-any-return"` directive — the Marshmallow imports it was masking are gone (this PR drops `from marshmallow import ...` from `transaction.py`). If `mypy --strict` reveals a non-Marshmallow Any-leak (e.g., a pycryptodome-typed call), narrow the directive rather than dropping it (e.g., `"no-any-return"` only) instead of restoring the original two-error suppression. PR-6 verifies the file is clean.
 
 **Acceptance:** all existing Transaction tests pass (including the regression tests added in P3 PR-7.5 for `Transaction.to_dao()`'s fail-fast paths and PendingTxnSet.add). `tests/test_schema.py`'s validators (validate_address, validate_signature, validate_public_key) still work — they're called by both the new Pydantic boundary and by Transaction.validate_signature.
 
@@ -263,10 +263,10 @@ Call-site updates in `block.py`:
 - `BlockSchema().load(d)` → explicit reconstruction. `BlockModel.model_dump()` returns `txns` as `list[dict]`, but `Block` expects `list[Transaction]`. Reconstruct nested `Transaction` instances (which in turn reconstruct their nested `Inflow`/`Outflow` — share the helper from PR-3) before passing to `Block(**data)`:
   ```python
   data = BlockModel.model_validate(d).model_dump()
-  data['txns'] = [_txn_from_dump(t) for t in data['txns']]
+  data['txns'] = [Transaction(**txn_from_model_data(t)) for t in data['txns']]
   return Block(**data)
   ```
-  where `_txn_from_dump(t)` rebuilds the `Inflow`/`Outflow` lists and constructs a `Transaction`. Without this, downstream `block.txns[0].sign()` / `txn.outflows[0].amount` access breaks at runtime.
+  where `txn_from_model_data` is the public helper PR-3 introduces in `transaction.py` (it rebuilds the `Inflow`/`Outflow` lists from the dumped dicts). Without this, downstream `block.txns[0].sign()` / `txn.outflows[0].amount` access breaks at runtime.
 - `BlockSchema().loads(j)` → `BlockModel.model_validate_json(j)` then same nested reconstruction.
 
 Drop `from marshmallow import ValidationError`. Catch sites use `pydantic.ValidationError`.
@@ -336,7 +336,7 @@ The `BeforeValidator` runs `ciso_2_dt` on input strings; `PlainSerializer` runs 
 **Files:**
 - Modify: `pyproject.toml` (`[project.dependencies]`, `[[tool.mypy.overrides]]`)
 - Modify: `src/cancelchain/schema.py` (if not already done in PR-1)
-- Modify: `src/cancelchain/transaction.py` (mypy directive)
+- Verify only: `src/cancelchain/transaction.py` (PR-3 already removed its mypy directive)
 - Possibly modify: `src/cancelchain/models.py` (verify mypy directive scope)
 
 **Changes:**
