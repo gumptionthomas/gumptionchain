@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from blinker import Namespace
 
 _signals = Namespace()

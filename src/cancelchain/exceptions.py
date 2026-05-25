@@ -1,7 +1,25 @@
+from __future__ import annotations
+
+from typing import Any
+
+# `message` may be a string, bytes, a list of messages, or a mapping
+# (marshmallow `validate()` returns dicts like `{'field': ['msg', ...]}`,
+# and other modules re-raise nested errors as
+# `InvalidBlockError({f'Transaction {txid}': e.messages})`).
+# `messages` preserves the original structure so JSON-serializing the
+# error in api.py keeps the field-level detail intact.
+Message = str | bytes | list[Any] | dict[str, Any]
+
+
 class CCError(Exception):
-    def __init__(self, message=None):
-        msg = message or self.__class__.__name__
+    def __init__(self, message: Message | None = None) -> None:
+        # Use `is None` instead of truthy check so empty containers
+        # ({}, [], "", b"") aren't silently replaced with the class name —
+        # an intentionally-empty validation-error dict, for example, is
+        # a valid message payload.
+        msg: Message = self.__class__.__name__ if message is None else message
         super().__init__(msg)
+        self.messages: Message
         if isinstance(msg, (str, bytes)):
             self.messages = [msg]
         else:
