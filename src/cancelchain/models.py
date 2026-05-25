@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-# mypy: disable-error-code="no-untyped-call,no-any-return"
+# Flask-SQLAlchemy's `db.Model` is dynamically attached and shows up as
+# `Any` to mypy strict, which triggers `name-defined` (Name "db.Model"
+# is not defined) and `misc` (Class cannot subclass "Model" of type
+# "Any") errors on every DAO class declaration here. Switching to a
+# typed `DeclarativeBase` subclass would lose the `Model.query` API
+# that this codebase still uses (Phase 6 modernizes those call sites
+# to `db.session.execute(db.select(...))` style at which point this
+# suppression can be removed).
+# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"
 import datetime
 import uuid
 from collections.abc import Generator
