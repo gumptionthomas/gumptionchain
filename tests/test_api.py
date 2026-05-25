@@ -36,13 +36,13 @@ def test_post_token_invalid(app, host, requests_proxy, wallet):
 def test_no_role(app, host, mill_block, requests_proxy, subject, wallet):
     with app.app_context():
         w = Wallet()
-        m, b = mill_block(w)
+        m, _b = mill_block(w)
         lc = m.longest_chain
         txn = lc.create_subject(w, lc.balance(w.address), subject)
         txn.sign()
         response = ApiClient(host, wallet).post_transaction(txn)
         assert response.status_code == requests.codes.created
-        _, b2 = mill_block(wallet)
+        _, _b2 = mill_block(wallet)
         with pytest.raises(requests.exceptions.HTTPError, match='403'):
             ApiClient(host, w).get_block()
 
@@ -99,7 +99,7 @@ def test_regex_roles(
 ):
     with app.app_context():
         w = Wallet()
-        m, b = mill_block(w)
+        _m, _b = mill_block(w)
         with pytest.raises(requests.exceptions.HTTPError, match='403'):
             _ = ApiClient(host, w).get_block()
         app.config['READER_ADDRESSES'] = ['.*']
@@ -152,7 +152,7 @@ def test_last_block(app, host, mill_block, requests_proxy, wallet):
 
 def test_get_invalid_block(app, host, mill_block, requests_proxy, wallet):
     with app.app_context():
-        m, b = mill_block(wallet)
+        _m, _b = mill_block(wallet)
         with pytest.raises(requests.exceptions.HTTPError, match='404'):
             ApiClient(host, wallet).get_block(block_hash='foo')
 
@@ -186,7 +186,7 @@ def test_post_invalid_block(app, host, requests_proxy, wallet):
 
 def test_post_txn(app, host, mill_block, requests_proxy, subject, wallet):
     with app.app_context():
-        m, b = mill_block(wallet)
+        m, _b = mill_block(wallet)
         txn = m.longest_chain.create_subject(wallet, 1, subject)
         txn.sign()
         response = ApiClient(host, wallet).post_transaction(txn)
@@ -198,7 +198,7 @@ def test_post_invalid_txn(
     app, host, mill_block, requests_proxy, subject, wallet
 ):
     with app.app_context():
-        m, b = mill_block(wallet)
+        m, _b = mill_block(wallet)
         txn = m.longest_chain.create_subject(wallet, 1, subject)
         with pytest.raises(requests.exceptions.HTTPError, match='400'):
             ApiClient(host, wallet).post_transaction(txn)
@@ -211,9 +211,9 @@ def test_pending_transactions(
     with app.app_context():
         time_step = time_stepper()
         _ = next(time_step)
-        m, b = mill_block(wallet)
+        m, _b = mill_block(wallet)
         _ = next(time_step)
-        m, b = mill_block(wallet)
+        m, _b = mill_block(wallet)
         response = ApiClient(host, wallet).get_pending_transactions()
         assert response.status_code == requests.codes.ok
         assert response.json() == []

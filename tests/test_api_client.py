@@ -9,7 +9,7 @@ from cancelchain.wallet import Wallet
 
 def test_invalid_wallet(app, host, mill_block, requests_proxy, wallet):
     with app.app_context():
-        m, b = mill_block(wallet)
+        _m, _b = mill_block(wallet)
         w = Wallet()
         with pytest.raises(requests.exceptions.HTTPError, match='401'):
             ApiClient(host, w).get_block()
@@ -32,7 +32,7 @@ def test_expired_token(
         time_step = time_stepper(delta=API_TOKEN_SECONDS + 1)
         _ = next(time_step)
         client = ApiClient(host, wallet)
-        m, b = mill_block(wallet)
+        _m, b = mill_block(wallet)
         response = client.get_block()
         assert response.status_code == requests.codes.ok
         _ = next(time_step)

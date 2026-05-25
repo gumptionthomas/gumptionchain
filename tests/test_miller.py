@@ -31,7 +31,7 @@ def test_miller_create_block(app, time_machine, time_stepper, wallet):
         assert m.longest_chain.length == 2
         assert m.longest_chain.balance(wallet.address) == 2 * REWARD
         cb0 = b0.coinbase
-        cb0_amount = list(cb0.outflows)[0].amount
+        cb0_amount = next(iter(cb0.outflows)).amount
         w2 = Wallet()
         remit = 2 * CPG
         t0 = Transaction()
@@ -86,7 +86,7 @@ def test_duplicate_transaction(app, time_machine, wallet):
         b0 = m.create_block()
         m.mill_block(b0)
         cb0 = b0.coinbase
-        cb0_amount = list(cb0.outflows)[0].amount
+        cb0_amount = next(iter(cb0.outflows)).amount
         when_dt = when_dt + datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
         t0 = Transaction()
@@ -150,7 +150,7 @@ def test_max_txns(app, time_machine, wallet):
         cb0 = b0.coinbase
         prev_t = cb0
         for _i in range(max_txns + 3):
-            amount = list(prev_t.outflows)[0].amount
+            amount = next(iter(prev_t.outflows)).amount
             when_dt += datetime.timedelta(seconds=1)
             time_machine.move_to(when_dt)
             t = Transaction()
