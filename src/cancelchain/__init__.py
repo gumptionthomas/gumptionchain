@@ -1,13 +1,13 @@
 # Copyright 2023 Thomas Bohmbach, Jr.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the “Software”), to deal
+# of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so.
 
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
@@ -15,7 +15,10 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+from __future__ import annotations
+
 from importlib.metadata import version as _pkg_version
+from typing import Any
 
 import click
 from flask import Flask
@@ -24,7 +27,11 @@ from flask.cli import FlaskGroup
 __version__ = _pkg_version('cancelchain')
 
 
-def create_app(app=None, config_map=None, register_browser=True):
+def create_app(
+    app: Flask | None = None,
+    config_map: dict[str, Any] | None = None,
+    register_browser: bool = True,  # noqa: FBT001
+) -> Flask:
     from .application import (  # noqa: PLC0415 — circular: application imports cancelchain
         init_app,
     )
@@ -49,7 +56,7 @@ def create_app(app=None, config_map=None, register_browser=True):
     app.config.from_prefixed_env()
     app.config.from_object(EnvAppSettings.from_env())
     app.config.from_envvar('CANCELCHAIN_SETTINGS', silent=True)
-    if config_map:
+    if config_map is not None:
         app.config.from_mapping(config_map)
 
     init_app(app, register_browser=register_browser)
@@ -70,7 +77,7 @@ def create_app(app=None, config_map=None, register_browser=True):
         app.logger.error(e)
 
     @app.shell_context_processor
-    def make_shell_context():
+    def make_shell_context() -> dict[str, Any]:
         return {'app': app, 'db': db}
 
     return app
@@ -78,5 +85,5 @@ def create_app(app=None, config_map=None, register_browser=True):
 
 @click.version_option(package_name='cancelchain')
 @click.group(cls=FlaskGroup, create_app=create_app, add_version_option=False)
-def cli():
+def cli() -> None:
     pass

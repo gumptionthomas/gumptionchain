@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import datetime
 import os
+from typing import Any
 
+from flask import Flask
 from werkzeug.routing import BaseConverter, ValidationError
 
 from cancelchain import __version__, api, browser, command
@@ -11,9 +15,12 @@ from cancelchain.util import host_address
 from cancelchain.wallet import Wallet
 
 
-def init_app(app, register_browser=True):
-    app.wallets = read_wallets(app)
-    app.clients = create_clients(app)
+def init_app(
+    app: Flask,
+    register_browser: bool = True,  # noqa: FBT001
+) -> None:
+    app.wallets = read_wallets(app)  # type: ignore[attr-defined]
+    app.clients = create_clients(app)  # type: ignore[attr-defined]
 
     app.url_map.converters['address'] = AddressConverter
     app.url_map.converters['mill_hash'] = MillHashConverter
@@ -33,11 +40,13 @@ def init_app(app, register_browser=True):
     app.cli.add_command(command.subject_cli)
 
     @app.context_processor
-    def inject_cc_version():
+    def inject_cc_version() -> dict[str, str]:
         return {'cc_version': __version__}
 
     @app.template_filter('utc_datetime')
-    def utc_datetime(value, fmt='%a %b %d %H:%M:%S %Z'):
+    def utc_datetime(
+        value: datetime.datetime | None, fmt: str = '%a %b %d %H:%M:%S %Z'
+    ) -> str | None:
         if value is None:
             return None
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
@@ -46,13 +55,13 @@ def init_app(app, register_browser=True):
         return value.strftime(fmt)
 
     @app.template_filter('human_subject')
-    def human_subject(value):
+    def human_subject(value: str | None) -> str | None:
         return decode_subject(value) if value is not None else None
 
 
-def read_wallets(app):
+def read_wallets(app: Flask) -> dict[str, Wallet]:
     walletdir = app.config.get('WALLET_DIR')
-    wallets = {}
+    wallets: dict[str, Wallet] = {}
     if walletdir and os.path.isdir(walletdir):
         for dirpath, _, filenames in os.walk(walletdir):
             for filename in filenames:
@@ -68,12 +77,12 @@ def read_wallets(app):
     return wallets
 
 
-def create_clients(app):
-    clients = {}
-    timeout = app.config.get('API_CLIENT_TIMEOUT')
-    for peer in app.config.get('PEERS'):
+def create_clients(app: Flask) -> dict[str, ApiClient]:
+    clients: dict[str, ApiClient] = {}
+    timeout: Any = app.config.get('API_CLIENT_TIMEOUT')
+    for peer in app.config.get('PEERS') or []:
         host, address = host_address(peer)
-        if wallet := app.wallets.get(address):
+        if wallet := app.wallets.get(address):  # type: ignore[attr-defined]
             clients[peer] = ApiClient(peer, wallet, timeout=timeout)
         else:
             app.logger.warning(
@@ -83,21 +92,21 @@ def create_clients(app):
 
 
 class AddressConverter(BaseConverter):
-    def to_python(self, value):
+    def to_python(self, value: str) -> str:
         if not validate_address_format(value):
             raise ValidationError
         return value
 
 
 class MillHashConverter(BaseConverter):
-    def to_python(self, value):
+    def to_python(self, value: str) -> str:
         if len(value) != 64 or not validate_base64(value):
             raise ValidationError
         return value
 
 
 class SubjectConverter(BaseConverter):
-    def to_python(self, value):
+    def to_python(self, value: str) -> str:
         if not validate_subject(value):
             raise ValidationError
         return value

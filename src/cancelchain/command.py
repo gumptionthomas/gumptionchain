@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import os
 from datetime import timedelta
 from http.client import responses
+from typing import Any
 
 import click
 import requests
@@ -40,64 +43,66 @@ REFRESH_PER_SECOND = 8
 CHAIN_MISMATCH_MSG = 'Chain/file mismatch'
 
 
-def grumble_to_curmudgeons(grumble):
+def grumble_to_curmudgeons(grumble: float) -> int:
     return int(CURMUDGEON_PER_GRUMBLE * float(grumble))
 
 
-def human_curmudgeons(curmudgeons):
+def human_curmudgeons(curmudgeons: int | float) -> str:
     balance = int(curmudgeons) / CURMUDGEON_PER_GRUMBLE
     return f'{balance:.2f}'.rstrip('0').rstrip('.')
 
 
-def human_bignum(num):
-    return millify(num, precision=2, drop_nulls=False)
+def human_bignum(num: int | float) -> str:
+    return str(millify(num, precision=2, drop_nulls=False))
 
 
-def human_timespan(secs):
-    return format_timespan(secs)
+def human_timespan(secs: float) -> str:
+    return str(format_timespan(secs))
 
 
-def http_error_message(e):
+def http_error_message(e: requests.HTTPError) -> str | None:
     try:
-        msg = e.response.json().get('error')
+        msg = e.response.json().get('error')  # type: ignore[union-attr]
         if msg:
             if isinstance(msg, dict):
                 return ','.join([f'{k} => {v}' for k, v in msg.items()])
             elif isinstance(msg, list):
                 return ','.join(msg)
             else:
-                return msg
+                return str(msg)
         else:
-            return e.response.text
+            return e.response.text  # type: ignore[union-attr]
     except (AttributeError, requests.exceptions.JSONDecodeError):
-        return responses.get(e.response.status_code)
+        return responses.get(e.response.status_code)  # type: ignore[union-attr]
 
 
-def host_api_client(host=None, wallet_file=None):
+def host_api_client(
+    host: str | None = None, wallet_file: str | None = None
+) -> ApiClient:
     if not host:
         host = current_app.config.get('DEFAULT_COMMAND_HOST')
     if wallet_file:
         wallet = Wallet.from_file(wallet_file)
     else:
-        host, address = host_address(host)
-        wallet = current_app.wallets.get(address)
+        host, address = host_address(host or '')
+        wallet = current_app.wallets.get(address)  # type: ignore[attr-defined]
     return ApiClient(
-        host, wallet, timeout=current_app.config.get('API_CLIENT_TIMEOUT')
+        host or '', wallet, timeout=current_app.config.get('API_CLIENT_TIMEOUT')
     )
 
 
-def address_wallet(address, wallet_file=None):
+def address_wallet(address: str, wallet_file: str | None = None) -> Wallet:
     if wallet_file:
         wallet = Wallet.from_file(wallet_file)
     else:
-        wallet = current_app.wallets.get(address)
+        wallet = current_app.wallets.get(address)  # type: ignore[attr-defined]
     if wallet is None or address != wallet.address:
         msg = f'No wallet for {address}'
         raise Exception(msg)
     return wallet
 
 
-def read_last_line(file):
+def read_last_line(file: str) -> str:
     with open(file, 'rb') as f:
         try:
             f.seek(-2, os.SEEK_END)
@@ -109,7 +114,13 @@ def read_last_line(file):
 
 
 class ProgressBar:
-    def __init__(self, title, console=None, total=None, completed=0):
+    def __init__(
+        self,
+        title: str,
+        console: Any = None,
+        total: int | None = None,
+        completed: int = 0,
+    ) -> None:
         self.progress = Progress(
             BarColumn(),
             TextColumn('{task.completed}/{task.total}'),
@@ -129,22 +140,22 @@ class ProgressBar:
         )
 
     @property
-    def console(self):
+    def console(self) -> Any:
         return self.live.console
 
-    def next(self, n=1):
+    def next(self, n: int = 1) -> None:
         self.progress.advance(self.task_id, advance=n)
 
-    def __enter__(self):
+    def __enter__(self) -> ProgressBar:
         self.live.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.live.__exit__(exc_type, exc_val, exc_tb)
 
 
 class BlockSyncProgress:
-    def __init__(self, peer=None, console=None):
+    def __init__(self, peer: str | None = None, console: Any = None) -> None:
         self.find_progress = Progress(
             SpinnerColumn(spinner_name='aesthetic', style='none'),
             TextColumn('{task.completed} Blocks'),
@@ -181,26 +192,26 @@ class BlockSyncProgress:
             console=console,
             refresh_per_second=REFRESH_PER_SECOND,
         )
-        self.progress = self.find_progress
+        self.progress: Progress = self.find_progress
         self.task_id = self.find_task_id
         self.console.print(
             Rule(title=f'Synchronizing with peer [bold]{peer}', align='left')
         )
 
     @property
-    def console(self):
+    def console(self) -> Any:
         return self.live.console
 
-    def next(self, n=1):
+    def next(self, n: int = 1) -> None:
         self.progress.advance(self.task_id, advance=n)
 
-    def complete_find(self):
+    def complete_find(self) -> int:
         block_count = self.find_progress.tasks[0].completed
         self.find_progress.update(self.find_task_id, total=block_count)
         self.load_title_text.text_format = ''
-        return block_count
+        return int(block_count)
 
-    def switch(self):
+    def switch(self) -> None:
         block_count = self.complete_find()
         self.loading_panel.border_style = 'none'
         self.load_count_text.text_format = '{task.completed}/{task.total}'
@@ -209,21 +220,21 @@ class BlockSyncProgress:
         self.progress = self.load_progress
         self.task_id = self.load_task_id
 
-    def finish(self):
+    def finish(self) -> None:
         self.complete_find()
 
-    def __enter__(self):
+    def __enter__(self) -> BlockSyncProgress:
         self.live.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.live.__exit__(exc_type, exc_val, exc_tb)
 
 
 class MillingProgress:
-    def __init__(self, console=None):
-        self.block = None
-        self.chain = None
+    def __init__(self, console: Any = None) -> None:
+        self.block: Block | None = None
+        self.chain: Any = None
         self.progress = Progress(
             SpinnerColumn(spinner_name='aesthetic', style='milling'),
             TextColumn('{task.fields[hash_count]}h @'),
@@ -244,57 +255,61 @@ class MillingProgress:
         )
 
     @property
-    def hash_count(self):
+    def hash_count(self) -> str:
         return str(human_bignum(self.task.completed))
 
     @property
-    def hps(self):
+    def hps(self) -> str:
         if self.task.elapsed:
             return human_bignum(self.task.completed / self.task.elapsed)
         else:
             return human_bignum(0)
 
     @property
-    def console(self):
+    def console(self) -> Any:
         return self.live.console
 
     @property
-    def elapsed(self):
+    def elapsed(self) -> Text:
         if self.task.elapsed is None:
             return Text('-:--:--', style='progress.elapsed')
         delta = timedelta(seconds=int(self.task.elapsed))
         return Text(str(delta), style='progress.elapsed')
 
-    def next(self, n=1):
+    def next(self, n: int = 1) -> None:
         self.progress.update(
             self.task_id, advance=n, hash_count=self.hash_count, hps=self.hps
         )
 
-    def next_block(self, block, chain):
+    def next_block(self, block: Block, chain: Any) -> None:
         self.block = block
         self.chain = chain
         self.progress.reset(self.task_id)
 
-    def __enter__(self):
+    def __enter__(self) -> MillingProgress:
         self.live.__enter__()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.live.__exit__(exc_type, exc_val, exc_tb)
 
-    def print_start(self):
+    def print_start(self) -> None:
         start_table = Table(show_header=False, border_style='milling')
         start_table.add_column('key', justify='right')
         start_table.add_column('value', justify='left')
-        start_table.add_row('Block', str(self.block.idx))
+        start_table.add_row(
+            'Block', str(self.block.idx) if self.block is not None else ''
+        )
         start_table.add_row(
             'Chain', self.chain.block_hash if self.chain else 'GENESIS'
         )
-        start_table.add_row('Target', self.block.target)
+        start_table.add_row(
+            'Target', self.block.target if self.block is not None else ''
+        )
         start_table.add_row('Started', now_iso())
         self.console.print(start_table)
 
-    def print_stop(self, milled_block):
+    def print_stop(self, milled_block: Block | None) -> None:
         stop_table = Table(show_header=False)
         stop_table.add_column('key', justify='right')
         stop_table.add_column('value', justify='left')
@@ -305,10 +320,10 @@ class MillingProgress:
         style = 'milling.milled'
         if milled_block:
             pofw = milled_block.proof_of_work
-            value_text = Text(f'{pofw} ({human_bignum(pofw)})', style=style)
+            value_text = Text(f'{pofw} ({human_bignum(pofw)})', style=style)  # type: ignore[arg-type]
             stop_table.add_row(label_text, value_text)
             stop_table.add_row('Block', f'{milled_block.block_hash}')
-        elif self.block.proof_of_work is not None:
+        elif self.block is not None and self.block.proof_of_work is not None:
             style = 'milling.close'
             value_text = Text('SCOOPED (but so close)', style=style)
             stop_table.add_row(label_text, value_text)
@@ -323,7 +338,7 @@ class MillingProgress:
 
 @click.command('init', help='Initialize the database.')
 @with_appcontext
-def init_db_command():
+def init_db_command() -> None:
     try:
         db.create_all()
         console.print('Initialized the database.', style='success')
@@ -335,12 +350,12 @@ def init_db_command():
     'sync', help="Synchronize the node's block chain to that of its peers."
 )
 @with_appcontext
-def sync_blocks_command():
+def sync_blocks_command() -> None:
     try:
         node = Node(
             host=current_app.config['NODE_HOST'],
             peers=current_app.config['PEERS'],
-            clients=current_app.clients,
+            clients=current_app.clients,  # type: ignore[attr-defined]
             logger=current_app.logger,
         )
         for latest_block, peer in node.request_latest_blocks():
@@ -362,15 +377,17 @@ def sync_blocks_command():
 
 @click.command('validate', help="Validate the node's block chain.")
 @with_appcontext
-def validate_chain_command():
+def validate_chain_command() -> None:
     try:
         node = Node(logger=current_app.logger)
         lc = node.longest_chain
         progress_bar = ProgressBar(
-            'Validating Chain', console=console, total=lc.length
+            'Validating Chain',
+            console=console,
+            total=lc.length,  # type: ignore[union-attr]
         )
         with progress_bar as progress:
-            lc.validate(progress=progress)
+            lc.validate(progress=progress)  # type: ignore[union-attr]
     except Exception as e:
         console.print(f'The block chain is invalid: {e}', style='error')
 
@@ -378,7 +395,7 @@ def validate_chain_command():
 @click.command('export')
 @click.argument('file', type=click.Path())
 @with_appcontext
-def export_blocks_command(file):
+def export_blocks_command(file: str) -> None:
     """Export the block chain to file.
 
     \b
@@ -388,20 +405,22 @@ def export_blocks_command(file):
     try:
         node = Node(logger=current_app.logger)
         lc = node.longest_chain
-        lc_dao = lc.to_dao()
-        last_block = None
+        lc_dao = lc.to_dao()  # type: ignore[union-attr]
+        last_block: Block | None = None
         append_blocks = False
         if os.path.isfile(file) and (last_line := read_last_line(file)):
             last_block = Block.from_json(last_line)
             if lc_dao.get_block(last_block.block_hash) is None:
                 raise Exception(CHAIN_MISMATCH_MSG)
             append_blocks = True
-        last_idx = last_block.idx if last_block is not None else -1
+        last_idx: int = last_block.idx if last_block is not None else -1  # type: ignore[assignment]
+        lc_dao_block_idx: int = lc_dao.block.idx
+        last_block_idx: int = last_block.idx if last_block is not None else -1  # type: ignore[assignment]
         progress_bar = ProgressBar(
             'Exporting Blocks',
             console=console,
-            total=lc_dao.block.idx + 1,
-            completed=last_block.idx + 1 if last_block is not None else 0,
+            total=lc_dao_block_idx + 1,
+            completed=last_block_idx + 1 if last_block is not None else 0,
         )
         with (
             open(file, 'a' if append_blocks else 'w', encoding='utf-8') as f,
@@ -422,7 +441,7 @@ def export_blocks_command(file):
 @click.command('import')
 @click.argument('file', type=click.Path(exists=True))
 @with_appcontext
-def import_blocks_command(file):
+def import_blocks_command(file: str) -> None:
     """Import the block chain from file.
 
     \b
@@ -437,7 +456,7 @@ def import_blocks_command(file):
         with open(file, encoding='utf-8') as f, progress_bar as progress:
             for line in f:
                 block = Block.from_json(line)
-                if Block.from_db(block.block_hash) is None:
+                if Block.from_db(block.block_hash) is None:  # type: ignore[arg-type]
                     node.add_block(block)
                 progress.next()
     except Exception:
@@ -491,20 +510,28 @@ def import_blocks_command(file):
     help='Stop after this many blocks. (default 0 (run forever))',
 )
 @with_appcontext
-def mill_command(address, multi, rounds, worksize, wallet, peer, blocks):
+def mill_command(
+    address: str,
+    multi: bool,  # noqa: FBT001
+    rounds: int,
+    worksize: int,
+    wallet: str | None,
+    peer: str | None,
+    blocks: int,
+) -> None:
     """Start a milling process.
 
     \b
     ADDRESS is the address to use for milling coinbase rewards.
     """
     milling_wallet = address_wallet(address, wallet_file=wallet)
-    if peer is not None and current_app.clients.get(peer) is None:
+    if peer is not None and current_app.clients.get(peer) is None:  # type: ignore[attr-defined]
         msg = f'Peer {peer} client not configured.'
         raise Exception(msg)
     miller = Miller(
         host=current_app.config['NODE_HOST'],
         peers=current_app.config['PEERS'],
-        clients=current_app.clients,
+        clients=current_app.clients,  # type: ignore[attr-defined]
         logger=current_app.logger,
         milling_wallet=milling_wallet,
         milling_peer=peer,
@@ -587,8 +614,14 @@ txn_cli = AppGroup('txn', help='Command group to create transactions.')
 )
 @with_appcontext
 def create_transfer(
-    from_address, amount, to_address, txn_wallet, host, wallet, yes
-):
+    from_address: str,
+    amount: float,
+    to_address: str,
+    txn_wallet: str | None,
+    host: str | None,
+    wallet: str | None,
+    yes: bool,  # noqa: FBT001
+) -> None:
     """Create and post a transfer transaction.
 
     \b
@@ -597,10 +630,10 @@ def create_transfer(
     TO_ADDRESS is the transaction destination address.
     """
     try:
-        txn_wallet = address_wallet(from_address, wallet_file=txn_wallet)
+        txn_wallet_obj = address_wallet(from_address, wallet_file=txn_wallet)
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_transfer_transaction(
-            txn_wallet.public_key_b64,
+            txn_wallet_obj.public_key_b64,
             grumble_to_curmudgeons(amount),
             to_address,
         )
@@ -611,7 +644,7 @@ def create_transfer(
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet)
+            txn.set_wallet(txn_wallet_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print('Transfer created.', style='success')
@@ -657,7 +690,15 @@ def create_transfer(
     help='Assume "yes" as answer to all prompts and run non-interactively.',
 )
 @with_appcontext
-def create_subject(address, amount, subject, txn_wallet, host, wallet, yes):
+def create_subject(
+    address: str,
+    amount: float,
+    subject: str,
+    txn_wallet: str | None,
+    host: str | None,
+    wallet: str | None,
+    yes: bool,  # noqa: FBT001
+) -> None:
     """Create a subject ("cancel") transaction.
 
     \b
@@ -666,10 +707,12 @@ def create_subject(address, amount, subject, txn_wallet, host, wallet, yes):
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        txn_wallet = address_wallet(address, wallet_file=txn_wallet)
+        txn_wallet_obj = address_wallet(address, wallet_file=txn_wallet)
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_subject_transaction(
-            txn_wallet.public_key_b64, grumble_to_curmudgeons(amount), subject
+            txn_wallet_obj.public_key_b64,
+            grumble_to_curmudgeons(amount),
+            subject,
         )
         txn = Transaction.from_json(r.text)
         if not (confirm := yes):
@@ -678,7 +721,7 @@ def create_subject(address, amount, subject, txn_wallet, host, wallet, yes):
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet)
+            txn.set_wallet(txn_wallet_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print(f'Subject created: {txn.txid}', style='success')
@@ -722,7 +765,15 @@ def create_subject(address, amount, subject, txn_wallet, host, wallet, yes):
     help='Assume "yes" as answer to all prompts and run non-interactively.',
 )
 @with_appcontext
-def create_forgive(address, amount, subject, txn_wallet, host, wallet, yes):
+def create_forgive(
+    address: str,
+    amount: float,
+    subject: str,
+    txn_wallet: str | None,
+    host: str | None,
+    wallet: str | None,
+    yes: bool,  # noqa: FBT001
+) -> None:
     """Create a forgive transaction.
 
     \b
@@ -731,10 +782,12 @@ def create_forgive(address, amount, subject, txn_wallet, host, wallet, yes):
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        txn_wallet = address_wallet(address, wallet_file=txn_wallet)
+        txn_wallet_obj = address_wallet(address, wallet_file=txn_wallet)
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_forgive_transaction(
-            txn_wallet.public_key_b64, grumble_to_curmudgeons(amount), subject
+            txn_wallet_obj.public_key_b64,
+            grumble_to_curmudgeons(amount),
+            subject,
         )
         txn = Transaction.from_json(r.text)
         if not (confirm := yes):
@@ -743,7 +796,7 @@ def create_forgive(address, amount, subject, txn_wallet, host, wallet, yes):
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet)
+            txn.set_wallet(txn_wallet_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print(f'Forgive created: {txn.txid}', style='success')
@@ -787,7 +840,15 @@ def create_forgive(address, amount, subject, txn_wallet, host, wallet, yes):
     help='Assume "yes" as answer to all prompts and run non-interactively.',
 )
 @with_appcontext
-def create_support(address, amount, subject, txn_wallet, host, wallet, yes):
+def create_support(
+    address: str,
+    amount: float,
+    subject: str,
+    txn_wallet: str | None,
+    host: str | None,
+    wallet: str | None,
+    yes: bool,  # noqa: FBT001
+) -> None:
     """Create a subject support transaction.
 
     \b
@@ -796,10 +857,12 @@ def create_support(address, amount, subject, txn_wallet, host, wallet, yes):
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        txn_wallet = address_wallet(address, wallet_file=txn_wallet)
+        txn_wallet_obj = address_wallet(address, wallet_file=txn_wallet)
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_support_transaction(
-            txn_wallet.public_key_b64, grumble_to_curmudgeons(amount), subject
+            txn_wallet_obj.public_key_b64,
+            grumble_to_curmudgeons(amount),
+            subject,
         )
         txn = Transaction.from_json(r.text)
         if not (confirm := yes):
@@ -808,7 +871,7 @@ def create_support(address, amount, subject, txn_wallet, host, wallet, yes):
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet)
+            txn.set_wallet(txn_wallet_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print(f'Support created: {txn.txid}', style='success')
@@ -832,7 +895,7 @@ wallet_cli = AppGroup('wallet', help='Command group to work with wallets.')
     help='Parent directory for the wallet file (default from app config).',
 )
 @with_appcontext
-def create_wallet(walletdir):
+def create_wallet(walletdir: str | None) -> None:
     """Create a new wallet file."""
     walletdir = walletdir or current_app.config.get('WALLET_DIR')
     w = Wallet()
@@ -856,7 +919,7 @@ def create_wallet(walletdir):
     help='Wallet file to use for API auth.',
 )
 @with_appcontext
-def wallet_balance(address, host, wallet):
+def wallet_balance(address: str, host: str | None, wallet: str | None) -> None:
     """Get the wallet balance in CCG for an address.
 
     \b
@@ -892,7 +955,7 @@ subject_cli = AppGroup('subject', help='Command group to work with subjects.')
     help='Wallet file to use for API auth.',
 )
 @with_appcontext
-def subject_balance(subject, host, wallet):
+def subject_balance(subject: str, host: str | None, wallet: str | None) -> None:
     """Get the balance (i.e. subject transactions minus forgiveness
        transactions) in CCG for a subject.
 
@@ -928,7 +991,7 @@ def subject_balance(subject, host, wallet):
     help='Wallet file to use for API auth',
 )
 @with_appcontext
-def support_balance(subject, host, wallet):
+def support_balance(subject: str, host: str | None, wallet: str | None) -> None:
     """Get the support total in CCG for a subject.
 
     \b

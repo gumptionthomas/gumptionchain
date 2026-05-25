@@ -1,17 +1,29 @@
+from __future__ import annotations
+
 import json
 import re
+from collections.abc import Callable
 from enum import Enum
 from functools import wraps
+from typing import Any
 from urllib.parse import urljoin
 
 import jwt
-from flask import Blueprint, abort, current_app, make_response, request
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    current_app,
+    make_response,
+    request,
+)
 from flask.views import MethodView
 from marshmallow import Schema, ValidationError, fields, validate
 
 from cancelchain.api_client import PEER_HOST_HEADER, ApiClient
 from cancelchain.block import TXN_TIMEOUT, Block
 from cancelchain.cache import cache
+from cancelchain.chain import Chain
 from cancelchain.exceptions import CCError, EmptyChainError, MissingBlockError
 from cancelchain.models import ApiToken
 from cancelchain.node import Node
@@ -27,60 +39,72 @@ API_TOKEN_SECONDS = 60 * 60 * 4
 blueprint = Blueprint('api', __name__)
 
 
-def node_lc_dao():
+def node_lc_dao() -> tuple[Node, Chain | None, Any]:
     node = Node(
         host=current_app.config['NODE_HOST'],
         peers=current_app.config['PEERS'],
-        clients=current_app.clients,
+        clients=current_app.clients,  # type: ignore[attr-defined]
         logger=current_app.logger,
     )
     lc = node.longest_chain
     return node, lc, lc.to_dao() if lc is not None else None
 
 
-def visited_hosts():
+def visited_hosts() -> list[str] | None:
     hosts = None
     if peer_hosts := request.headers.get(PEER_HOST_HEADER, None):
         hosts = [v.strip() for v in peer_hosts.split(',') if v]
     return hosts
 
 
-def queue_post_process(path, data, visited_hosts):
+def queue_post_process(
+    path: str,
+    data: str | bytes | None,
+    vhosts: list[str] | None,
+) -> None:
     host, address = host_address(current_app.config['NODE_HOST'])
-    wallet = current_app.wallets.get(address)
-    headers = None
-    if visited_hosts:
-        headers = {PEER_HOST_HEADER: ','.join(visited_hosts)}
-    headers = ApiClient(host, wallet).auth_header(headers=headers)
+    wallet: Wallet | None = current_app.wallets.get(address)  # type: ignore[attr-defined]
+    headers: dict[str, str] | None = None
+    if vhosts:
+        headers = {PEER_HOST_HEADER: ','.join(vhosts)}
+    headers = ApiClient(host, wallet).auth_header(headers=headers)  # type: ignore[arg-type]
     url = urljoin(host, path)
     http_post_signal.send(
-        current_app._get_current_object(), url=url, data=data, headers=headers
+        current_app._get_current_object(),  # type: ignore[attr-defined]
+        url=url,
+        data=data,
+        headers=headers,
     )
 
 
-def queue_block_post_process(block, visited_hosts):
+def queue_block_post_process(block: Block, vhosts: list[str] | None) -> None:
     queue_post_process(
-        f'/api/block/{block.block_hash}/process', block.to_json(), visited_hosts
+        f'/api/block/{block.block_hash}/process', block.to_json(), vhosts
     )
 
 
-def queue_txn_post_process(txn, visited_hosts):
+def queue_txn_post_process(txn: Any, vhosts: list[str] | None) -> None:
     queue_post_process(
-        f'/api/transaction/{txn.txid}/process', txn.to_json(), visited_hosts
+        f'/api/transaction/{txn.txid}/process', txn.to_json(), vhosts
     )
 
 
-def handle_http_post(sender, url=None, data=None, headers=None):
+def handle_http_post(
+    sender: Any,
+    url: str | None = None,
+    data: str | bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> None:
     if current_app.config.get('CELERY_BROKER_URL'):
         post_process.delay(url, data, headers=headers)
 
 
 @blueprint.record
-def connect_signals(state):
+def connect_signals(state: Any) -> None:
     http_post_signal.connect(handle_http_post)
 
 
-def make_json_response(json_data, status_code=200):
+def make_json_response(json_data: Any, status_code: int = 200) -> Response:
     if not isinstance(json_data, (str, bytes)):
         json_data = json.dumps(json_data)
     response = make_response(json_data, status_code)
@@ -88,11 +112,11 @@ def make_json_response(json_data, status_code=200):
     return response
 
 
-def make_error_response(e):
+def make_error_response(e: Any) -> Response:
     return make_json_response({'error': e.messages}, 400)
 
 
-def exception_response(e):
+def exception_response(e: Exception) -> None:
     current_app.logger.exception(e)
     abort(500)
 
@@ -103,11 +127,11 @@ class Role(Enum):
     MILLER = 3
     ADMIN = 4
 
-    def addresses(self):
-        return current_app.config.get(f'{self.name}_ADDRESSES')
+    def addresses(self) -> list[str]:
+        return current_app.config.get(f'{self.name}_ADDRESSES')  # type: ignore[return-value]
 
     @classmethod
-    def address_roles(cls, address):
+    def address_roles(cls, address: str) -> list[Role]:
         return [
             role
             for role in Role
@@ -115,16 +139,16 @@ class Role(Enum):
         ]
 
     @classmethod
-    def address_role(cls, address):
+    def address_role(cls, address: str) -> Role | None:
         roles = cls.address_roles(address)
         return roles[-1] if roles else None
 
 
 class TokenView(MethodView):
-    def get(self, address):
+    def get(self, address: str) -> Response:
         api_token = ApiToken.get(address)
         if not api_token:
-            if not (wallet := current_app.wallets.get(address)):
+            if not (wallet := current_app.wallets.get(address)):  # type: ignore[attr-defined]
                 _, _, lc_dao = node_lc_dao()
                 if lc_dao is None:
                     abort(401)
@@ -135,7 +159,7 @@ class TokenView(MethodView):
             api_token = ApiToken.create(wallet)
         return make_json_response({'cipher': api_token.refreshed_cipher()})
 
-    def post(self, address):
+    def post(self, address: str) -> Response:
         if (api_token := ApiToken.get(address)) is None:
             abort(401)
         if not api_token.verify(request.json.get('challenge')):
@@ -162,13 +186,17 @@ blueprint.add_url_rule(
 )
 
 
-def authorize(required_role=Role.READER):
-    def _authorize(func):
+def authorize(
+    required_role: Role = Role.READER,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def _authorize(
+        func: Callable[..., Any],
+    ) -> Callable[..., Any]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             authorized = False
-            address = None
-            role = None
+            address: str | None = None
+            role: Role | None = None
             try:
                 token = request.headers.get('Authorization')
                 if token and token.startswith('Bearer '):
@@ -208,7 +236,7 @@ authorize_admin = authorize(required_role=Role.ADMIN)
 
 
 class BlockView(MethodView):
-    def get(self, block_hash=None, **kwargs):
+    def get(self, block_hash: str | None = None, **kwargs: Any) -> Response:
         try:
             _, lc, _ = node_lc_dao()
             block = None
@@ -230,7 +258,12 @@ class BlockView(MethodView):
             exception_response(e)
         abort(404)
 
-    def post(self, block_hash, process=False, **kwargs):
+    def post(
+        self,
+        block_hash: str,
+        process: str | bool = False,  # noqa: FBT001
+        **kwargs: Any,
+    ) -> Response:
         try:
             process = process == 'process'
             if not process:
@@ -283,7 +316,12 @@ blueprint.add_url_rule(
 
 
 class TxnView(MethodView):
-    def post(self, txid, process=False, **kwargs):
+    def post(
+        self,
+        txid: str,
+        process: str | bool = False,  # noqa: FBT001
+        **kwargs: Any,
+    ) -> Response:
         try:
             process = process == 'process'
             if not process:
@@ -327,7 +365,7 @@ class TransferTxnQuerySchema(Schema):
 
 
 class TransferTxnView(MethodView):
-    def get(self, **kwargs):
+    def get(self, **kwargs: Any) -> Response:
         try:
             args = TransferTxnQuerySchema().load(request.args)
             public_key_b64 = args['public_key']
@@ -344,6 +382,7 @@ class TransferTxnView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(
@@ -362,7 +401,7 @@ class SubjectTxnQuerySchema(Schema):
 
 
 class SubjectTxnView(MethodView):
-    def get(self, **kwargs):
+    def get(self, **kwargs: Any) -> Response:
         try:
             args = SubjectTxnQuerySchema().load(request.args)
             public_key_b64 = args['public_key']
@@ -379,6 +418,7 @@ class SubjectTxnView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(
@@ -391,7 +431,7 @@ blueprint.add_url_rule(
 
 
 class ForgiveTxnView(MethodView):
-    def get(self, **kwargs):
+    def get(self, **kwargs: Any) -> Response:
         try:
             args = SubjectTxnQuerySchema().load(request.args)
             public_key_b64 = args['public_key']
@@ -408,6 +448,7 @@ class ForgiveTxnView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(
@@ -420,7 +461,7 @@ blueprint.add_url_rule(
 
 
 class SupportTxnView(MethodView):
-    def get(self, **kwargs):
+    def get(self, **kwargs: Any) -> Response:
         try:
             args = SubjectTxnQuerySchema().load(request.args)
             public_key_b64 = args['public_key']
@@ -437,6 +478,7 @@ class SupportTxnView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(
@@ -457,7 +499,7 @@ class PendingTxnQuerySchema(Schema):
 
 
 class PendingTxnView(MethodView):
-    def get(self, **kwargs):
+    def get(self, **kwargs: Any) -> Response:
         try:
             node, _, _ = node_lc_dao()
             node.discard_expired_pending_txns()
@@ -472,6 +514,7 @@ class PendingTxnView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(
@@ -482,7 +525,7 @@ blueprint.add_url_rule(
 
 
 class WalletBalanceView(MethodView):
-    def get(self, address, **kwargs):
+    def get(self, address: str, **kwargs: Any) -> Response:
         try:
             _, lc, _ = node_lc_dao()
             if lc is None:
@@ -499,6 +542,7 @@ class WalletBalanceView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(
@@ -511,7 +555,7 @@ blueprint.add_url_rule(
 
 
 class SubjectBalanceView(MethodView):
-    def get(self, subject, **kwargs):
+    def get(self, subject: str, **kwargs: Any) -> Response:
         try:
             _, lc, _ = node_lc_dao()
             if lc is None:
@@ -528,6 +572,7 @@ class SubjectBalanceView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(
@@ -540,7 +585,7 @@ blueprint.add_url_rule(
 
 
 class SubjectSupportView(MethodView):
-    def get(self, subject, **kwargs):
+    def get(self, subject: str, **kwargs: Any) -> Response:
         try:
             _, lc, _ = node_lc_dao()
             if lc is None:
@@ -557,6 +602,7 @@ class SubjectSupportView(MethodView):
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
+        abort(500)  # unreachable but satisfies return type
 
 
 blueprint.add_url_rule(

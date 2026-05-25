@@ -1,4 +1,9 @@
+from __future__ import annotations
+
 import json
+from collections.abc import Generator
+from logging import Logger
+from typing import Any
 
 import requests
 
@@ -7,28 +12,30 @@ from cancelchain.chain import Chain
 from cancelchain.milling import milling_generator
 from cancelchain.node import Node
 from cancelchain.signals import txn_failed as txn_failed_signal
+from cancelchain.transaction import Transaction
 from cancelchain.util import host_address, now
+from cancelchain.wallet import Wallet
 
 
 class Miller(Node):
     def __init__(
         self,
-        host=None,
-        peers=None,
-        clients=None,
-        logger=None,
-        milling_wallet=None,
-        milling_peer=None,
-    ):
+        host: str | None = None,
+        peers: list[str] | None = None,
+        clients: dict[str, Any] | None = None,
+        logger: Logger | None = None,
+        milling_wallet: Wallet | None = None,
+        milling_peer: str | None = None,
+    ) -> None:
         super().__init__(host=host, peers=peers, clients=clients, logger=logger)
-        self.milling_client = None
+        self.milling_client: Any | None = None
         self.milling_peer = milling_peer
         if self.milling_peer is not None:
             self.milling_client = self.clients.get(self.milling_peer)
         self.milling_wallet = milling_wallet
-        self.pending_txns_generator = None
+        self.pending_txns_generator: Generator[Any, None, None] | None = None
 
-    def pending_txns_gen(self):
+    def pending_txns_gen(self) -> Generator[Any, None, None]:
         last_call = None
         while True:
             call_dt = now()
@@ -52,26 +59,32 @@ class Miller(Node):
             last_call = call_dt
             yield last_call
 
-    def update_pending_txns(self):
+    def update_pending_txns(self) -> None:
         if self.pending_txns_generator is None:
             self.pending_txns_generator = self.pending_txns_gen()
         _ = next(self.pending_txns_generator)
         self.discard_expired_pending_txns()
 
-    def pending_chain_txns(self, chain):
+    def pending_chain_txns(
+        self, chain: Chain
+    ) -> Generator[Transaction, None, None]:
         expired_dt = now() - TXN_TIMEOUT
         for txn in self.pending_txns:
-            if txn.timestamp_dt > expired_dt and not chain.get_transaction(
-                txn.txid
+            if (
+                txn.timestamp_dt is not None
+                and txn.timestamp_dt > expired_dt
+                and not chain.get_transaction(
+                    txn.txid  # type: ignore[arg-type]
+                )
             ):
                 yield txn
 
-    def create_block(self):
+    def create_block(self) -> Block:
         chain = self.longest_chain or self.create_chain()
         block = Block()
         chain.link_block(block)
         i = 0
-        discard_txns = []
+        discard_txns: list[Transaction] = []
         self.update_pending_txns()
         for txn in self.pending_chain_txns(chain):
             try:
@@ -85,24 +98,33 @@ class Miller(Node):
                 txn_failed_signal.send(self, txn=txn, e=e)
         for txn in discard_txns:
             self.pending_txns.discard(txn)
-        chain.seal_block(block, self.milling_wallet)
+        chain.seal_block(block, self.milling_wallet)  # type: ignore[arg-type]
         return block
 
-    def poll_latest_blocks(self, progress=None):
+    def poll_latest_blocks(self, progress: Any | None = None) -> None:
         latest_blocks = self.request_latest_blocks(peer=self.milling_peer)
         for latest_block, peer in latest_blocks:
-            if Block.from_db(latest_block.block_hash) is None:
+            if Block.from_db(latest_block.block_hash) is None:  # type: ignore[arg-type]
                 self.fill_chain(latest_block, progress=progress)
                 host, _ = host_address(peer)
                 self.send_block(latest_block, visited_hosts=[host])
 
     def mill_block(
-        self, block, mp=False, rounds=None, worksize=None, progress=None
-    ):
-        solved_block = None
+        self,
+        block: Block,
+        mp: bool = False,  # noqa: FBT001
+        rounds: int | None = None,
+        worksize: int | None = None,
+        progress: Any | None = None,
+    ) -> Block | None:
+        solved_block: Block | None = None
         chain = Chain.from_db(block_hash=block.prev_hash)
         for proof_of_work in milling_generator(
-            block, mp=mp, rounds=rounds, worksize=worksize, progress=progress
+            block,  # type: ignore[arg-type]
+            mp=mp,
+            rounds=rounds,
+            worksize=worksize,
+            progress=progress,
         ):
             if self.milling_peer is not None:
                 self.poll_latest_blocks()
