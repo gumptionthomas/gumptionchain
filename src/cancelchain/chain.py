@@ -522,18 +522,25 @@ class Chain:
         return json.dumps(self.to_dict())
 
     def to_dao(self, create: bool = False) -> Any:  # noqa: FBT001
-        dao = None
-        dao = ChainDAO.get(block_hash=self.block_hash)
+        # `to_dao` is only meaningful when the chain has a tip
+        # (block_hash). The dataclass allows None during staged
+        # construction; require it here so the DAO calls below are
+        # type-safe.
+        if self.block_hash is None:
+            return None
+        block_hash = self.block_hash
+        dao = ChainDAO.get(block_hash=block_hash)
         if dao is None and self.cid is not None:
             dao = ChainDAO.get(id=self.cid)
-            try:
-                dao.set_block_hash(self.block_hash)
-            except Exception:
-                dao = None
+            if dao is not None:
+                try:
+                    dao.set_block_hash(block_hash)
+                except Exception:
+                    dao = None
         if not dao:
-            dao = ChainDAO.get(block_hash=self.block_hash)
+            dao = ChainDAO.get(block_hash=block_hash)
         if not dao and create:
-            dao = ChainDAO(self.block_hash)
+            dao = ChainDAO(block_hash)
         return dao
 
     def to_db(self) -> None:

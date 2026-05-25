@@ -223,24 +223,35 @@ class Transaction:
         return TransactionSchema().dumps(self.to_dict())
 
     def to_dao(self) -> TransactionDAO:
-        return TransactionDAO.get(self.txid) or TransactionDAO(
-            self.txid,
+        # to_dao() is only meaningful after the txn has been sealed: txid
+        # is computed and outflow amounts are set. The dataclass declares
+        # these as Optional to allow staged construction; assert them here
+        # so mypy strict can narrow at the domain↔DAO boundary.
+        if self.txid is None:
+            raise UnsealedTransactionError()
+        if self.timestamp_dt is None:
+            msg = 'Transaction missing timestamp'
+            raise InvalidTransactionError(msg)
+        txid = self.txid
+        timestamp_dt = self.timestamp_dt
+        return TransactionDAO.get(txid) or TransactionDAO(
+            txid,
             self.version,
-            self.timestamp_dt,
+            timestamp_dt,
             address=self.address,
             public_key=self.public_key,
             signature=self.signature,
             inflow_daos=[
-                InflowDAO(
-                    self.txid, idx, inflow.outflow_txid, inflow.outflow_idx
-                )
+                InflowDAO(txid, idx, inflow.outflow_txid, inflow.outflow_idx)
                 for idx, inflow in enumerate(self.inflows)
+                if inflow.outflow_txid is not None
+                and inflow.outflow_idx is not None
             ],
             outflow_daos=[
                 OutflowDAO(
-                    self.txid,
+                    txid,
                     idx,
-                    outflow.amount,
+                    outflow.amount if outflow.amount is not None else 0,
                     address=outflow.address,
                     subject=outflow.subject,
                     forgive=outflow.forgive,
@@ -334,7 +345,7 @@ class Transaction:
 
 class PendingTxnSet(MutableSet[Transaction]):
     def __contains__(self, txn: object) -> bool:
-        if not isinstance(txn, Transaction):
+        if not isinstance(txn, Transaction) or txn.txid is None:
             return False
         return PendingTxnDAO.get(txn.txid) is not None
 
@@ -347,11 +358,15 @@ class PendingTxnSet(MutableSet[Transaction]):
         return PendingTxnDAO.count()
 
     def add(self, txn: Transaction) -> None:
+        if txn.txid is None:
+            raise UnsealedTransactionError()
         dao = PendingTxnDAO(
             txid=txn.txid, timestamp=txn.timestamp_dt, json_data=txn.to_json()
         )
         dao.commit()
         for inflow in txn.inflows:
+            if inflow.outflow_txid is None or inflow.outflow_idx is None:
+                continue
             ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)
             if ioflow_txn_dao is not None:
                 ioflow_dao = ioflow_txn_dao.outflows[inflow.outflow_idx]
