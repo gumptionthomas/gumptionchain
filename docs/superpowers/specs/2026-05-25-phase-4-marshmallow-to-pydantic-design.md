@@ -152,7 +152,7 @@ Drop the `@post_load make_outflow` / `make_inflow` hooks. The `Outflow` / `Inflo
 Replace `TransactionSchema(SansNoneSchema)`, `RegularTransactionSchema(TransactionSchema)`, and `CoinbaseTransactionSchema(TransactionSchema)` with corresponding `BaseModel` subclasses:
 
 ```python
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -160,6 +160,10 @@ from cancelchain.payload import Inflow, InflowModel, Outflow, OutflowModel
 from cancelchain.schema import (
     AddressType, Base64Type, MillHashType, PublicKeyType, TimestampType,
 )
+
+# Required for `Literal[VERSION_1]` to type-check under mypy --strict —
+# a plain str = '1' constant is not a Literal type.
+VERSION_1: Final = '1'
 
 
 class TransactionModel(BaseModel):
@@ -238,7 +242,7 @@ class BlockModel(BaseModel):
     block_hash: MillHashType
     prev_hash: MillHashType
     target: MillHashType
-    proof_of_work: int = Field(ge=0, le=2**64 - 1)
+    proof_of_work: int = Field(ge=0)
     merkle_root: MillHashType
     txns: list[TransactionModel] = Field(min_length=1, max_length=MAX_TRANSACTIONS)
     version: Literal[VERSION_1]

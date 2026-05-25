@@ -569,7 +569,7 @@ from collections.abc import Generator, Iterator, MutableSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from json import JSONDecodeError
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -609,7 +609,8 @@ from cancelchain.schema import (
 from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
 from cancelchain.wallet import Wallet
 
-VERSION_1 = '1'
+# Final required for `Literal[VERSION_1]` to type-check under mypy strict.
+VERSION_1: Final = '1'
 MAX_FLOWS = 50
 ADDRESS_MISMATCH_MSG = 'Address/public key mismatch'
 
@@ -880,7 +881,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from json import JSONDecodeError
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -917,7 +918,8 @@ from cancelchain.transaction import Transaction, TransactionModel
 from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
 from cancelchain.wallet import Wallet
 
-VERSION_1 = '1'
+# Final required for `Literal[VERSION_1]` to type-check under mypy strict.
+VERSION_1: Final = '1'
 MAX_TRANSACTIONS = 100
 TXN_TIMEOUT = timedelta(hours=4)
 MISSED_TARGET_MSG = 'Missed target'
@@ -1168,7 +1170,19 @@ git checkout -b feat/pydantic-api-queries
 
 - [ ] **Step 2: Update `api.py` imports and remove Marshmallow**
 
-Edit `src/cancelchain/api.py`. Find the Marshmallow import block:
+Edit `src/cancelchain/api.py`. The existing typing import line reads:
+
+```python
+from typing import Any, NoReturn
+```
+
+Replace with (add `Annotated` — needed for the local `_RawSubjectField` alias and the `_CisoTimestamp` alias in Step 5):
+
+```python
+from typing import Annotated, Any, NoReturn
+```
+
+Find the Marshmallow import block:
 
 ```python
 from marshmallow import Schema, ValidationError, fields, validate
@@ -1188,7 +1202,7 @@ from pydantic import (
 )
 ```
 
-Add `pydantic_errors_to_messages` to the existing `from cancelchain.schema import (...)` line.
+Add `AddressType`, `PublicKeyType`, and `pydantic_errors_to_messages` to the existing `from cancelchain.schema import (...)` line.
 
 - [ ] **Step 3: Replace `TransferTxnQuerySchema` (around line 370)**
 
