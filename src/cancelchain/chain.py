@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from functools import total_ordering
 from typing import Any, Self
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from cancelchain.block import Block
 from cancelchain.exceptions import (
     EmptyChainError,
@@ -527,19 +529,26 @@ class Chain:
         # construction; require it here so the DAO calls below are
         # type-safe.
         if self.block_hash is None:
+            if create:
+                # Caller is asking us to persist a brand-new ChainDAO
+                # row, but we have no tip to set on it. Fail fast
+                # instead of returning None and crashing in to_db().
+                msg = 'Cannot create ChainDAO: chain has no block_hash'
+                raise InvalidChainError(msg)
             return None
         block_hash = self.block_hash
         dao = ChainDAO.get(block_hash=block_hash)
         if dao is None and self.cid is not None:
             # Try to find the row by its primary key and rebind it to
-            # the new tip; if set_block_hash collides (another row
-            # already owns this hash), re-fetch by block_hash so the
-            # caller still gets the existing canonical row.
+            # the new tip; if set_block_hash collides at the DB layer
+            # (another row already owns this hash), re-fetch by
+            # block_hash so the caller still gets the existing
+            # canonical row.
             dao = ChainDAO.get(id=self.cid)
             if dao is not None:
                 try:
                     dao.set_block_hash(block_hash)
-                except Exception:
+                except SQLAlchemyError:
                     dao = ChainDAO.get(block_hash=block_hash)
         if dao is None and create:
             dao = ChainDAO(block_hash)
