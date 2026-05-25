@@ -5,7 +5,7 @@ from collections.abc import Generator, MutableSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 
 from marshmallow import (
     ValidationError,
@@ -44,9 +44,6 @@ from cancelchain.schema import (
 )
 from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
 from cancelchain.wallet import Wallet
-
-if TYPE_CHECKING:
-    pass
 
 VERSION_1 = '1'
 MAX_FLOWS = 50
