@@ -162,3 +162,11 @@ files = ["src/cancelchain"]
 [[tool.mypy.overrides]]
 module = ["marshmallow", "marshmallow.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["Crypto", "Crypto.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["base58check", "pymerkle", "pymerkle.*"]
+ignore_missing_imports = true

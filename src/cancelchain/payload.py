@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+# mypy: disable-error-code="no-untyped-call,no-any-return"
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
+from typing import Any
 
 from marshmallow import (
     ValidationError,
@@ -17,19 +21,19 @@ INVALID_DESTINATION_MSG = 'Invalid destinations'
 INVALID_PADDING_MSG = 'Invalid padding'
 
 
-def encode_subject(raw_subject):
+def encode_subject(raw_subject: str) -> str:
     return urlsafe_b64encode(raw_subject.encode()).rstrip(b'=').decode()
 
 
-def decode_subject(subject):
+def decode_subject(subject: str) -> str:
     if subject.endswith('='):
         raise TypeError(INVALID_PADDING_MSG)
-    subject = subject.encode()
-    subject += b'=' * (-len(subject) % 4)
-    return urlsafe_b64decode(subject).decode()
+    subject_bytes = subject.encode()
+    subject_bytes += b'=' * (-len(subject_bytes) % 4)
+    return urlsafe_b64decode(subject_bytes).decode()
 
 
-def validate_subject(subject):
+def validate_subject(subject: str) -> bool:
     try:
         raw_subject = decode_subject(subject)
         if MIN_SUBJECT_LENGTH <= len(raw_subject) <= MAX_SUBJECT_LENGTH:
@@ -39,7 +43,7 @@ def validate_subject(subject):
     return False
 
 
-def validate_raw_subject(raw_subject):
+def validate_raw_subject(raw_subject: str) -> bool:
     try:
         if MIN_SUBJECT_LENGTH <= len(raw_subject) <= MAX_SUBJECT_LENGTH:
             return decode_subject(encode_subject(raw_subject)) == raw_subject
@@ -49,7 +53,7 @@ def validate_raw_subject(raw_subject):
 
 
 class Subject(fields.String):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.validators.insert(0, validate_subject)
 
@@ -62,7 +66,9 @@ class OutflowSchema(SansNoneSchema):
     support = Subject()
 
     @validates_schema
-    def validate_destinations(self, data, **kwargs):
+    def validate_destinations(
+        self, data: dict[str, Any], **kwargs: Any
+    ) -> None:
         address = data.get('address')
         options = [
             v
@@ -76,20 +82,20 @@ class OutflowSchema(SansNoneSchema):
             raise ValidationError(INVALID_DESTINATION_MSG)
 
     @post_load
-    def make_outflow(self, data, **kwargs):
+    def make_outflow(self, data: dict[str, Any], **kwargs: Any) -> Outflow:
         return Outflow(**data)
 
 
 @dataclass
 class Outflow:
-    amount: int = None
-    address: str = None
-    subject: str = None
-    forgive: str = None
-    support: str = None
+    amount: int | None = None
+    address: str | None = None
+    subject: str | None = None
+    forgive: str | None = None
+    support: str | None = None
 
     @property
-    def data_csv(self):
+    def data_csv(self) -> str:
         return ','.join(
             [
                 str(self.amount),
@@ -101,16 +107,22 @@ class Outflow:
         )
 
     @property
-    def schadenfreude(self):
-        return int(self.amount / 2) if self.subject is not None else 0
+    def schadenfreude(self) -> int:
+        if self.subject is not None and self.amount is not None:
+            return int(self.amount / 2)
+        return 0
 
     @property
-    def grace(self):
-        return int(self.amount / 2) if self.forgive is not None else 0
+    def grace(self) -> int:
+        if self.forgive is not None and self.amount is not None:
+            return int(self.amount / 2)
+        return 0
 
     @property
-    def mudita(self):
-        return self.amount if self.support is not None else 0
+    def mudita(self) -> int:
+        if self.support is not None and self.amount is not None:
+            return self.amount
+        return 0
 
 
 class InflowSchema(SansNoneSchema):
@@ -118,15 +130,15 @@ class InflowSchema(SansNoneSchema):
     outflow_idx = fields.Integer(required=True, validate=validate.Range(min=0))
 
     @post_load
-    def make_inflow(self, data, **kwargs):
+    def make_inflow(self, data: dict[str, Any], **kwargs: Any) -> Inflow:
         return Inflow(**data)
 
 
 @dataclass
 class Inflow:
-    outflow_txid: str = None
-    outflow_idx: int = None
+    outflow_txid: str | None = None
+    outflow_idx: int | None = None
 
     @property
-    def data_csv(self):
-        return ','.join([self.outflow_txid, str(self.outflow_idx)])
+    def data_csv(self) -> str:
+        return ','.join([str(self.outflow_txid), str(self.outflow_idx)])

@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+# mypy: disable-error-code="no-untyped-call,no-any-return"
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from json import JSONDecodeError
+from typing import Any, Self
 
 from marshmallow import (
     ValidationError,
@@ -35,6 +39,7 @@ from cancelchain.schema import (
 )
 from cancelchain.transaction import Transaction, TransactionSchema
 from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
+from cancelchain.wallet import Wallet
 
 VERSION_1 = '1'
 MAX_TRANSACTIONS = 100
@@ -42,7 +47,7 @@ TXN_TIMEOUT = timedelta(hours=4)
 MISSED_TARGET_MSG = 'Missed target'
 
 
-def validate_hash_diff(block_hash, target):
+def validate_hash_diff(block_hash: str, target: str) -> bool:
     return int(block_hash, 16) < int(target, 16)
 
 
@@ -64,67 +69,69 @@ class BlockSchema(SansNoneSchema):
     version = fields.String(required=True, validate=validate.Equal(VERSION_1))
 
     @validates_schema
-    def validate_difficulty(self, data, **kwargs):
-        if not validate_hash_diff(data.get('block_hash'), data.get('target')):
+    def validate_difficulty(self, data: dict[str, Any], **kwargs: Any) -> None:
+        block_hash: str = data.get('block_hash', '')
+        target: str = data.get('target', '')
+        if not validate_hash_diff(block_hash, target):
             raise ValidationError(MISSED_TARGET_MSG)
 
     @post_load
-    def make_block(self, data, **kwargs):
+    def make_block(self, data: dict[str, Any], **kwargs: Any) -> Block:
         return Block(**data)
 
 
 @dataclass(order=True)
 class Block:
-    idx: int = field(default=None)
-    timestamp: str = field(default=None)
-    block_hash: str = field(default=None)
-    prev_hash: str = field(default=None, compare=False)
+    idx: int | None = field(default=None)
+    timestamp: str | None = field(default=None)
+    block_hash: str | None = field(default=None)
+    prev_hash: str | None = field(default=None, compare=False)
     target: str = field(default='F' * 64, compare=False, repr=False)
-    proof_of_work: int = field(default=None, compare=False, repr=False)
-    merkle_root: str = field(default=None, compare=False, repr=False)
+    proof_of_work: int | None = field(default=None, compare=False, repr=False)
+    merkle_root: str | None = field(default=None, compare=False, repr=False)
     txns: list[Transaction] = field(default_factory=list, compare=False)
     version: str = field(default=VERSION_1, compare=False, repr=False)
 
     @property
-    def timestamp_dt(self):
+    def timestamp_dt(self) -> datetime | None:
         return iso_2_dt(self.timestamp) if self.timestamp else None
 
     @property
-    def last_txn(self):
+    def last_txn(self) -> Transaction | None:
         return self.txns[-1] if self.txns else None
 
     @property
-    def regular_txns(self):
+    def regular_txns(self) -> list[Transaction]:
         return self.txns[0:-1] if self.txns else []
 
     @property
-    def coinbase(self):
+    def coinbase(self) -> Transaction | None:
         return self.last_txn if self.is_sealed else None
 
     @property
-    def schadenfreude(self):
+    def schadenfreude(self) -> int:
         return sum([t.schadenfreude for t in self.txns])
 
     @property
-    def grace(self):
+    def grace(self) -> int:
         return sum([t.grace for t in self.txns])
 
     @property
-    def mudita(self):
+    def mudita(self) -> int:
         return sum([t.mudita for t in self.txns])
 
     @property
-    def is_sealed(self):
+    def is_sealed(self) -> bool:
         return self.timestamp is not None
 
     @property
-    def is_proved(self):
+    def is_proved(self) -> bool:
         if self.block_hash:
             return validate_hash_diff(self.block_hash, self.target)
         return False
 
     @property
-    def unproven_header(self):
+    def unproven_header(self) -> str:
         return ','.join(
             (
                 str(self.idx),
@@ -138,30 +145,31 @@ class Block:
         )
 
     @property
-    def header(self):
+    def header(self) -> str:
         return self.potential_header(self.proof_of_work)
 
-    def get_header_hash(self):
+    def get_header_hash(self) -> str:
         return mill_hash_str(self.header)
 
-    def potential_header(self, proof_of_work):
+    def potential_header(self, proof_of_work: int | None) -> str:
         return f'{self.unproven_header}{proof_of_work}'
 
-    def validate_proof_of_work(self, proof_of_work):
+    def validate_proof_of_work(self, proof_of_work: int) -> bool:
         potential_header = self.potential_header(proof_of_work)
         return validate_hash_diff(mill_hash_str(potential_header), self.target)
 
-    def build_merkle_tree(self):
+    def build_merkle_tree(self) -> InmemoryTree:
         tree = InmemoryTree()
-        for record in (t.txid for t in self.txns):
-            tree.append_entry(record.encode())
+        for txn in self.txns:
+            if txn.txid is not None:
+                tree.append_entry(txn.txid.encode())
         return tree
 
-    def get_merkle_root(self):
+    def get_merkle_root(self) -> str | None:
         root = self.build_merkle_tree().root
         return root.digest.hex() if root else None
 
-    def in_merkle_tree(self, txid):
+    def in_merkle_tree(self, txid: str) -> bool:
         txids = [t.txid for t in self.txns]
         if txid not in txids:
             return False
@@ -176,7 +184,7 @@ class Block:
         else:
             return True
 
-    def add_txn(self, txn, is_coinbase=False):
+    def add_txn(self, txn: Transaction, is_coinbase: bool = False) -> None:  # noqa: FBT001
         if self.is_sealed:
             raise SealedBlockError()
         if not is_coinbase:
@@ -185,20 +193,20 @@ class Block:
             txn.validate_coinbase()
         self.txns.append(txn)
 
-    def create_coinbase(self, wallet, reward):
+    def create_coinbase(self, wallet: Wallet, reward: int) -> Transaction:
         return Transaction.coinbase(
             wallet, reward, self.schadenfreude, self.grace, self.mudita
         )
 
-    def add_coinbase(self, wallet, reward):
+    def add_coinbase(self, wallet: Wallet, reward: int) -> None:
         self.add_txn(self.create_coinbase(wallet, reward), is_coinbase=True)
 
-    def link(self, idx, prev_hash, target):
+    def link(self, idx: int, prev_hash: str, target: str) -> None:
         self.idx = idx
         self.prev_hash = prev_hash
         self.target = target
 
-    def seal(self, wallet, reward):
+    def seal(self, wallet: Wallet, reward: int) -> None:
         if self.is_sealed:
             raise SealedBlockError()
         if (self.prev_hash is None) or (self.idx is None):
@@ -208,37 +216,50 @@ class Block:
         self.merkle_root = self.get_merkle_root()
         self.timestamp = now_iso()
 
-    def mill(self, mp=False, progress=None):
-        mg = milling_generator(self, mp=mp, progress=progress)
+    def mill(
+        self,
+        mp: bool = False,  # noqa: FBT001
+        progress: Any = None,
+    ) -> None:
+        mg = milling_generator(
+            self,  # type: ignore[arg-type]
+            mp=mp,
+            progress=progress,
+        )
         while next(mg) is None:
             pass
 
-    def solve(self, proof_of_work):
+    def solve(self, proof_of_work: int) -> None:
         if self.validate_proof_of_work(proof_of_work):
             self.proof_of_work = proof_of_work
             self.block_hash = self.get_header_hash()
         else:
             raise InvalidProofError()
 
-    def validate_block_hash(self):
+    def validate_block_hash(self) -> None:
         if self.block_hash != self.get_header_hash():
             raise InvalidBlockHashError()
 
-    def validate_merkle_root(self):
+    def validate_merkle_root(self) -> None:
         if self.merkle_root != self.get_merkle_root():
             raise InvalidMerkleRootError()
 
-    def validate_transaction(self, txn, prev_txn=None):
+    def validate_transaction(
+        self,
+        txn: Transaction,
+        prev_txn: Transaction | None = None,
+    ) -> None:
         txn.validate(coinbase=False)
         txn_ts_dt = txn.timestamp_dt
-        if self.timestamp_dt and txn_ts_dt > self.timestamp_dt:
-            raise FutureTransactionError()
-        if self.timestamp_dt and txn_ts_dt < self.timestamp_dt - TXN_TIMEOUT:
-            raise ExpiredTransactionError()
+        if self.timestamp_dt and txn_ts_dt is not None:
+            if txn_ts_dt > self.timestamp_dt:
+                raise FutureTransactionError()
+            if txn_ts_dt < self.timestamp_dt - TXN_TIMEOUT:
+                raise ExpiredTransactionError()
         if prev_txn and txn < prev_txn:
             raise OutOfOrderTransactionError()
 
-    def validate_coinbase(self):
+    def validate_coinbase(self) -> None:
         cb = self.coinbase
         if not cb:
             raise MissingCoinbaseError()
@@ -253,7 +274,7 @@ class Block:
         if comps != [o.amount for o in cb.outflows[1:]]:
             raise InvalidCoinbaseError()
 
-    def validate(self):
+    def validate(self) -> None:
         if errors := BlockSchema().validate(self.to_dict()):
             raise InvalidBlockError(errors)
         self.validate_block_hash()
@@ -270,13 +291,13 @@ class Block:
         except InvalidTransactionError as e:
             raise InvalidBlockError(e.messages)
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return asdict_sans_none(self)
 
-    def to_json(self):
+    def to_json(self) -> str:
         return BlockSchema().dumps(self.to_dict())
 
-    def to_dao(self):
+    def to_dao(self) -> BlockDAO:
         return BlockDAO.get(self.block_hash) or BlockDAO(
             self.block_hash,
             self.version,
@@ -289,18 +310,18 @@ class Block:
             transaction_daos=[txn.to_dao() for txn in self.txns],
         )
 
-    def to_db(self):
+    def to_db(self) -> None:
         self.to_dao().commit()
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict[str, Any]) -> Self:
         try:
             return BlockSchema().load(d)
         except ValidationError as e:
             raise InvalidBlockError(e.messages)
 
     @classmethod
-    def from_json(cls, j):
+    def from_json(cls, j: str) -> Self:
         try:
             return BlockSchema().loads(j)
         except JSONDecodeError as je:
@@ -309,7 +330,7 @@ class Block:
             raise InvalidBlockError(ve.messages)
 
     @classmethod
-    def from_dao(cls, dao):
+    def from_dao(cls, dao: Any) -> Self:
         return cls(
             idx=dao.idx,
             timestamp=dt_2_iso(dao.timestamp),
@@ -325,6 +346,6 @@ class Block:
         )
 
     @classmethod
-    def from_db(cls, block_hash):
+    def from_db(cls, block_hash: str) -> Self | None:
         dao = BlockDAO.get(block_hash)
         return cls.from_dao(dao) if dao else None

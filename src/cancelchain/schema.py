@@ -23,7 +23,7 @@ def asdict_sans_none(dc: Any) -> dict[str, Any]:
     )
 
 
-def validate_address(public_key_b64: str, address: str) -> bool:
+def validate_address(public_key_b64: str | None, address: str | None) -> bool:
     try:
         wallet = Wallet(b64ks=public_key_b64)
     except InvalidKeyError:
@@ -66,7 +66,9 @@ def validate_public_key(public_key_b64: str) -> bool:
 
 
 def validate_signature(
-    public_key_b64: str, signing_data: bytes, signature: str
+    public_key_b64: str | None,
+    signing_data: bytes,
+    signature: str | None,
 ) -> bool:
     try:
         wallet = Wallet(b64ks=public_key_b64)
