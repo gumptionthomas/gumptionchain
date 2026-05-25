@@ -154,10 +154,10 @@ exclude_lines = [
 # MYPY
 [tool.mypy]
 python_version = "3.12"
+files = ["src/cancelchain"]
+strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-strict_optional = true
-files = ["src/cancelchain"]
 
 [[tool.mypy.overrides]]
 module = ["marshmallow", "marshmallow.*"]
