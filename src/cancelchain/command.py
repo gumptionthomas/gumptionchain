@@ -393,13 +393,18 @@ def validate_chain_command() -> None:
     try:
         node = Node(logger=current_app.logger)
         lc = node.longest_chain
+        if lc is None:
+            console.print(
+                'No chain to validate (database is empty).', style='error'
+            )
+            return
         progress_bar = ProgressBar(
             'Validating Chain',
             console=console,
-            total=lc.length,  # type: ignore[union-attr]
+            total=lc.length,
         )
         with progress_bar as progress:
-            lc.validate(progress=progress)  # type: ignore[union-attr]
+            lc.validate(progress=progress)
     except Exception as e:
         console.print(f'The block chain is invalid: {e}', style='error')
 
@@ -417,7 +422,12 @@ def export_blocks_command(file: str) -> None:
     try:
         node = Node(logger=current_app.logger)
         lc = node.longest_chain
-        lc_dao = lc.to_dao()  # type: ignore[union-attr]
+        if lc is None:
+            console.print(
+                'No chain to export (database is empty).', style='error'
+            )
+            return
+        lc_dao = lc.to_dao()
         last_block: Block | None = None
         append_blocks = False
         if os.path.isfile(file) and (last_line := read_last_line(file)):

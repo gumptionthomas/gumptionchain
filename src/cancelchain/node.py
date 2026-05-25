@@ -222,8 +222,11 @@ class Node:
     ) -> Generator[tuple[Block, str], None, None]:
         peers = [peer] if peer is not None else self.peers
         for p in peers:
+            client = self.clients.get(p)
+            if client is None:
+                continue
             try:
-                r = self.clients.get(p).get_block()  # type: ignore[union-attr]
+                r = client.get_block()
                 yield Block.from_json(r.text), p
             except requests.RequestException as re:
                 self.logger.error(re)
