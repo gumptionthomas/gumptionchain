@@ -3,7 +3,7 @@ from __future__ import annotations
 # mypy: disable-error-code="no-untyped-call,no-any-return"
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any, Self
 
 from marshmallow import (
     ValidationError,
@@ -12,8 +12,22 @@ from marshmallow import (
     validate,
     validates_schema,
 )
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
-from cancelchain.schema import Address, MillHash, SansNoneSchema
+from cancelchain.schema import (
+    Address,
+    AddressType,
+    MillHash,
+    MillHashType,
+    SansNoneSchema,
+    _truncate,
+)
 
 MIN_SUBJECT_LENGTH = 1
 MAX_SUBJECT_LENGTH = 79
@@ -142,3 +156,48 @@ class Inflow:
     @property
     def data_csv(self) -> str:
         return ','.join([str(self.outflow_txid), str(self.outflow_idx)])
+
+
+# --- Pydantic v2 models (used by PR-3 onwards). The Marshmallow
+# Schemas above stay in place until PR-3 swaps transaction.py.
+
+
+def _check_subject(s: str) -> str:
+    if not validate_subject(s):
+        msg = f'Invalid subject: {_truncate(s)!r}'
+        raise ValueError(msg)
+    return s
+
+
+SubjectType = Annotated[str, AfterValidator(_check_subject)]
+
+
+class OutflowModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    amount: int = Field(ge=1)
+    address: AddressType | None = None
+    subject: SubjectType | None = None
+    forgive: SubjectType | None = None
+    support: SubjectType | None = None
+
+    @model_validator(mode='after')
+    def validate_destinations(self) -> Self:
+        options = [
+            v
+            for v in (self.subject, self.forgive, self.support)
+            if v is not None
+        ]
+        if not (
+            (self.address and not options)
+            or (options and len(options) == 1 and not self.address)
+        ):
+            raise ValueError(INVALID_DESTINATION_MSG)
+        return self
+
+
+class InflowModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    outflow_txid: MillHashType
+    outflow_idx: int = Field(ge=0)
