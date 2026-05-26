@@ -41,6 +41,7 @@ dependencies = [
   "millify>=0.1.1",
   "pg8000>=1.31",
   "pycryptodome>=3.20",
+  "pydantic>=2.10",
   "pyjwt>=2.9",
   "pymerkle>=5",
   "python-dotenv>=1.0",

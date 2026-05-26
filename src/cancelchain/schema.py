@@ -2,9 +2,10 @@ from __future__ import annotations
 
 # mypy: disable-error-code="no-untyped-call,no-any-return"
 from dataclasses import asdict
-from typing import Any
+from typing import Annotated, Any, Protocol
 
 from marshmallow import Schema, fields, post_dump, validate
+from pydantic import AfterValidator
 
 from cancelchain.exceptions import InvalidKeyError
 from cancelchain.util import iso_2_dt
@@ -124,3 +125,129 @@ class SansNoneSchema(Schema):
         self, data: dict[str, Any], **kwargs: Any
     ) -> dict[str, Any]:
         return {k: v for k, v in data.items() if v is not None}
+
+
+# --- Pydantic v2 custom type aliases (introduced in Phase 4 / PR-1).
+# Names get a *Type suffix to avoid colliding with the Marshmallow
+# field classes above, which are still used as callables by payload.py,
+# transaction.py, and block.py until PRs 3 and 4 swap them out. PR-6
+# deletes the Marshmallow classes; the *Type aliases are permanent.
+#
+# AfterValidator runs after Pydantic's built-in coercion; the callback
+# either returns the value (possibly transformed) or raises ValueError,
+# which Pydantic wraps into a ValidationError for the caller.
+
+
+def _truncate(s: str, max_len: int = 32) -> str:
+    """Cap a user-provided value for echo in validation messages.
+
+    Pydantic surfaces these messages in HTTP 400 responses and logs.
+    Echoing unbounded input would let clients bloat responses or leak
+    arbitrary content; cap to a short prefix plus a length indicator.
+    """
+    if len(s) <= max_len:
+        return s
+    return f'{s[:max_len]}... ({len(s)} chars)'
+
+
+def _check_address_format(s: str) -> str:
+    if not validate_address_format(s):
+        msg = f'Invalid address format: {_truncate(s)!r}'
+        raise ValueError(msg)
+    return s
+
+
+def _check_base64(s: str) -> str:
+    if not validate_base64(s):
+        msg = f'Invalid base64 value: {_truncate(s)!r}'
+        raise ValueError(msg)
+    return s
+
+
+def _check_mill_hash(s: str) -> str:
+    if not validate_base64(s) or len(s) != 64:
+        msg = f'Invalid mill hash: {_truncate(s)!r}'
+        raise ValueError(msg)
+    return s
+
+
+def _check_timestamp(s: str) -> str:
+    if not validate_timestamp(s):
+        msg = f'Invalid timestamp: {_truncate(s)!r}'
+        raise ValueError(msg)
+    return s
+
+
+def _check_public_key(s: str) -> str:
+    if not validate_public_key(s):
+        msg = f'Invalid public key: {_truncate(s)!r}'
+        raise ValueError(msg)
+    return s
+
+
+AddressType = Annotated[str, AfterValidator(_check_address_format)]
+Base64Type = Annotated[str, AfterValidator(_check_base64)]
+MillHashType = Annotated[str, AfterValidator(_check_mill_hash)]
+TimestampType = Annotated[str, AfterValidator(_check_timestamp)]
+PublicKeyType = Annotated[str, AfterValidator(_check_public_key)]
+
+
+class _ErrorsAware(Protocol):
+    """Anything with an .errors() method returning Pydantic-shaped error dicts.
+
+    Pydantic's ValidationError implements this; synthetic test fakes can
+    satisfy it without subclassing.
+    """
+
+    def errors(self) -> list[dict[str, Any]]: ...
+
+
+def pydantic_errors_to_messages(e: _ErrorsAware) -> dict[str, Any]:
+    """Convert Pydantic ValidationError to Marshmallow-shaped messages.
+
+    Accepts any object that satisfies the _ErrorsAware Protocol (duck-typed),
+    so synthetic test fakes work without subclassing PydanticValidationError.
+
+    Rebuilds a nested dict from Pydantic's flat err['loc'] tuples so
+    api.py's make_error_response and the InvalidBlockError({...: e.messages})
+    re-raise wrappers see the same nested layout downstream consumers
+    already render. List indices in `loc` are stringified, since the
+    resulting dict will be JSON-serialized to clients anyway (Marshmallow
+    keeps integer keys in-Python; we don't — they're indistinguishable
+    on the wire).
+
+    When two errors share a prefix such that one path terminates at a
+    node that the other treats as internal (rare but possible with
+    discriminated unions or before-validators), the leaf messages are
+    kept under a '_self' sentinel key so neither error is lost.
+
+    Example output for outflows[0].amount failing Field(ge=1):
+        {'outflows': {'0': {'amount': ['Input should be >= 1']}}}
+    """
+    result: dict[str, Any] = {}
+    for err in e.errors():
+        loc = err.get('loc', ())
+        msg = err.get('msg', 'invalid')
+        if not loc:
+            result.setdefault('_schema', []).append(msg)
+            continue
+        current = result
+        for part in loc[:-1]:
+            key = str(part)
+            existing = current.get(key)
+            if isinstance(existing, dict):
+                pass  # walk into it
+            elif isinstance(existing, list):
+                # Prior leaf at this position — preserve it under _self.
+                current[key] = {'_self': existing}
+            else:
+                current[key] = {}
+            current = current[key]
+        last_key = str(loc[-1])
+        existing_leaf = current.get(last_key)
+        if isinstance(existing_leaf, dict):
+            # Prior nesting under this key — append msg to _self list.
+            existing_leaf.setdefault('_self', []).append(msg)
+        else:
+            current.setdefault(last_key, []).append(msg)
+    return result
