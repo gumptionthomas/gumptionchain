@@ -5,7 +5,8 @@ from dataclasses import asdict
 from typing import Annotated, Any
 
 from marshmallow import Schema, fields, post_dump, validate
-from pydantic import AfterValidator, ValidationError
+from pydantic import AfterValidator
+from pydantic import ValidationError as PydanticValidationError
 
 from cancelchain.exceptions import InvalidKeyError
 from cancelchain.util import iso_2_dt
@@ -180,7 +181,7 @@ TimestampType = Annotated[str, AfterValidator(_check_timestamp)]
 PublicKeyType = Annotated[str, AfterValidator(_check_public_key)]
 
 
-def pydantic_errors_to_messages(e: ValidationError) -> dict[str, Any]:
+def pydantic_errors_to_messages(e: PydanticValidationError) -> dict[str, Any]:
     """Convert Pydantic ValidationError to Marshmallow-shaped messages.
 
     Rebuilds a nested dict from Pydantic's flat err['loc'] tuples so
