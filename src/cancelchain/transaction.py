@@ -7,8 +7,9 @@ from datetime import datetime
 from json import JSONDecodeError
 from typing import Annotated, Any, Literal, Self
 
+from marshmallow import ValidationError as MarshmallowValidationError
 from marshmallow import fields as ma_fields
-from marshmallow import post_load, validate
+from marshmallow import post_load, validate, validates_schema
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -84,6 +85,11 @@ class TransactionSchema(SansNoneSchema):
     version = ma_fields.String(
         required=True, validate=validate.Equal(VERSION_1)
     )
+
+    @validates_schema
+    def validate_pk_address(self, data: dict[str, Any], **kwargs: Any) -> None:
+        if not validate_address(data.get('public_key'), data.get('address')):
+            raise MarshmallowValidationError(ADDRESS_MISMATCH_MSG)
 
     @post_load
     def make_transaction(
