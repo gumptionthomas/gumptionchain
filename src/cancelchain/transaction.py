@@ -1,18 +1,26 @@
 from __future__ import annotations
 
-# mypy: disable-error-code="no-untyped-call,no-any-return"
+# mypy: disable-error-code="no-untyped-call,no-any-return,arg-type"
+# NOTE: The Marshmallow import block and shim classes (TransactionSchema,
+# _InflowSchemaShim, _OutflowSchemaShim) are kept solely because block.py
+# uses fields.Nested(TransactionSchema) inside BlockSchema, which requires
+# a real Marshmallow Schema subclass. PR-4 swaps block.py to Pydantic and
+# removes the shims + this directive in the same commit. Do NOT add new
+# callers; use the Pydantic models below.
 from collections.abc import Generator, Iterator, MutableSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from json import JSONDecodeError
-from typing import Any, Self
+from typing import Annotated, Any, Final, Literal, Self
 
-from marshmallow import (
+from marshmallow import fields as ma_fields
+from marshmallow import post_load, validate
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
     ValidationError,
-    fields,
-    post_load,
-    validate,
-    validates_schema,
+    model_validator,
 )
 
 from cancelchain.exceptions import (
@@ -30,48 +38,90 @@ from cancelchain.models import (
     PendingTxnDAO,
     TransactionDAO,
 )
-from cancelchain.payload import Inflow, InflowSchema, Outflow, OutflowSchema
+from cancelchain.payload import Inflow, InflowModel, Outflow, OutflowModel
 from cancelchain.schema import (
     Address,
+    AddressType,
     Base64,
+    Base64Type,
     MillHash,
+    MillHashType,
     PublicKey,
+    PublicKeyType,
     SansNoneSchema,
     Timestamp,
+    TimestampType,
     asdict_sans_none,
+    pydantic_errors_to_messages,
     validate_address,
     validate_signature,
 )
 from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
 from cancelchain.wallet import Wallet
 
-VERSION_1 = '1'
+# Final required for `Literal[VERSION_1]` to type-check under mypy strict.
+# mypy 2.x: use the string literal directly in model field annotations
+# (Literal[VERSION_1] triggers "invalid Literal parameter" under mypy 2.1).
+VERSION_1: Final = '1'
 MAX_FLOWS = 50
 ADDRESS_MISMATCH_MSG = 'Address/public key mismatch'
 
 
+# ---------------------------------------------------------------------------
+# Marshmallow shims — kept for block.py's BlockSchema.txns field which uses
+# fields.Nested(TransactionSchema). PR-4 removes these when it swaps block.py
+# to BlockModel. Do NOT use these in new code.
+# ---------------------------------------------------------------------------
+
+
+class _InflowSchemaShim(SansNoneSchema):
+    """Minimal Marshmallow shim for BlockSchema → TransactionSchema nesting."""
+
+    outflow_txid = MillHash(required=True)
+    outflow_idx = ma_fields.Integer(
+        required=True, validate=validate.Range(min=0)
+    )
+
+    @post_load
+    def make_inflow(self, data: dict[str, Any], **kwargs: Any) -> Inflow:
+        return Inflow(**data)
+
+
+class _OutflowSchemaShim(SansNoneSchema):
+    """Minimal Marshmallow shim for BlockSchema → TransactionSchema nesting."""
+
+    amount = ma_fields.Integer(required=True, validate=validate.Range(min=1))
+    address = Address()
+    subject = ma_fields.String()
+    forgive = ma_fields.String()
+    support = ma_fields.String()
+
+    @post_load
+    def make_outflow(self, data: dict[str, Any], **kwargs: Any) -> Outflow:
+        return Outflow(**data)
+
+
 class TransactionSchema(SansNoneSchema):
+    """Marshmallow shim kept for block.py; removed by PR-4."""
+
     timestamp = Timestamp(required=True)
     txid = MillHash(required=True)
     address = Address(required=True)
     public_key = PublicKey(required=True)
     signature = Base64(required=False)
-    inflows = fields.List(
-        fields.Nested(InflowSchema),
+    inflows = ma_fields.List(
+        ma_fields.Nested(_InflowSchemaShim),
         required=True,
         validate=validate.Length(min=0, max=MAX_FLOWS),
     )
-    outflows = fields.List(
-        fields.Nested(OutflowSchema),
+    outflows = ma_fields.List(
+        ma_fields.Nested(_OutflowSchemaShim),
         required=True,
         validate=validate.Length(min=1, max=MAX_FLOWS),
     )
-    version = fields.String(required=True, validate=validate.Equal(VERSION_1))
-
-    @validates_schema
-    def validate_pk_address(self, data: dict[str, Any], **kwargs: Any) -> None:
-        if not validate_address(data.get('public_key'), data.get('address')):
-            raise ValidationError(ADDRESS_MISMATCH_MSG)
+    version = ma_fields.String(
+        required=True, validate=validate.Equal(VERSION_1)
+    )
 
     @post_load
     def make_transaction(
@@ -80,25 +130,56 @@ class TransactionSchema(SansNoneSchema):
         return Transaction(**data)
 
 
-class RegularTransactionSchema(TransactionSchema):
-    inflows = fields.List(
-        fields.Nested(InflowSchema),
-        required=True,
-        validate=validate.Length(min=1, max=MAX_FLOWS),
-    )
+# ---------------------------------------------------------------------------
+# Pydantic v2 models — canonical validators for all new callers.
+# ---------------------------------------------------------------------------
 
 
-class CoinbaseTransactionSchema(TransactionSchema):
-    inflows = fields.List(
-        fields.Nested(InflowSchema),
-        required=True,
-        validate=validate.Length(equal=0),
-    )
-    outflows = fields.List(
-        fields.Nested(OutflowSchema),
-        required=True,
-        validate=validate.Length(min=1, max=4),
-    )
+def txn_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a TransactionModel.model_dump() dict's nested lists from
+    list[dict] to list[Inflow] / list[Outflow] before passing to the
+    Transaction dataclass constructor.
+
+    Public — PR-4 (block.py) imports this to reconstruct nested
+    Transactions from BlockModel.model_dump() output.
+    """
+    data['inflows'] = [Inflow(**i) for i in data.get('inflows', [])]
+    data['outflows'] = [Outflow(**o) for o in data.get('outflows', [])]
+    return data
+
+
+class TransactionModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    timestamp: TimestampType
+    txid: MillHashType
+    address: AddressType
+    public_key: PublicKeyType
+    signature: Base64Type | None = None
+    inflows: Annotated[
+        list[InflowModel], Field(min_length=0, max_length=MAX_FLOWS)
+    ]
+    outflows: Annotated[
+        list[OutflowModel], Field(min_length=1, max_length=MAX_FLOWS)
+    ]
+    version: Literal['1']
+
+    @model_validator(mode='after')
+    def validate_pk_address(self) -> Self:
+        if not validate_address(self.public_key, self.address):
+            raise ValueError(ADDRESS_MISMATCH_MSG)
+        return self
+
+
+class RegularTransactionModel(TransactionModel):
+    inflows: Annotated[
+        list[InflowModel], Field(min_length=1, max_length=MAX_FLOWS)
+    ]
+
+
+class CoinbaseTransactionModel(TransactionModel):
+    inflows: Annotated[list[InflowModel], Field(min_length=0, max_length=0)]
+    outflows: Annotated[list[OutflowModel], Field(min_length=1, max_length=4)]
 
 
 @dataclass(order=True)
@@ -204,12 +285,13 @@ class Transaction:
             raise InvalidSignatureError()
 
     def validate(self, coinbase: bool = False) -> None:  # noqa: FBT001
-        if coinbase:
-            errors = CoinbaseTransactionSchema().validate(self.to_dict())
-        else:
-            errors = RegularTransactionSchema().validate(self.to_dict())
-        if errors:
-            raise InvalidTransactionError(errors)
+        Model = (  # noqa: N806
+            CoinbaseTransactionModel if coinbase else RegularTransactionModel
+        )
+        try:
+            Model.model_validate(self.to_dict())
+        except ValidationError as e:
+            raise InvalidTransactionError(pydantic_errors_to_messages(e)) from e
         self.validate_signature()
         self.validate_txid()
 
@@ -220,7 +302,9 @@ class Transaction:
         return asdict_sans_none(self)
 
     def to_json(self) -> str:
-        return TransactionSchema().dumps(self.to_dict())
+        return TransactionModel.model_validate(self.to_dict()).model_dump_json(
+            exclude_none=True
+        )
 
     def to_dao(self) -> TransactionDAO:
         # to_dao() is only meaningful after the txn has been sealed: txid
@@ -253,14 +337,14 @@ class Transaction:
             public_key=self.public_key,
             signature=self.signature,
             inflow_daos=[
-                InflowDAO(txid, idx, inflow.outflow_txid, inflow.outflow_idx)  # type: ignore[arg-type]
+                InflowDAO(txid, idx, inflow.outflow_txid, inflow.outflow_idx)
                 for idx, inflow in enumerate(self.inflows)
             ],
             outflow_daos=[
                 OutflowDAO(
                     txid,
                     idx,
-                    outflow.amount,  # type: ignore[arg-type]
+                    outflow.amount,
                     address=outflow.address,
                     subject=outflow.subject,
                     forgive=outflow.forgive,
@@ -279,18 +363,20 @@ class Transaction:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         try:
-            return TransactionSchema().load(d)
+            model = TransactionModel.model_validate(d)
         except ValidationError as e:
-            raise InvalidTransactionError(e.messages)
+            raise InvalidTransactionError(pydantic_errors_to_messages(e)) from e
+        return cls(**txn_from_model_data(model.model_dump()))
 
     @classmethod
-    def from_json(cls, j: str) -> Self:
+    def from_json(cls, j: str | bytes) -> Self:
         try:
-            return TransactionSchema().loads(j)
-        except JSONDecodeError as je:
-            raise InvalidTransactionError(je.msg)
-        except ValidationError as ve:
-            raise InvalidTransactionError(ve.messages)
+            model = TransactionModel.model_validate_json(j)
+        except ValidationError as e:
+            raise InvalidTransactionError(pydantic_errors_to_messages(e)) from e
+        except JSONDecodeError as e:
+            raise InvalidTransactionError(str(e)) from e
+        return cls(**txn_from_model_data(model.model_dump()))
 
     @classmethod
     def from_dao(cls, dao: Any) -> Self:
@@ -392,7 +478,7 @@ class PendingTxnSet(MutableSet[Transaction]):
         )
         dao.commit()
         for inflow in txn.inflows:
-            ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)  # type: ignore[arg-type]
+            ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)
             if ioflow_txn_dao is None:
                 continue
             # outflow_idx may exceed the source txn's outflow count
