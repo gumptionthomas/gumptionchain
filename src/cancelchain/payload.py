@@ -26,7 +26,7 @@ from cancelchain.schema import (
     MillHash,
     MillHashType,
     SansNoneSchema,
-    _truncate,
+    truncate,
 )
 
 MIN_SUBJECT_LENGTH = 1
@@ -164,7 +164,7 @@ class Inflow:
 
 def _check_subject(s: str) -> str:
     if not validate_subject(s):
-        msg = f'Invalid subject: {_truncate(s)!r}'
+        msg = f'Invalid subject: {truncate(s)!r}'
         raise ValueError(msg)
     return s
 
