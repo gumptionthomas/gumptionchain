@@ -195,11 +195,11 @@ PublicKeyType = Annotated[str, AfterValidator(_check_public_key)]
 class _ErrorsAware(Protocol):
     """Anything with an .errors() method returning Pydantic-shaped error dicts.
 
-    Pydantic's ValidationError implements this; synthetic test fakes can
-    satisfy it without subclassing.
+    Pydantic's ValidationError implements this (returns list[ErrorDetails]);
+    synthetic test fakes can satisfy it without subclassing.
     """
 
-    def errors(self) -> list[dict[str, Any]]: ...
+    def errors(self) -> list[Any]: ...
 
 
 def pydantic_errors_to_messages(e: _ErrorsAware) -> dict[str, Any]:

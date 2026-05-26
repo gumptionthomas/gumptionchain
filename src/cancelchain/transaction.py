@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-# mypy: disable-error-code="no-untyped-call,no-any-return,arg-type"
-# NOTE: The Marshmallow import block and shim classes (TransactionSchema,
-# _InflowSchemaShim, _OutflowSchemaShim) are kept solely because block.py
-# uses fields.Nested(TransactionSchema) inside BlockSchema, which requires
-# a real Marshmallow Schema subclass. PR-4 swaps block.py to Pydantic and
-# removes the shims + this directive in the same commit. Do NOT add new
-# callers; use the Pydantic models below.
+# mypy: disable-error-code="no-untyped-call,no-any-return"
 from collections.abc import Generator, Iterator, MutableSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from json import JSONDecodeError
-from typing import Annotated, Any, Final, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from marshmallow import fields as ma_fields
 from marshmallow import post_load, validate
@@ -38,7 +32,14 @@ from cancelchain.models import (
     PendingTxnDAO,
     TransactionDAO,
 )
-from cancelchain.payload import Inflow, InflowModel, Outflow, OutflowModel
+from cancelchain.payload import (
+    Inflow,
+    InflowModel,
+    InflowSchema,
+    Outflow,
+    OutflowModel,
+    OutflowSchema,
+)
 from cancelchain.schema import (
     Address,
     AddressType,
@@ -59,63 +60,24 @@ from cancelchain.schema import (
 from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
 from cancelchain.wallet import Wallet
 
-# Final required for `Literal[VERSION_1]` to type-check under mypy strict.
-# mypy 2.x: use the string literal directly in model field annotations
-# (Literal[VERSION_1] triggers "invalid Literal parameter" under mypy 2.1).
-VERSION_1: Final = '1'
+VERSION_1 = '1'
 MAX_FLOWS = 50
 ADDRESS_MISMATCH_MSG = 'Address/public key mismatch'
 
 
-# ---------------------------------------------------------------------------
-# Marshmallow shims — kept for block.py's BlockSchema.txns field which uses
-# fields.Nested(TransactionSchema). PR-4 removes these when it swaps block.py
-# to BlockModel. Do NOT use these in new code.
-# ---------------------------------------------------------------------------
-
-
-class _InflowSchemaShim(SansNoneSchema):
-    """Minimal Marshmallow shim for BlockSchema → TransactionSchema nesting."""
-
-    outflow_txid = MillHash(required=True)
-    outflow_idx = ma_fields.Integer(
-        required=True, validate=validate.Range(min=0)
-    )
-
-    @post_load
-    def make_inflow(self, data: dict[str, Any], **kwargs: Any) -> Inflow:
-        return Inflow(**data)
-
-
-class _OutflowSchemaShim(SansNoneSchema):
-    """Minimal Marshmallow shim for BlockSchema → TransactionSchema nesting."""
-
-    amount = ma_fields.Integer(required=True, validate=validate.Range(min=1))
-    address = Address()
-    subject = ma_fields.String()
-    forgive = ma_fields.String()
-    support = ma_fields.String()
-
-    @post_load
-    def make_outflow(self, data: dict[str, Any], **kwargs: Any) -> Outflow:
-        return Outflow(**data)
-
-
 class TransactionSchema(SansNoneSchema):
-    """Marshmallow shim kept for block.py; removed by PR-4."""
-
     timestamp = Timestamp(required=True)
     txid = MillHash(required=True)
     address = Address(required=True)
     public_key = PublicKey(required=True)
     signature = Base64(required=False)
     inflows = ma_fields.List(
-        ma_fields.Nested(_InflowSchemaShim),
+        ma_fields.Nested(InflowSchema),
         required=True,
         validate=validate.Length(min=0, max=MAX_FLOWS),
     )
     outflows = ma_fields.List(
-        ma_fields.Nested(_OutflowSchemaShim),
+        ma_fields.Nested(OutflowSchema),
         required=True,
         validate=validate.Length(min=1, max=MAX_FLOWS),
     )
@@ -337,14 +299,14 @@ class Transaction:
             public_key=self.public_key,
             signature=self.signature,
             inflow_daos=[
-                InflowDAO(txid, idx, inflow.outflow_txid, inflow.outflow_idx)
+                InflowDAO(txid, idx, inflow.outflow_txid, inflow.outflow_idx)  # type: ignore[arg-type]
                 for idx, inflow in enumerate(self.inflows)
             ],
             outflow_daos=[
                 OutflowDAO(
                     txid,
                     idx,
-                    outflow.amount,
+                    outflow.amount,  # type: ignore[arg-type]
                     address=outflow.address,
                     subject=outflow.subject,
                     forgive=outflow.forgive,
@@ -478,7 +440,7 @@ class PendingTxnSet(MutableSet[Transaction]):
         )
         dao.commit()
         for inflow in txn.inflows:
-            ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)
+            ioflow_txn_dao = TransactionDAO.get(inflow.outflow_txid)  # type: ignore[arg-type]
             if ioflow_txn_dao is None:
                 continue
             # outflow_idx may exceed the source txn's outflow count

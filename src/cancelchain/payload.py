@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+# mypy: disable-error-code="no-untyped-call,no-any-return"
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
-from typing import Annotated, Self
+from typing import Annotated, Any, Self
 
+from marshmallow import (
+    ValidationError,
+    fields,
+    post_load,
+    validate,
+    validates_schema,
+)
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -12,7 +20,14 @@ from pydantic import (
     model_validator,
 )
 
-from cancelchain.schema import AddressType, MillHashType, truncate
+from cancelchain.schema import (
+    Address,
+    AddressType,
+    MillHash,
+    MillHashType,
+    SansNoneSchema,
+    truncate,
+)
 
 MIN_SUBJECT_LENGTH = 1
 MAX_SUBJECT_LENGTH = 79
@@ -49,6 +64,40 @@ def validate_raw_subject(raw_subject: str) -> bool:
     except Exception:
         pass
     return False
+
+
+class Subject(fields.String):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.validators.insert(0, validate_subject)
+
+
+class OutflowSchema(SansNoneSchema):
+    amount = fields.Integer(required=True, validate=validate.Range(min=1))
+    address = Address()
+    subject = Subject()
+    forgive = Subject()
+    support = Subject()
+
+    @validates_schema
+    def validate_destinations(
+        self, data: dict[str, Any], **kwargs: Any
+    ) -> None:
+        address = data.get('address')
+        options = [
+            v
+            for v in [data.get(n) for n in ('subject', 'forgive', 'support')]
+            if v is not None
+        ]
+        if not (
+            (address and not options)
+            or (options and len(options) == 1 and not address)
+        ):
+            raise ValidationError(INVALID_DESTINATION_MSG)
+
+    @post_load
+    def make_outflow(self, data: dict[str, Any], **kwargs: Any) -> Outflow:
+        return Outflow(**data)
 
 
 @dataclass
@@ -90,6 +139,15 @@ class Outflow:
         return 0
 
 
+class InflowSchema(SansNoneSchema):
+    outflow_txid = MillHash(required=True)
+    outflow_idx = fields.Integer(required=True, validate=validate.Range(min=0))
+
+    @post_load
+    def make_inflow(self, data: dict[str, Any], **kwargs: Any) -> Inflow:
+        return Inflow(**data)
+
+
 @dataclass
 class Inflow:
     outflow_txid: str | None = None
@@ -100,6 +158,10 @@ class Inflow:
         return ','.join([str(self.outflow_txid), str(self.outflow_idx)])
 
 
+# --- Pydantic v2 models (used by PR-3 onwards). The Marshmallow
+# Schemas above stay in place until PR-3 swaps transaction.py.
+
+
 def _check_subject(s: str) -> str:
     if not validate_subject(s):
         msg = f'Invalid subject: {truncate(s)!r}'
@@ -107,7 +169,7 @@ def _check_subject(s: str) -> str:
     return s
 
 
-Subject = Annotated[str, AfterValidator(_check_subject)]
+SubjectType = Annotated[str, AfterValidator(_check_subject)]
 
 
 class OutflowModel(BaseModel):
@@ -115,9 +177,9 @@ class OutflowModel(BaseModel):
 
     amount: int = Field(ge=1)
     address: AddressType | None = None
-    subject: Subject | None = None
-    forgive: Subject | None = None
-    support: Subject | None = None
+    subject: SubjectType | None = None
+    forgive: SubjectType | None = None
+    support: SubjectType | None = None
 
     @model_validator(mode='after')
     def validate_destinations(self) -> Self:
