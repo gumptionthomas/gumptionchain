@@ -1,17 +1,9 @@
 from __future__ import annotations
 
-# mypy: disable-error-code="no-untyped-call,no-any-return"
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
-from typing import Annotated, Any, Self
+from typing import Annotated, Self
 
-from marshmallow import (
-    ValidationError,
-    fields,
-    post_load,
-    validate,
-    validates_schema,
-)
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -21,11 +13,8 @@ from pydantic import (
 )
 
 from cancelchain.schema import (
-    Address,
     AddressType,
-    MillHash,
     MillHashType,
-    SansNoneSchema,
     truncate,
 )
 
@@ -66,38 +55,45 @@ def validate_raw_subject(raw_subject: str) -> bool:
     return False
 
 
-class Subject(fields.String):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.validators.insert(0, validate_subject)
+def _check_subject(s: str) -> str:
+    if not validate_subject(s):
+        msg = f'Invalid subject: {truncate(s)!r}'
+        raise ValueError(msg)
+    return s
 
 
-class OutflowSchema(SansNoneSchema):
-    amount = fields.Integer(required=True, validate=validate.Range(min=1))
-    address = Address()
-    subject = Subject()
-    forgive = Subject()
-    support = Subject()
+Subject = Annotated[str, AfterValidator(_check_subject)]
 
-    @validates_schema
-    def validate_destinations(
-        self, data: dict[str, Any], **kwargs: Any
-    ) -> None:
-        address = data.get('address')
+
+class OutflowModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    amount: int = Field(ge=1)
+    address: AddressType | None = None
+    subject: Subject | None = None
+    forgive: Subject | None = None
+    support: Subject | None = None
+
+    @model_validator(mode='after')
+    def validate_destinations(self) -> Self:
         options = [
             v
-            for v in [data.get(n) for n in ('subject', 'forgive', 'support')]
+            for v in (self.subject, self.forgive, self.support)
             if v is not None
         ]
         if not (
-            (address and not options)
-            or (options and len(options) == 1 and not address)
+            (self.address and not options)
+            or (options and len(options) == 1 and not self.address)
         ):
-            raise ValidationError(INVALID_DESTINATION_MSG)
+            raise ValueError(INVALID_DESTINATION_MSG)
+        return self
 
-    @post_load
-    def make_outflow(self, data: dict[str, Any], **kwargs: Any) -> Outflow:
-        return Outflow(**data)
+
+class InflowModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    outflow_txid: MillHashType
+    outflow_idx: int = Field(ge=0)
 
 
 @dataclass
@@ -139,15 +135,6 @@ class Outflow:
         return 0
 
 
-class InflowSchema(SansNoneSchema):
-    outflow_txid = MillHash(required=True)
-    outflow_idx = fields.Integer(required=True, validate=validate.Range(min=0))
-
-    @post_load
-    def make_inflow(self, data: dict[str, Any], **kwargs: Any) -> Inflow:
-        return Inflow(**data)
-
-
 @dataclass
 class Inflow:
     outflow_txid: str | None = None
@@ -156,48 +143,3 @@ class Inflow:
     @property
     def data_csv(self) -> str:
         return ','.join([str(self.outflow_txid), str(self.outflow_idx)])
-
-
-# --- Pydantic v2 models (used by PR-3 onwards). The Marshmallow
-# Schemas above stay in place until PR-3 swaps transaction.py.
-
-
-def _check_subject(s: str) -> str:
-    if not validate_subject(s):
-        msg = f'Invalid subject: {truncate(s)!r}'
-        raise ValueError(msg)
-    return s
-
-
-SubjectType = Annotated[str, AfterValidator(_check_subject)]
-
-
-class OutflowModel(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    amount: int = Field(ge=1)
-    address: AddressType | None = None
-    subject: SubjectType | None = None
-    forgive: SubjectType | None = None
-    support: SubjectType | None = None
-
-    @model_validator(mode='after')
-    def validate_destinations(self) -> Self:
-        options = [
-            v
-            for v in (self.subject, self.forgive, self.support)
-            if v is not None
-        ]
-        if not (
-            (self.address and not options)
-            or (options and len(options) == 1 and not self.address)
-        ):
-            raise ValueError(INVALID_DESTINATION_MSG)
-        return self
-
-
-class InflowModel(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    outflow_txid: MillHashType
-    outflow_idx: int = Field(ge=0)

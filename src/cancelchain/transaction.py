@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# mypy: disable-error-code="no-untyped-call,no-any-return"
 import json
 from collections.abc import Generator, Iterator, MutableSet
 from dataclasses import dataclass, field
@@ -8,9 +7,6 @@ from datetime import datetime
 from json import JSONDecodeError
 from typing import Annotated, Any, Literal, Self
 
-from marshmallow import ValidationError as MarshmallowValidationError
-from marshmallow import fields as ma_fields
-from marshmallow import post_load, validate, validates_schema
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -37,22 +33,14 @@ from cancelchain.models import (
 from cancelchain.payload import (
     Inflow,
     InflowModel,
-    InflowSchema,
     Outflow,
     OutflowModel,
-    OutflowSchema,
 )
 from cancelchain.schema import (
-    Address,
     AddressType,
-    Base64,
     Base64Type,
-    MillHash,
     MillHashType,
-    PublicKey,
     PublicKeyType,
-    SansNoneSchema,
-    Timestamp,
     TimestampType,
     asdict_sans_none,
     pydantic_errors_to_messages,
@@ -67,40 +55,8 @@ MAX_FLOWS = 50
 ADDRESS_MISMATCH_MSG = 'Address/public key mismatch'
 
 
-class TransactionSchema(SansNoneSchema):
-    timestamp = Timestamp(required=True)
-    txid = MillHash(required=True)
-    address = Address(required=True)
-    public_key = PublicKey(required=True)
-    signature = Base64(required=False)
-    inflows = ma_fields.List(
-        ma_fields.Nested(InflowSchema),
-        required=True,
-        validate=validate.Length(min=0, max=MAX_FLOWS),
-    )
-    outflows = ma_fields.List(
-        ma_fields.Nested(OutflowSchema),
-        required=True,
-        validate=validate.Length(min=1, max=MAX_FLOWS),
-    )
-    version = ma_fields.String(
-        required=True, validate=validate.Equal(VERSION_1)
-    )
-
-    @validates_schema
-    def validate_pk_address(self, data: dict[str, Any], **kwargs: Any) -> None:
-        if not validate_address(data.get('public_key'), data.get('address')):
-            raise MarshmallowValidationError(ADDRESS_MISMATCH_MSG)
-
-    @post_load
-    def make_transaction(
-        self, data: dict[str, Any], **kwargs: Any
-    ) -> Transaction:
-        return Transaction(**data)
-
-
 # ---------------------------------------------------------------------------
-# Pydantic v2 models — canonical validators for all new callers.
+# Pydantic v2 models — canonical validators for all callers.
 # ---------------------------------------------------------------------------
 
 

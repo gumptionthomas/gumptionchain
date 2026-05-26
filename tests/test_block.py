@@ -155,7 +155,7 @@ def test_too_many_txns(reward, subject, txid, wallet):
     block.seal(wallet, reward)
     block.mill()
     with pytest.raises(
-        InvalidBlockError, match='Length must be between 1 and 100'
+        InvalidBlockError, match='List should have at most 100 items'
     ):
         block.validate()
 

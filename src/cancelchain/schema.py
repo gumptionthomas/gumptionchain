@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-# mypy: disable-error-code="no-untyped-call,no-any-return"
 from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Annotated, Any, Protocol
 
-from marshmallow import Schema, fields, post_dump, validate
 from pydantic import AfterValidator
 from pydantic_core import ErrorDetails
 
@@ -91,50 +89,7 @@ def validate_timestamp(s: str) -> bool:
     return False
 
 
-class Address(fields.String):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.validators.insert(0, validate_address_format)
-
-
-class Base64(fields.String):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.validators.insert(0, validate_base64)
-
-
-class MillHash(Base64):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.validators.insert(0, validate.Length(equal=64))
-
-
-class Timestamp(fields.String):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.validators.insert(0, validate_timestamp)
-
-
-class PublicKey(Base64):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.validators.insert(0, validate_public_key)
-
-
-class SansNoneSchema(Schema):
-    @post_dump
-    def remove_none_values(
-        self, data: dict[str, Any], **kwargs: Any
-    ) -> dict[str, Any]:
-        return {k: v for k, v in data.items() if v is not None}
-
-
 # --- Pydantic v2 custom type aliases (introduced in Phase 4 / PR-1).
-# Names get a *Type suffix to avoid colliding with the Marshmallow
-# field classes above, which are still used as callables by payload.py,
-# transaction.py, and block.py until PRs 3 and 4 swap them out. PR-6
-# deletes the Marshmallow classes; the *Type aliases are permanent.
-#
 # AfterValidator runs after Pydantic's built-in coercion; the callback
 # either returns the value (possibly transformed) or raises ValueError,
 # which Pydantic wraps into a ValidationError for the caller.

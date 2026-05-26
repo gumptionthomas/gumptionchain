@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-# mypy: disable-error-code="no-untyped-call,no-any-return"
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from json import JSONDecodeError
-from typing import Any, Self
+from typing import Annotated, Any, Literal, Self
 
-from marshmallow import (
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
     ValidationError,
-    fields,
-    post_load,
-    validate,
-    validates_schema,
+    model_validator,
 )
 from pymerkle import InmemoryTree, InvalidProof, verify_inclusion
 
@@ -32,12 +32,16 @@ from cancelchain.exceptions import (
 from cancelchain.milling import mill_hash_str, milling_generator
 from cancelchain.models import BlockDAO
 from cancelchain.schema import (
-    MillHash,
-    SansNoneSchema,
-    Timestamp,
+    MillHashType,
+    TimestampType,
     asdict_sans_none,
+    pydantic_errors_to_messages,
 )
-from cancelchain.transaction import Transaction, TransactionSchema
+from cancelchain.transaction import (
+    Transaction,
+    TransactionModel,
+    txn_from_model_data,
+)
 from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
 from cancelchain.wallet import Wallet
 
@@ -51,33 +55,41 @@ def validate_hash_diff(block_hash: str, target: str) -> bool:
     return int(block_hash, 16) < int(target, 16)
 
 
-class BlockSchema(SansNoneSchema):
-    idx = fields.Integer(required=True, validate=validate.Range(min=0))
-    timestamp = Timestamp(required=True)
-    block_hash = MillHash(required=True)
-    prev_hash = MillHash(required=True)
-    target = MillHash(required=True)
-    proof_of_work = fields.Integer(
-        required=True, validate=validate.Range(min=0)
-    )
-    merkle_root = MillHash(required=True)
-    txns = fields.List(
-        fields.Nested(TransactionSchema),
-        required=True,
-        validate=validate.Length(min=1, max=MAX_TRANSACTIONS),
-    )
-    version = fields.String(required=True, validate=validate.Equal(VERSION_1))
+def _block_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a BlockModel.model_dump() dict's txns list from list[dict]
+    to list[Transaction] (with nested Inflow/Outflow instances already
+    reconstructed via txn_from_model_data) before passing to the Block
+    dataclass constructor.
+    """
+    return {
+        **data,
+        'txns': [
+            Transaction(**txn_from_model_data(t)) for t in data.get('txns', [])
+        ],
+    }
 
-    @validates_schema
-    def validate_difficulty(self, data: dict[str, Any], **kwargs: Any) -> None:
-        block_hash: str = data.get('block_hash', '')
-        target: str = data.get('target', '')
-        if not validate_hash_diff(block_hash, target):
-            raise ValidationError(MISSED_TARGET_MSG)
 
-    @post_load
-    def make_block(self, data: dict[str, Any], **kwargs: Any) -> Block:
-        return Block(**data)
+class BlockModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    idx: int = Field(ge=0)
+    timestamp: TimestampType
+    block_hash: MillHashType
+    prev_hash: MillHashType
+    target: MillHashType
+    proof_of_work: int = Field(ge=0)
+    merkle_root: MillHashType
+    txns: Annotated[
+        list[TransactionModel],
+        Field(min_length=1, max_length=MAX_TRANSACTIONS),
+    ]
+    version: Literal['1']
+
+    @model_validator(mode='after')
+    def validate_difficulty(self) -> Self:
+        if not validate_hash_diff(self.block_hash, self.target):
+            raise ValueError(MISSED_TARGET_MSG)
+        return self
 
 
 @dataclass(order=True)
@@ -275,8 +287,10 @@ class Block:
             raise InvalidCoinbaseError()
 
     def validate(self) -> None:
-        if errors := BlockSchema().validate(self.to_dict()):
-            raise InvalidBlockError(errors)
+        try:
+            BlockModel.model_validate(self.to_dict())
+        except ValidationError as e:
+            raise InvalidBlockError(pydantic_errors_to_messages(e)) from e
         self.validate_block_hash()
         self.validate_merkle_root()
         prev_txn = None
@@ -295,7 +309,7 @@ class Block:
         return asdict_sans_none(self)
 
     def to_json(self) -> str:
-        return BlockSchema().dumps(self.to_dict())
+        return json.dumps(self.to_dict())
 
     def to_dao(self) -> BlockDAO:
         # to_dao() is only meaningful after the block is sealed: all
@@ -331,18 +345,20 @@ class Block:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         try:
-            return BlockSchema().load(d)
+            model = BlockModel.model_validate(d)
         except ValidationError as e:
-            raise InvalidBlockError(e.messages)
+            raise InvalidBlockError(pydantic_errors_to_messages(e)) from e
+        return cls(**_block_from_model_data(model.model_dump()))
 
     @classmethod
-    def from_json(cls, j: str) -> Self:
+    def from_json(cls, j: str | bytes) -> Self:
         try:
-            return BlockSchema().loads(j)
-        except JSONDecodeError as je:
-            raise InvalidBlockError(je.msg)
-        except ValidationError as ve:
-            raise InvalidBlockError(ve.messages)
+            model = BlockModel.model_validate_json(j)
+        except ValidationError as e:
+            raise InvalidBlockError(pydantic_errors_to_messages(e)) from e
+        except JSONDecodeError as e:
+            raise InvalidBlockError(e.msg) from e
+        return cls(**_block_from_model_data(model.model_dump()))
 
     @classmethod
     def from_dao(cls, dao: Any) -> Self:
