@@ -6,7 +6,6 @@ from typing import Annotated, Any, Protocol
 
 from marshmallow import Schema, fields, post_dump, validate
 from pydantic import AfterValidator
-from pydantic import ValidationError as PydanticValidationError  # noqa: F401
 
 from cancelchain.exceptions import InvalidKeyError
 from cancelchain.util import iso_2_dt

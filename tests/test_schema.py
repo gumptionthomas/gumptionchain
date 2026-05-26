@@ -7,16 +7,24 @@ that exception would propagate through marshmallow's validation pipeline
 and surface as a 500 instead of a structured 400.
 """
 
+from base64 import b64encode
+
 import pytest
 from pydantic import BaseModel, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from cancelchain.schema import (
+    AddressType,
+    Base64Type,
+    MillHashType,
+    PublicKeyType,
+    TimestampType,
     pydantic_errors_to_messages,
     validate_address,
     validate_public_key,
     validate_signature,
 )
+from cancelchain.util import now_iso
 
 
 def test_validate_address_returns_false_on_malformed_key():
@@ -148,3 +156,94 @@ def test_pydantic_errors_to_messages_nested_then_leaf_overlap():
     assert isinstance(result['a'], dict)
     assert result['a']['x'] == ['nested error']
     assert result['a']['_self'] == ['leaf error']
+
+
+# ---------------------------------------------------------------------------
+# *Type alias AfterValidator tests
+# ---------------------------------------------------------------------------
+
+
+def test_address_type_accepts_valid(wallet):
+    class M(BaseModel):
+        address: AddressType
+
+    m = M(address=wallet.address)
+    assert m.address == wallet.address
+
+
+def test_address_type_rejects_invalid():
+    class M(BaseModel):
+        address: AddressType
+
+    with pytest.raises(PydanticValidationError):
+        M(address='not-an-address')
+
+
+def test_base64_type_accepts_valid():
+    class M(BaseModel):
+        value: Base64Type
+
+    m = M(value='aGVsbG8=')  # 'hello' in base64
+    assert m.value == 'aGVsbG8='
+
+
+def test_base64_type_rejects_invalid():
+    class M(BaseModel):
+        value: Base64Type
+
+    with pytest.raises(PydanticValidationError):
+        M(value='not_valid_base64!@#')
+
+
+def test_mill_hash_type_accepts_valid():
+    # MillHashType requires valid base64 AND exactly 64 chars.
+    # 48 raw bytes → 64 base64 chars.
+    valid_hash = b64encode(b'A' * 48).decode()
+    assert len(valid_hash) == 64
+
+    class M(BaseModel):
+        h: MillHashType
+
+    m = M(h=valid_hash)
+    assert m.h == valid_hash
+
+
+def test_mill_hash_type_rejects_wrong_length():
+    class M(BaseModel):
+        h: MillHashType
+
+    with pytest.raises(PydanticValidationError):
+        M(h='aGVsbG8=')  # valid base64 but not 64 chars
+
+
+def test_timestamp_type_accepts_valid():
+    class M(BaseModel):
+        t: TimestampType
+
+    ts = now_iso()
+    m = M(t=ts)
+    assert m.t == ts
+
+
+def test_timestamp_type_rejects_invalid():
+    class M(BaseModel):
+        t: TimestampType
+
+    with pytest.raises(PydanticValidationError):
+        M(t='not-a-timestamp')
+
+
+def test_public_key_type_accepts_valid(wallet):
+    class M(BaseModel):
+        pk: PublicKeyType
+
+    m = M(pk=wallet.public_key_b64)
+    assert m.pk == wallet.public_key_b64
+
+
+def test_public_key_type_rejects_invalid():
+    class M(BaseModel):
+        pk: PublicKeyType
+
+    with pytest.raises(PydanticValidationError):
+        M(pk='not-a-key')
