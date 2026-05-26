@@ -22,11 +22,11 @@ Modernize the cryptographic primitives onto pyca/`cryptography` — the Rust-bac
 
 ## Decisions taken during brainstorming
 
-- **Scope: single-file swap.** All pycryptodome usage lives in `wallet.py` (207 lines). No other source consumer. One PR.
-- **Symmetric cipher: AES-GCM** replaces pycryptodome's AES-EAX. pyca/cryptography does not support EAX. The in-flight JWT challenge ciphertext is never persisted (alive for seconds during the handshake), so the wire-format change is safe.
-- **OAEP hash: SHA-256.** pycryptodome's `PKCS1_OAEP.new` defaulted to SHA-1 for both MGF1 and the algorithm. With no compat constraint, use SHA-256 — stronger, modern, no downside.
+- **Scope: single-file swap.** All pycryptodome usage lives in `wallet.py` (208 lines). No other source consumer. One PR.
+- **Symmetric cipher: AES-GCM** replaces pycryptodome's AES-EAX. pyca/cryptography does not support EAX. The JWT challenge ciphertext IS persisted briefly in `ApiToken.cipher` (DB column) — up to 60 seconds, since `ApiToken.expired` triggers `refreshed_cipher()` to regenerate a fresh challenge after that timeout. Greenfield project (no production deploy, no existing DB), so the persistence window is irrelevant for migration purposes; even in a hypothetical deployed scenario the worst case is 60s of unreadable challenges that auto-resolve on the next refresh. The wire-format change is safe.
+- **OAEP hash: SHA-256.** pycryptodome's `PKCS1_OAEP.new` defaulted to SHA-1 for both MGF1 and the algorithm. With no compat constraint, use SHA-256 — stronger, modern.
 - **Private-key PEM format: PKCS#8.** pycryptodome wrote PKCS#1 TraditionalOpenSSL for unencrypted private keys (the `pkcs=1` default in `export_private_key_pem`). Switch to PKCS#8 universally — the modern standard. The wire shape on disk changes from `-----BEGIN RSA PRIVATE KEY-----` to `-----BEGIN PRIVATE KEY-----` (or `-----BEGIN ENCRYPTED PRIVATE KEY-----` when a passphrase is supplied).
-- **Encrypted PEM uses `BestAvailableEncryption`.** pyca/cryptography's wrapper picks PBKDF2-SHA256 + AES-256-CBC (PKCS#8 standard). Stronger than pycryptodome's `scryptAndAES128-CBC` default (scrypt KDF was nice; AES-128 was the weak link).
+- **Encrypted PEM uses `BestAvailableEncryption`.** pyca/cryptography's wrapper picks PBKDF2-SHA256 + AES-256-CBC (the recommended PKCS#8 default). The current `wallet.py` explicitly configures `protection='scryptAndAES128-CBC'` (scrypt KDF + AES-128). AES-128 is still cryptographically strong; switching to AES-256 just gives a larger security margin and uses cryptography's recommended default scheme.
 - **Random bytes: `os.urandom`.** pycryptodome's `Crypto.Random.get_random_bytes(16)` becomes the stdlib `os.urandom(16)`. Same security guarantees (both backed by `/dev/urandom` on Linux, `BCryptGenRandom` on Windows). Drops one library function.
 - **Format sniffing on `import_key`.** pycryptodome's `RSA.import_key` auto-detected PEM vs DER. pyca/cryptography requires the caller to pick: `load_pem_private_key(data, password)` vs `load_der_private_key(data, password)`. Sniff: if `b'-----BEGIN'` appears within the first 30 bytes of input, route to PEM; else DER. On any exception (including format mismatch), return None — preserves the `import_key` contract.
 
@@ -265,15 +265,13 @@ Both `RSAPrivateKey` and `RSAPublicKey` expose `.key_size` as an `int` (matches 
 +  "cryptography>=44",
 ```
 
-The `[[tool.mypy.overrides]]` block for `Crypto`/`Crypto.*` becomes unused — `cryptography` ships type stubs. Drop it:
+The `[[tool.mypy.overrides]]` block for `Crypto`/`Crypto.*` is present in `pyproject.toml` at lines 162–164 (confirmed via grep). It becomes unused — `cryptography` ships type stubs — and should be deleted:
 
 ```diff
 -[[tool.mypy.overrides]]
 -module = ["Crypto", "Crypto.*"]
 -ignore_missing_imports = true
 ```
-
-(Verify by reading the current pyproject.toml — there may or may not be such a block.)
 
 ### Test fixture regeneration
 
@@ -307,7 +305,7 @@ def test_wallet_address_round_trips_through_pem(tmp_path):
     assert w1.address == w2.address
 
 
-def test_wallet_address_round_trips_through_b58(tmp_path):
+def test_wallet_address_round_trips_through_b58():
     """Freshly generated wallet → b58 → read back → same address."""
     w1 = Wallet()
     w2 = Wallet(b58ks=w1.private_key_b58)
@@ -346,17 +344,16 @@ def test_wallet_encrypted_pem_round_trip(tmp_path):
     assert w1.address == w2.address
 
 
-def test_wallet_invalid_key_raises():
-    with pytest.raises(InvalidKeyError):
-        Wallet(b64ks='not-a-key')
-
-
 def test_wallet_public_key_only_constructs(wallet):
     """Wallet(b64ks=public_key_b64) accepts a peer's public key alone.
 
     Used by api.py / schema.py / models.py to wrap a remote party's
     public key for signature verification. Private operations
     (sign, decrypt, export_private_key_*) raise NoPrivateKeyError.
+
+    Requires `from cancelchain.exceptions import NoPrivateKeyError`
+    in the test file's imports (hoist alongside the existing
+    InvalidKeyError import if not already present).
     """
     w = Wallet(b64ks=wallet.public_key_b64)
     assert w.private_key is None
@@ -370,7 +367,9 @@ def test_wallet_public_key_only_constructs(wallet):
         w.sign(b'data')
 ```
 
-Test count: 205 → ~214.
+(The existing `tests/test_wallet.py::test_create_invalid_key` already covers the `Wallet(b64ks='foo')` / `Wallet(b58ks='foo')` / `Wallet(ks='foo')` error paths — no extra invalid-key test needed in PR-5a.)
+
+Test count: 205 → 213 (8 new tests). The existing `test_crypto` may also need its `pytest.raises(ValueError)` widened to accept `cryptography.exceptions.InvalidTag` — see Risks below.
 
 ## Acceptance
 
@@ -379,7 +378,7 @@ Test count: 205 → ~214.
 - `uv run python -c "import Crypto"` raises `ModuleNotFoundError`.
 - `uv run mypy` exits 0.
 - `uv run ruff check src tests` + `ruff format --check src tests` exit 0.
-- `uv run pytest` exits 0; test count grows by 7-8.
+- `uv run pytest` exits 0; test count grows by 8 (205 → 213).
 - `uv run cancelchain --help` works.
 - `docker build --target builder -t cc-phase5a .` succeeds.
 

@@ -4,7 +4,7 @@
 
 **Goal:** Replace `pycryptodome` with `cryptography` (pyca) in `src/cancelchain/wallet.py`. After this plan completes, no `Crypto.*` imports remain anywhere in the codebase and `pycryptodome` is removed from `[project.dependencies]` and `uv.lock`.
 
-**Architecture:** Single-file swap — every `pycryptodome` consumer lives in `wallet.py` (207 lines). Public `Wallet` API surface stays identical; internal RSA / AES / hash primitives swap out. Greenfield posture: no backward-compat shims, no migration tool, no preservation of pycryptodome's PKCS#1 DER format. The four downstream wire-shape commitments — public-key DER, address mill_hash, signature determinism, and JWT challenge in-flight only — are preserved by choosing standard cryptographic primitives (SubjectPublicKeyInfo DER, PKCS1v1.5+SHA384) that produce byte-identical output to pycryptodome for the same input.
+**Architecture:** Single-file swap — every `pycryptodome` consumer lives in `wallet.py` (208 lines). Public `Wallet` API surface stays identical; internal RSA / AES / hash primitives swap out. Greenfield posture: no backward-compat shims, no migration tool, no preservation of pycryptodome's PKCS#1 DER format. The four downstream wire-shape commitments — public-key DER, address mill_hash, signature determinism, and JWT challenge ciphertext (persisted briefly in `ApiToken.cipher`, auto-refreshed every 60s on expiry, no production deploy to migrate) — are preserved by choosing standard cryptographic primitives (SubjectPublicKeyInfo DER, PKCS1v1.5+SHA384) that produce byte-identical output to pycryptodome for the same input.
 
 **Tech Stack:** `cryptography>=44` (pyca, Rust-backed), `os.urandom` for nonces/session keys, `AES-GCM` for the symmetric AEAD (replaces pycryptodome's `AES-EAX`), `OAEP-SHA256` for asymmetric session-key wrapping (replaces pycryptodome's `OAEP-SHA1` default).
 
@@ -16,7 +16,7 @@
 - `uv --version` 0.4.x or newer; `gh --version` works and `gh auth status` shows authenticated.
 - Phase 4 fully merged. Verify with `gh pr view 57 --json state --jq .state` → `MERGED`, and `grep -c 'marshmallow' pyproject.toml` → `0`.
 - The branch `docs/phase-5a-design` exists locally with the design spec already committed. This plan adds the second commit on that branch and ships both as the docs PR.
-- CI hard-gates `ruff check`, `ruff format --check`, and `mypy --strict`.
+- CI hard-gates `ruff check`, `ruff format --check`, and `mypy` (strict via `[tool.mypy] strict = true` in pyproject.toml; no CLI flag needed — `uv run mypy` honors the config).
 - Test baseline: **205 passed, 1 skipped**. Phase 5a adds ~8-9 new tests, so the final count is ~213-214 passed, 1 skipped.
 - Each PR ends with `wor` (Copilot review wait + reply) and `mwg` (merge when green); the controller handles those, not the implementer subagent.
 - Never push directly to `main`.
@@ -692,9 +692,13 @@ src/cancelchain/wallet.py:
 - PKCS1_OAEP (SHA-1 default) → padding.OAEP(mgf=MGF1(SHA256()),
   algorithm=SHA256(), label=None). Stronger hash; no compat constraint.
 - AES.MODE_EAX → AESGCM. EAX is not in pyca/cryptography. JWT
-  challenge ciphertexts are alive for seconds during the handshake
-  and never persisted, so the wire-format change is safe. New layout:
-  enc_session_key (256B) || nonce (12B) || ciphertext_with_appended_tag.
+  challenge ciphertexts ARE persisted in ApiToken.cipher (DB column)
+  but only for up to 60s, after which ApiToken.expired triggers
+  refreshed_cipher() to regenerate. Greenfield (no production DB),
+  so the persistence window is irrelevant for migration; even if
+  deployed, the cleanup is automatic on the next handshake. The
+  wire-format change is safe. New layout: enc_session_key (256B) ||
+  nonce (12B) || ciphertext_with_appended_tag.
 - Crypto.Random.get_random_bytes(N) → os.urandom(N).
 - Private-key DER and PEM serialization both switch to PKCS#8.
 - Encrypted PEM uses BestAvailableEncryption (PBKDF2-SHA256/AES-256-CBC).
