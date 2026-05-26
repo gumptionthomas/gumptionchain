@@ -2,11 +2,11 @@ from __future__ import annotations
 
 # mypy: disable-error-code="no-untyped-call,no-any-return"
 from dataclasses import asdict
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol
 
 from marshmallow import Schema, fields, post_dump, validate
 from pydantic import AfterValidator
-from pydantic import ValidationError as PydanticValidationError
+from pydantic import ValidationError as PydanticValidationError  # noqa: F401
 
 from cancelchain.exceptions import InvalidKeyError
 from cancelchain.util import iso_2_dt
@@ -181,8 +181,21 @@ TimestampType = Annotated[str, AfterValidator(_check_timestamp)]
 PublicKeyType = Annotated[str, AfterValidator(_check_public_key)]
 
 
-def pydantic_errors_to_messages(e: PydanticValidationError) -> dict[str, Any]:
+class _ErrorsAware(Protocol):
+    """Anything with an .errors() method returning Pydantic-shaped error dicts.
+
+    Pydantic's ValidationError implements this; synthetic test fakes can
+    satisfy it without subclassing.
+    """
+
+    def errors(self) -> list[dict[str, Any]]: ...
+
+
+def pydantic_errors_to_messages(e: _ErrorsAware) -> dict[str, Any]:
     """Convert Pydantic ValidationError to Marshmallow-shaped messages.
+
+    Accepts any object that satisfies the _ErrorsAware Protocol (duck-typed),
+    so synthetic test fakes work without subclassing PydanticValidationError.
 
     Rebuilds a nested dict from Pydantic's flat err['loc'] tuples so
     api.py's make_error_response and the InvalidBlockError({...: e.messages})

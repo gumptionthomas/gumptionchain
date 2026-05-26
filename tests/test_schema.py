@@ -7,7 +7,12 @@ that exception would propagate through marshmallow's validation pipeline
 and surface as a 500 instead of a structured 400.
 """
 
+import pytest
+from pydantic import BaseModel, Field, model_validator
+from pydantic import ValidationError as PydanticValidationError
+
 from cancelchain.schema import (
+    pydantic_errors_to_messages,
     validate_address,
     validate_public_key,
     validate_signature,
@@ -42,10 +47,6 @@ def test_validate_signature_returns_false_on_empty_key():
 # pydantic_errors_to_messages
 # ---------------------------------------------------------------------------
 
-from pydantic import BaseModel, Field, model_validator  # noqa: E402
-
-from cancelchain.schema import pydantic_errors_to_messages  # noqa: E402
-
 
 def test_pydantic_errors_to_messages_simple_field():
     """Single field error produces a flat dict with a list of messages."""
@@ -53,13 +54,9 @@ def test_pydantic_errors_to_messages_simple_field():
     class M(BaseModel):
         amount: int = Field(ge=1)
 
-    try:
+    with pytest.raises(PydanticValidationError) as exc_info:
         M.model_validate({'amount': 0})
-        raise AssertionError
-    except AssertionError:
-        raise
-    except Exception as exc:
-        result = pydantic_errors_to_messages(exc)  # type: ignore[arg-type]
+    result = pydantic_errors_to_messages(exc_info.value)
 
     assert 'amount' in result
     assert isinstance(result['amount'], list)
@@ -75,13 +72,9 @@ def test_pydantic_errors_to_messages_nested():
     class Outer(BaseModel):
         outflows: list[Inner]
 
-    try:
+    with pytest.raises(PydanticValidationError) as exc_info:
         Outer.model_validate({'outflows': [{'amount': 0}]})
-        raise AssertionError
-    except AssertionError:
-        raise
-    except Exception as exc:
-        result = pydantic_errors_to_messages(exc)  # type: ignore[arg-type]
+    result = pydantic_errors_to_messages(exc_info.value)
 
     assert 'outflows' in result
     assert '0' in result['outflows']
@@ -103,13 +96,9 @@ def test_pydantic_errors_to_messages_whole_model_error():
                 raise ValueError(msg)
             return self
 
-    try:
+    with pytest.raises(PydanticValidationError) as exc_info:
         M.model_validate({'a': 5, 'b': 1})
-        raise AssertionError
-    except AssertionError:
-        raise
-    except Exception as exc:
-        result = pydantic_errors_to_messages(exc)  # type: ignore[arg-type]
+    result = pydantic_errors_to_messages(exc_info.value)
 
     assert '_schema' in result
     assert isinstance(result['_schema'], list)
@@ -139,7 +128,7 @@ def test_pydantic_errors_to_messages_leaf_then_nested_overlap():
             {'loc': ('a', 'x'), 'msg': 'nested error'},
         ]
     )
-    result = pydantic_errors_to_messages(fake)  # type: ignore[arg-type]
+    result = pydantic_errors_to_messages(fake)
 
     assert isinstance(result['a'], dict)
     assert result['a']['_self'] == ['leaf error']
@@ -154,7 +143,7 @@ def test_pydantic_errors_to_messages_nested_then_leaf_overlap():
             {'loc': ('a',), 'msg': 'leaf error'},
         ]
     )
-    result = pydantic_errors_to_messages(fake)  # type: ignore[arg-type]
+    result = pydantic_errors_to_messages(fake)
 
     assert isinstance(result['a'], dict)
     assert result['a']['x'] == ['nested error']
