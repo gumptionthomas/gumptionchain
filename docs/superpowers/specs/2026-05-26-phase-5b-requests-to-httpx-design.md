@@ -32,9 +32,12 @@ Modernize the HTTP client onto `httpx` — the de facto modern Python HTTP libra
 - **Exception mapping:**
   | requests | httpx |
   |---|---|
-  | `requests.RequestException` | `httpx.RequestError` (base for network / transport errors) |
-  | `requests.HTTPError` | `httpx.HTTPStatusError` (raised by `Response.raise_for_status()`) |
+  | `requests.RequestException` (base of all `requests` exceptions, **including** `HTTPError`) | `httpx.HTTPError` (base of all `httpx` exceptions, **including** `HTTPStatusError`) |
+  | `requests.ConnectionError` / `requests.Timeout` (network/transport only) | `httpx.RequestError` (network/transport only — sibling of `HTTPStatusError`, not its parent) |
+  | `requests.HTTPError` (4xx/5xx) | `httpx.HTTPStatusError` (raised by `Response.raise_for_status()`) |
   | `requests.exceptions.JSONDecodeError` | `json.JSONDecodeError` (httpx delegates `.json()` to stdlib) |
+
+  Naming-only mapping is a trap: `RequestException` is *not* equivalent to `RequestError` despite the similar names. `RequestException` was the broad catch-everything base; `RequestError` is narrower (network only). The correct broad-base counterpart in httpx is `HTTPError`.
 - **`tasks.py` Celery task** uses a one-shot module-level `httpx.post(url, ..., timeout=360)`. The task fires once per invocation and exits — no persistent client warranted.
 - **Tests that today call `requests.get(host, ...)` / `requests.post(...)` directly** (three tests in `test_api.py`: `test_post_token_none`, `test_post_token_invalid`, `test_no_auth`) become `requests_proxy.get(path, ...)` / `requests_proxy.post(path, ...)` against the fixture-provided client. Drops the need to build a full URL with `urljoin(host, ...)` in tests — `base_url` on the client handles it. `test_browser.py` only references `requests.codes.*` (no direct calls — it uses Flask's `test_client` already).
 - **Greenfield + supply-chain motivation.** Same posture as Phase 5a — no migration tool, no compat shims, no shipped peer endpoints to coordinate with.
@@ -45,7 +48,7 @@ Modernize the HTTP client onto `httpx` — the de facto modern Python HTTP libra
 
 **Source (`src/cancelchain/`)**
 - Modify: `src/cancelchain/api_client.py` — full rewrite of HTTP layer; adopt persistent `httpx.Client`. ~315 lines, edit-in-place. All 8 GET/POST call sites updated.
-- Modify: `src/cancelchain/node.py` — `import requests` → `import httpx`; 4 `except requests.RequestException` → `except httpx.RequestError`.
+- Modify: `src/cancelchain/node.py` — `import requests` → `import httpx`; 4 `except requests.RequestException` → `except httpx.HTTPError` (broad-base catch that includes both network errors *and* 4xx/5xx, matching the prior `RequestException` semantics).
 - Modify: `src/cancelchain/miller.py` — same swap, 1 catch site.
 - Modify: `src/cancelchain/command.py` — `import requests` → `import httpx`; 7 `except requests.HTTPError` → `except httpx.HTTPStatusError`; `requests.exceptions.JSONDecodeError` → `json.JSONDecodeError` (add `import json`); `http_error_message` signature.
 - Modify: `src/cancelchain/tasks.py` — `import requests` → `import httpx`; one-shot `httpx.post(...)`.
@@ -219,7 +222,8 @@ None at design time. The brainstorming round resolved:
 | Raise on 4xx/5xx | `r.raise_for_status()` | `r.raise_for_status()` |
 | Status code constants | `requests.codes.ok` | `httpx.codes.OK` |
 | Status code constants | `requests.codes.unauthorized` | `httpx.codes.UNAUTHORIZED` |
-| Generic transport error | `requests.RequestException` | `httpx.RequestError` |
+| Catch-all base (network + status errors) | `requests.RequestException` | `httpx.HTTPError` |
+| Network/transport only | `requests.ConnectionError` / `requests.Timeout` | `httpx.RequestError` |
 | 4xx/5xx error | `requests.HTTPError` | `httpx.HTTPStatusError` |
 | JSON decode error | `requests.exceptions.JSONDecodeError` | `json.JSONDecodeError` |
 | Test mocker | `requests_mock` | `httpx.WSGITransport(app=app)` (no third-party dep) |
