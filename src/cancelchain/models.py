@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from collections.abc import Generator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -478,6 +478,16 @@ class ChainDAO(db.Model):
     )
     block: Mapped[BlockDAO] = relationship(back_populates='chains')
 
+    # Bumped on any longest_chain_block mutation; invalidates all
+    # ChainDAO instances' cached _is_longest values within this
+    # process. Cross-worker invalidation is out of scope — see
+    # the Phase 6.5 spec's Risks section.
+    _chain_generation: ClassVar[int] = 0
+
+    @classmethod
+    def _bump_generation(cls) -> None:
+        cls._chain_generation += 1
+
     def __init__(
         self, block_hash: str, block_dao: BlockDAO | None = None
     ) -> None:
@@ -604,17 +614,31 @@ class ChainDAO(db.Model):
         Used by the property accessors (blocks, transactions, outflows,
         inflows) to route hot reads through LongestChainBlockDAO
         instead of the recursive CTE.
+
+        Cached per instance and invalidated by class-level generation
+        bumps inside sync_longest_chain_blocks / rebuild paths. The
+        cross-worker case (another process reorged the chain) is a
+        known stale-cache risk — bounded to one held instance's
+        lifetime within this worker; see the Phase 6.5 spec's Risks.
         """
+        cached: tuple[int, bool] | None = getattr(
+            self, '_is_longest_cache', None
+        )
+        if cached is not None and cached[0] == ChainDAO._chain_generation:
+            return cached[1]
         longest = ChainDAO.longest()
-        return longest is not None and longest.id == self.id
+        result = longest is not None and longest.id == self.id
+        self._is_longest_cache = (ChainDAO._chain_generation, result)
+        return result
 
     def sync_longest_chain_blocks(self) -> None:
         """Update the longest_chain_block materialization to reflect
         this chain — if this chain is currently the longest.
 
         Three sub-cases:
-        - Bootstrap: table is empty → populate from this chain's
-          recursive CTE walk (one-time cost).
+        - Bootstrap: table is empty → populate via the iterative
+          tip→genesis walk in _rebuild_longest_chain_blocks
+          (one-time cost).
         - Steady-state extend: table's last entry is our previous tip
           → INSERT one row at position = max + 1.
         - Reorg / out-of-order: anything else → full DELETE + rebuild.
@@ -652,24 +676,28 @@ class ChainDAO(db.Model):
                     position=current_max + 1,
                 )
             )
+            ChainDAO._bump_generation()
             return
 
         # Reorg or gap: rebuild.
         self._rebuild_longest_chain_blocks()
 
     def _rebuild_longest_chain_blocks(self) -> None:
-        """Wipe and repopulate longest_chain_block from this chain's
-        recursive CTE walk. Used on bootstrap and reorg.
+        """Wipe and repopulate longest_chain_block by walking the
+        chain iteratively from tip → genesis via BlockDAO.prev links.
 
-        This is the path that still fires the recursive CTE — see
-        Phase 6 spec 'Risks' for the deferred follow-up (Phase 6.5/7)
-        to replace this with an iterative walk when chain length
-        grows past the CTE's tolerable size.
+        Each step is one indexed PK lookup (block.id). Avoids the
+        recursive CTE's planner overhead on long chains — the cost
+        that caused the project to be shelved in the past. Bumps
+        ChainDAO._chain_generation at the end so cached _is_longest
+        values on any in-process ChainDAO instance are invalidated.
         """
         db.session.query(LongestChainBlockDAO).delete()
-        # block_chain walks tip → genesis; reverse so position 0 is
-        # genesis and the tip ends up at the highest position.
-        blocks = list(self.block.block_chain)
+        blocks: list[BlockDAO] = []
+        current: BlockDAO | None = self.block
+        while current is not None:
+            blocks.append(current)
+            current = current.prev
         for position, block in enumerate(reversed(blocks)):
             db.session.add(
                 LongestChainBlockDAO(
@@ -677,6 +705,7 @@ class ChainDAO(db.Model):
                     position=position,
                 )
             )
+        ChainDAO._bump_generation()
 
     def set_block_hash(self, block_hash: str) -> None:
         self.block = BlockDAO.get(block_hash)  # type: ignore[assignment]
