@@ -636,8 +636,9 @@ class ChainDAO(db.Model):
         this chain — if this chain is currently the longest.
 
         Three sub-cases:
-        - Bootstrap: table is empty → populate from this chain's
-          recursive CTE walk (one-time cost).
+        - Bootstrap: table is empty → populate via the iterative
+          tip→genesis walk in _rebuild_longest_chain_blocks
+          (one-time cost).
         - Steady-state extend: table's last entry is our previous tip
           → INSERT one row at position = max + 1.
         - Reorg / out-of-order: anything else → full DELETE + rebuild.
