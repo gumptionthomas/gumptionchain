@@ -1,4 +1,5 @@
 import datetime
+from unittest.mock import patch
 
 from cancelchain.block import Block
 from cancelchain.chain import Chain
@@ -340,3 +341,111 @@ def test_longest_chain_block_rebuild_on_reorg(app, mill_block, wallet):
         ]
         assert cte_ids == mat_ids
         assert len(mat_ids) == 3
+
+
+def test_iterative_walk_matches_cte(app, mill_block, wallet):
+    """_rebuild_longest_chain_blocks via current.prev produces the
+    same block ordering as the prior recursive-CTE walk would have.
+    Uses self.block.block_chain (still defined; used as fallback)
+    as ground truth.
+    """
+    with app.app_context():
+        for _ in range(10):
+            mill_block(wallet)
+        longest = ChainDAO.longest()
+        assert longest is not None
+
+        # Capture CTE ground truth before rebuild.
+        cte_ids = [b.id for b in longest.block.block_chain]
+
+        # Force a rebuild via the iterative walk (also runs on bootstrap
+        # by sync_longest_chain_blocks; here we exercise it directly).
+        longest._rebuild_longest_chain_blocks()
+        db.session.commit()
+
+        mat_ids = [
+            r.block_id
+            for r in db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position.desc())
+            .all()
+        ]
+        assert cte_ids == mat_ids
+        assert len(mat_ids) == 10
+
+
+def test_iterative_walk_long_chain(app, mill_block, wallet):
+    """Iterative walk handles a longer chain (50 blocks) and produces
+    the right count with no exceptions. Primarily a smoke test that
+    the walk terminates and the materialization stays consistent.
+    """
+    with app.app_context():
+        for _ in range(50):
+            mill_block(wallet)
+        longest = ChainDAO.longest()
+        assert longest is not None
+        longest._rebuild_longest_chain_blocks()
+        db.session.commit()
+        count = db.session.query(LongestChainBlockDAO).count()
+        assert count == 50
+
+
+def test_is_longest_cache_hit_avoids_query(app, mill_block, wallet):
+    """Calling _is_longest twice on the same instance hits the cache
+    on the second call and does NOT re-issue ChainDAO.longest().
+    """
+    with app.app_context():
+        mill_block(wallet)
+        longest = ChainDAO.longest()
+        assert longest is not None
+        # Reset cache state and bump generation so the next call is a miss.
+        if hasattr(longest, '_is_longest_cache'):
+            delattr(longest, '_is_longest_cache')
+        with patch.object(ChainDAO, 'longest', wraps=ChainDAO.longest) as spy:
+            assert longest._is_longest() is True
+            assert longest._is_longest() is True
+            assert spy.call_count == 1, (
+                f'expected one ChainDAO.longest() call (cache hit on '
+                f'2nd), got {spy.call_count}'
+            )
+
+
+def test_is_longest_cache_invalidated_by_bump(app, mill_block, wallet):
+    """Calling ChainDAO._bump_generation() after a cached _is_longest
+    call forces a recomputation on the next access.
+    """
+    with app.app_context():
+        mill_block(wallet)
+        longest = ChainDAO.longest()
+        assert longest is not None
+        if hasattr(longest, '_is_longest_cache'):
+            delattr(longest, '_is_longest_cache')
+        with patch.object(ChainDAO, 'longest', wraps=ChainDAO.longest) as spy:
+            assert longest._is_longest() is True
+            ChainDAO._bump_generation()
+            assert longest._is_longest() is True
+            assert spy.call_count == 2, (
+                f'expected two ChainDAO.longest() calls (miss, then '
+                f'miss after bump), got {spy.call_count}'
+            )
+
+
+def test_is_longest_cache_survives_across_method_calls(app, mill_block, wallet):
+    """One ChainDAO.longest() call total across a wallet_balance read
+    that internally accesses self.outflows AND self.inflows. Without
+    caching this would be 2+ calls.
+    """
+    with app.app_context():
+        _m, _b = mill_block(wallet)
+        longest = ChainDAO.longest()
+        assert longest is not None
+        if hasattr(longest, '_is_longest_cache'):
+            delattr(longest, '_is_longest_cache')
+        with patch.object(ChainDAO, 'longest', wraps=ChainDAO.longest) as spy:
+            # wallet_balance reads self.outflows and self.inflows;
+            # each property accessor calls _is_longest.
+            longest.wallet_balance(wallet.address)
+            assert spy.call_count == 1, (
+                f'expected one ChainDAO.longest() call across the '
+                f'wallet_balance method (cached after the first '
+                f'property access), got {spy.call_count}'
+            )
