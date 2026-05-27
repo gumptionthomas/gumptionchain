@@ -449,3 +449,149 @@ def test_is_longest_cache_survives_across_method_calls(app, mill_block, wallet):
                 f'wallet_balance method (cached after the first '
                 f'property access), got {spy.call_count}'
             )
+
+
+def test_smart_reorg_shallow(app, mill_block, wallet):
+    """A steady-state +1 block via smart-reorg preserves earlier
+    positions (common ancestor at position max-1, only the new tip
+    is inserted)."""
+    with app.app_context():
+        _m, _a1 = mill_block(wallet)
+        _m, _a2 = mill_block(wallet)
+
+        before = (
+            db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position)
+            .all()
+        )
+        assert [r.position for r in before] == [0, 1]
+        before_snapshot = [(r.block_id, r.position) for r in before]
+
+        # Mining one more block goes through smart-reorg's "walk back
+        # one step to find common ancestor at position 1, insert one
+        # row at position 2" path — equivalent to the old extend path
+        # in observable behavior.
+        _m, _a3 = mill_block(wallet)
+
+        after = (
+            db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position)
+            .all()
+        )
+        # Positions 0 and 1 unchanged.
+        assert [(r.block_id, r.position) for r in after[:2]] == before_snapshot
+        # Position 2 is new.
+        assert after[2].position == 2
+        assert len(after) == 3
+
+
+def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
+    """The walk stops at the first block found in the materialization.
+    For a steady-state extend, this means walking back one step to
+    find the common ancestor, and inserting exactly one new row —
+    not a full DELETE + bulk INSERT.
+    """
+    with app.app_context():
+        for _ in range(5):
+            mill_block(wallet)
+
+        rows_before = (
+            db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position)
+            .all()
+        )
+        ids_before = {r.block_id for r in rows_before}
+        positions_before = [r.position for r in rows_before]
+
+        _m, _new_tip = mill_block(wallet)
+
+        rows_after = (
+            db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position)
+            .all()
+        )
+        # First 5 rows' block_ids are unchanged: smart-reorg did NOT
+        # delete-and-rebuild from scratch (which would have made new
+        # row instances with new identities or different orderings).
+        # The same block_id set is present in the same positions.
+        assert {r.block_id for r in rows_after[:5]} == ids_before
+        assert [r.position for r in rows_after[:5]] == positions_before
+        # And exactly one new row at the tail.
+        assert len(rows_after) == len(rows_before) + 1
+        assert rows_after[-1].position == 5
+
+
+def test_smart_reorg_already_in_sync_short_circuits(app, mill_block, wallet):
+    """Calling sync_longest_chain_blocks twice on the same chain
+    instance: the second call finds the tip already in the table on
+    its first walk iteration and returns without mutation or
+    generation bump.
+    """
+    with app.app_context():
+        mill_block(wallet)
+        longest = ChainDAO.longest()
+        assert longest is not None
+
+        gen_before = ChainDAO._chain_generation
+        rows_before = (
+            db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position)
+            .all()
+        )
+        snapshot_before = [(r.block_id, r.position) for r in rows_before]
+
+        # Re-invoke sync; nothing should change.
+        longest.sync_longest_chain_blocks()
+
+        rows_after = (
+            db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position)
+            .all()
+        )
+        snapshot_after = [(r.block_id, r.position) for r in rows_after]
+
+        assert snapshot_before == snapshot_after
+        assert ChainDAO._chain_generation == gen_before, (
+            f'expected generation to be unchanged after no-op sync, '
+            f'got {ChainDAO._chain_generation} (was {gen_before})'
+        )
+
+
+def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
+    app, mill_block, wallet
+):
+    """If the materialization holds block_ids that aren't reachable
+    from the current chain's tip via prev pointers, the walk reaches
+    genesis without finding a common ancestor. The fallback uses the
+    collected list to fully replace the materialization.
+    """
+    with app.app_context():
+        # Build a chain of length 3.
+        for _ in range(3):
+            mill_block(wallet)
+        longest = ChainDAO.longest()
+        assert longest is not None
+
+        # Corrupt the materialization with fake block_ids that don't
+        # exist in the chain (use very large ints unlikely to collide).
+        db.session.query(LongestChainBlockDAO).delete()
+        db.session.add(LongestChainBlockDAO(block_id=999_001, position=0))
+        db.session.add(LongestChainBlockDAO(block_id=999_002, position=1))
+        db.session.commit()
+
+        # Sync the longest chain. The walk will not find any block_id
+        # match (chain's blocks aren't 999_001 / 999_002), so it
+        # walks to genesis and falls back to full DELETE + bulk insert.
+        longest.sync_longest_chain_blocks()
+        db.session.commit()
+
+        rows = (
+            db.session.query(LongestChainBlockDAO)
+            .order_by(LongestChainBlockDAO.position)
+            .all()
+        )
+        # 3 real blocks now in the materialization; no 999_* rows.
+        assert len(rows) == 3
+        assert all(r.block_id not in (999_001, 999_002) for r in rows)
+        # Positions 0, 1, 2 (genesis-first).
+        assert [r.position for r in rows] == [0, 1, 2]

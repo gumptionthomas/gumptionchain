@@ -635,52 +635,88 @@ class ChainDAO(db.Model):
         """Update the longest_chain_block materialization to reflect
         this chain — if this chain is currently the longest.
 
-        Three sub-cases:
-        - Bootstrap: table is empty → populate via the iterative
-          tip→genesis walk in _rebuild_longest_chain_blocks
-          (one-time cost).
-        - Steady-state extend: table's last entry is our previous tip
-          → INSERT one row at position = max + 1.
-        - Reorg / out-of-order: anything else → full DELETE + rebuild.
+        Smart-reorg algorithm: walks the chain's tip back via
+        BlockDAO.prev, collecting blocks, until it finds one already
+        in the materialization (the common ancestor) OR walks to
+        genesis.
 
-        No-op when this chain is not the longest. Called from
-        Chain.to_db() so the materialization update participates in
-        the same SQLAlchemy session/transaction as the chain row save.
+        - Bootstrap (empty table): short-circuit to
+          _rebuild_longest_chain_blocks; avoids N redundant per-step
+          'is in table?' lookups against an empty table.
+        - Already in sync: first walked block (the tip) matches; the
+          collected diverging list is empty; return without mutation.
+        - Shallow / deep reorg with common ancestor: truncate the
+          materialization above the ancestor's position, insert the
+          diverging suffix in genesis-first order. O(reorg depth) walk.
+        - Catastrophic 'different chain' (no common ancestor before
+          genesis): delete all and insert the entire collected
+          diverging list as the new chain (reusing the list avoids
+          a redundant second walk via _rebuild_*).
+
+        Called from Chain.to_db() inside the same SQLAlchemy
+        session/transaction as the chain row save.
         """
         if not self._is_longest():
             return
 
-        current_max = db.session.query(
-            db.func.max(LongestChainBlockDAO.position)
-        ).scalar()
-
-        if current_max is None:
+        # Bootstrap fast-path: empty materialization → use the
+        # rebuild method directly, skipping per-step lookups against
+        # an empty table.
+        if not db.session.query(
+            db.session.query(LongestChainBlockDAO).exists()
+        ).scalar():
             self._rebuild_longest_chain_blocks()
             return
 
-        table_tip_block_id = (
-            db.session.query(LongestChainBlockDAO.block_id)
-            .filter(LongestChainBlockDAO.position == current_max)
-            .scalar()
-        )
+        # Smart-reorg walk: collect blocks from new tip back until we
+        # hit one already in the materialization OR reach genesis.
+        diverging: list[BlockDAO] = []
+        current: BlockDAO | None = self.block
+        common_ancestor_position: int | None = None
+        while current is not None:
+            pos = (
+                db.session.query(LongestChainBlockDAO.position)
+                .filter(LongestChainBlockDAO.block_id == current.id)
+                .scalar()
+            )
+            if pos is not None:
+                common_ancestor_position = pos
+                break
+            diverging.append(current)
+            current = current.prev
 
-        if table_tip_block_id == self.block_id:
-            # Already in sync (defensive — e.g., to_db called twice).
+        if not diverging:
+            # Tip itself was the first match — already in sync.
             return
 
-        if table_tip_block_id == self.block.prev_id:
-            # Normal extend: append one row.
-            db.session.add(
-                LongestChainBlockDAO(
-                    block_id=self.block_id,
-                    position=current_max + 1,
+        if common_ancestor_position is None:
+            # Walked to genesis without overlap: different chain
+            # entirely. Use the collected list directly instead of
+            # re-walking via _rebuild_*.
+            db.session.query(LongestChainBlockDAO).delete()
+            for position, block in enumerate(reversed(diverging)):
+                db.session.add(
+                    LongestChainBlockDAO(
+                        block_id=block.id,
+                        position=position,
+                    )
                 )
-            )
             ChainDAO._bump_generation()
             return
 
-        # Reorg or gap: rebuild.
-        self._rebuild_longest_chain_blocks()
+        # Common ancestor at position K. Truncate above K, append
+        # the diverging suffix in genesis-first order.
+        db.session.query(LongestChainBlockDAO).filter(
+            LongestChainBlockDAO.position > common_ancestor_position
+        ).delete()
+        for offset, block in enumerate(reversed(diverging), start=1):
+            db.session.add(
+                LongestChainBlockDAO(
+                    block_id=block.id,
+                    position=common_ancestor_position + offset,
+                )
+            )
+        ChainDAO._bump_generation()
 
     def _rebuild_longest_chain_blocks(self) -> None:
         """Wipe and repopulate longest_chain_block by walking the
