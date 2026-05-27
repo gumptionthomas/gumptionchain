@@ -186,13 +186,19 @@ def validate_signature(self, data: bytes, signature: str | None) -> bool:
             padding.PKCS1v15(),
             hashes.SHA384(),
         )
-    except (InvalidSignature, ValueError, TypeError):
+    except (InvalidSignature, binascii.Error, ValueError, TypeError):
         # InvalidSignature: pyca raises this on a bad signature.
-        # ValueError: bad b64 padding, malformed signature bytes.
+        # binascii.Error: malformed base64 (bad padding, non-b64 chars).
+        #   It's a subclass of ValueError in Python 3 so the ValueError
+        #   catch would cover it too — listing it explicitly clarifies
+        #   intent for readers.
+        # ValueError: bad-length signature bytes after b64decode.
         # TypeError: wrong types from caller.
         return False
     return True
 ```
+
+(Add `import binascii` at the top of `wallet.py` alongside the other stdlib imports.)
 
 `cryptography`'s `verify` raises on failure rather than returning False — translate at the call site. The catch narrows to the documented failure modes; an unexpected exception (e.g., system-level) propagates so we don't accidentally swallow real bugs.
 
@@ -385,7 +391,7 @@ Test count: 205 → 213 (8 new tests). The existing `test_crypto` may also need 
 ## Risks
 
 - **AES-GCM-vs-EAX semantic difference.** The output ciphertext layout differs (12-byte nonce vs 16-byte nonce; integrated tag vs separate). Internal callers in `api.py` (encrypts challenge) and `api_client.py` (decrypts challenge) both call through `Wallet.encrypt` / `Wallet.decrypt`, which both move atomically in this PR. Server and client never speak across versions.
-- **`InvalidSignature` exception type.** The `validate_signature` catch needs to catch the right exception. Mirroring the old "return False on any failure" behavior with `except Exception` is broad — narrow to `except (InvalidSignature, ValueError, TypeError)` if mypy complains; the broad form is acceptable since the function's documented contract is "return True iff valid."
+- **`InvalidSignature` exception type.** The `validate_signature` catch needs to catch the right exception. The new code uses `except (InvalidSignature, binascii.Error, ValueError, TypeError)` — narrow and explicit. `binascii.Error` is technically a subclass of `ValueError` in Python 3 (so the `ValueError` catch would suffice), but listing it explicitly makes the b64-decode failure path obvious to readers. The function's documented contract is "return True iff valid".
 - **Address mismatch from a DER format wobble.** Vanishingly unlikely — `SubjectPublicKeyInfo` DER is a deterministic ASN.1 sequence; both pycryptodome and pyca produce byte-identical output for the same RSA key. `tests/conftest.py` hardcodes `WALLET_ADDRESS` (the b58 of `mill_hash(public_key_der)` for a specific stored RSA key); since the public-DER format is invariant across libraries, `WALLET_ADDRESS` should NOT need regeneration. Verify by running the Step 7 fixture-invariant script (see the plan) before declaring done — it asserts `Wallet(b58ks=NEW_WALLET_PRIVATE_KEY_B58).address == WALLET_ADDRESS`. If that assertion fails, the public-DER format DID drift and the address constant needs updating too; investigate before regenerating blindly.
 
 ## Open decisions

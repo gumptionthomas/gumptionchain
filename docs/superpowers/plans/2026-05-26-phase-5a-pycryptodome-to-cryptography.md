@@ -187,6 +187,7 @@ Replace the entire contents of `src/cancelchain/wallet.py` with:
 ```python
 from __future__ import annotations
 
+import binascii
 import json
 import os
 from base64 import standard_b64decode, standard_b64encode
@@ -382,9 +383,13 @@ class Wallet:
                 padding.PKCS1v15(),
                 hashes.SHA384(),
             )
-        except (InvalidSignature, ValueError, TypeError):
+        except (InvalidSignature, binascii.Error, ValueError, TypeError):
             # InvalidSignature: pyca raises this on a bad signature.
-            # ValueError: bad b64 padding, malformed signature bytes.
+            # binascii.Error: malformed base64 (bad padding, non-b64
+            #   chars). It's a subclass of ValueError in Python 3 so
+            #   the ValueError catch alone would suffice — explicit
+            #   listing makes the b64 failure path obvious.
+            # ValueError: bad-length signature bytes after b64decode.
             # TypeError: wrong types from caller.
             return False
         return True
@@ -689,8 +694,10 @@ src/cancelchain/wallet.py:
 - PKCS1_v1_5+SHA384 sign/verify → private_key.sign(data,
   padding.PKCS1v15(), hashes.SHA384()) / public_key.verify(...). The
   verify path raises InvalidSignature on failure; wrap in try/except
-  (InvalidSignature, ValueError, TypeError) to preserve the
-  return-bool contract.
+  (InvalidSignature, binascii.Error, ValueError, TypeError) to
+  preserve the return-bool contract. binascii.Error covers malformed
+  base64 input to b64decode (it's a subclass of ValueError in Python
+  3 but listed explicitly for reader clarity).
 - PKCS1_OAEP (SHA-1 default) → padding.OAEP(mgf=MGF1(SHA256()),
   algorithm=SHA256(), label=None). Stronger hash; no compat constraint.
 - AES.MODE_EAX → AESGCM. EAX is not in pyca/cryptography. JWT
