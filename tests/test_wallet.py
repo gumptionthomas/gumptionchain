@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from cancelchain.exceptions import InvalidKeyError
+from cancelchain.exceptions import InvalidKeyError, NoPrivateKeyError
 from cancelchain.schema import validate_address_format
 from cancelchain.wallet import Wallet
 
@@ -101,3 +101,69 @@ def test_repr(caplog, logger, wallet, wallet_address):
     with caplog.at_level(logging.INFO):
         logger.info(wallet)
         assert f'Wallet({wallet_address})' in caplog.text
+
+
+def test_wallet_address_round_trips_through_pem(tmp_path):
+    """Freshly generated wallet → write PEM → read back → same address."""
+    w1 = Wallet()
+    path = w1.to_file(walletdir=str(tmp_path))
+    w2 = Wallet.from_file(path)
+    assert w1.address == w2.address
+
+
+def test_wallet_address_round_trips_through_b58():
+    """Freshly generated wallet → b58 → read back → same address."""
+    w1 = Wallet()
+    w2 = Wallet(b58ks=w1.private_key_b58)
+    assert w1.address == w2.address
+
+
+def test_wallet_sign_verify_happy_path():
+    w = Wallet()
+    sig = w.sign(b'hello world')
+    assert w.validate_signature(b'hello world', sig) is True
+
+
+def test_wallet_verify_rejects_mutated_payload():
+    w = Wallet()
+    sig = w.sign(b'hello world')
+    assert w.validate_signature(b'hello WORLD', sig) is False
+
+
+def test_wallet_verify_rejects_garbage_signature():
+    w = Wallet()
+    assert w.validate_signature(b'data', 'garbagebase64==') is False
+
+
+def test_wallet_encrypt_decrypt_round_trip():
+    w = Wallet()
+    plaintext = b'session-challenge-payload'
+    ciphertext = w.encrypt(plaintext)
+    assert w.decrypt(ciphertext) == plaintext
+
+
+def test_wallet_encrypted_pem_round_trip(tmp_path):
+    """Encrypted PEM with a passphrase round-trips."""
+    w1 = Wallet()
+    path = w1.to_file(walletdir=str(tmp_path), passphrase=PASSPHRASE)
+    w2 = Wallet.from_file(path, passphrase=PASSPHRASE)
+    assert w1.address == w2.address
+
+
+def test_wallet_public_key_only_constructs(wallet):
+    """Wallet(b64ks=public_key_b64) accepts a peer's public key alone.
+
+    Used by api.py / schema.py / models.py to wrap a remote party's
+    public key for signature verification. Private operations
+    (sign, decrypt, export_private_key_*) raise NoPrivateKeyError.
+    """
+    w = Wallet(b64ks=wallet.public_key_b64)
+    assert w.private_key is None
+    assert w.public_key is not None
+    assert w.address == wallet.address
+    # Public verify should still work
+    sig = wallet.sign(b'data')
+    assert w.validate_signature(b'data', sig) is True
+    # Private operations raise
+    with pytest.raises(NoPrivateKeyError):
+        w.sign(b'data')

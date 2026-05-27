@@ -1,23 +1,28 @@
 from __future__ import annotations
 
+import binascii
 import json
 import os
 from base64 import standard_b64decode, standard_b64encode
-from collections.abc import Generator
 from typing import Any
 
 import base58check
-import Crypto.Random
-from Crypto.Cipher import AES, PKCS1_OAEP
-from Crypto.Hash import SHA384
-from Crypto.PublicKey import RSA
-from Crypto.Signature import PKCS1_v1_5
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric.rsa import (
+    RSAPrivateKey,
+    RSAPublicKey,
+)
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from cancelchain.exceptions import InvalidKeyError, NoPrivateKeyError
 from cancelchain.milling import mill_hash_bin
 
 ADDRESS_TAG = 'CC'
 KEY_SIZE = 2048
+GCM_NONCE_SIZE = 12
+AES_SESSION_KEY_SIZE = 16
 
 
 def b58decode(s: str) -> bytes:
@@ -37,17 +42,46 @@ def b64encode(b: bytes) -> str:
 
 
 def export_binary_key(key: Any, passphrase: str | None = None) -> bytes:
-    if passphrase is None:
-        return key.export_key(format='DER')  # type: ignore[no-any-return]
-    else:
-        return key.export_key(  # type: ignore[no-any-return]
-            format='DER', pkcs=8, passphrase=passphrase
+    if isinstance(key, RSAPublicKey):
+        return key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
+    # RSAPrivateKey
+    encryption: serialization.KeySerializationEncryption
+    if passphrase is None:
+        encryption = serialization.NoEncryption()
+    else:
+        encryption = serialization.BestAvailableEncryption(passphrase.encode())
+    return key.private_bytes(  # type: ignore[no-any-return]
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=encryption,
+    )
 
 
 def import_key(ks: bytes | str, passphrase: str | None = None) -> Any | None:
+    """Load an RSA key from PEM or DER bytes. Accepts both private and
+    public keys (api.py / schema.py / models.py construct Wallet with
+    a peer's public key alone for signature verification).
+    """
     try:
-        return RSA.import_key(ks, passphrase=passphrase)
+        if isinstance(ks, str):
+            ks = ks.encode()
+        password = passphrase.encode() if passphrase is not None else None
+        # lstrip handles leading whitespace/newlines from copy-pasted PEMs
+        is_pem = ks.lstrip().startswith(b'-----BEGIN')
+        # Private-key path first (the common case for wallet load flows)
+        try:
+            if is_pem:
+                return serialization.load_pem_private_key(ks, password)
+            return serialization.load_der_private_key(ks, password)
+        except Exception:
+            pass
+        # Public-key fallback (peer-public-key wrap path)
+        if is_pem:
+            return serialization.load_pem_public_key(ks)
+        return serialization.load_der_public_key(ks)
     except Exception:
         return None
 
@@ -81,17 +115,26 @@ class Wallet:
         elif ks is not None:
             self.key = import_key(ks, passphrase=passphrase)
         else:
-            self.key = RSA.generate(KEY_SIZE)
-        if not (self.key and self.key.size_in_bits() == KEY_SIZE):
+            self.key = rsa.generate_private_key(
+                public_exponent=65537, key_size=KEY_SIZE
+            )
+        if not (
+            isinstance(self.key, (RSAPrivateKey, RSAPublicKey))
+            and self.key.key_size == KEY_SIZE
+        ):
             raise InvalidKeyError()
 
     @property
     def private_key(self) -> Any | None:
-        return self.key if self.key.has_private() else None
+        return self.key if isinstance(self.key, RSAPrivateKey) else None
 
     @property
     def public_key(self) -> Any:
-        return self.private_key.public_key() if self.private_key else self.key
+        return (
+            self.private_key.public_key()
+            if self.private_key is not None
+            else self.key
+        )
 
     @property
     def private_key_b58(self) -> str:
@@ -109,10 +152,17 @@ class Wallet:
     def export_private_key_pem(self, passphrase: str | None = None) -> bytes:
         if self.private_key is None:
             raise NoPrivateKeyError()
-        return self.private_key.export_key(  # type: ignore[no-any-return]
-            pkcs=1 if passphrase is None else 8,
-            passphrase=passphrase,
-            protection='scryptAndAES128-CBC',
+        encryption: serialization.KeySerializationEncryption
+        if passphrase is None:
+            encryption = serialization.NoEncryption()
+        else:
+            encryption = serialization.BestAvailableEncryption(
+                passphrase.encode()
+            )
+        return self.private_key.private_bytes(  # type: ignore[no-any-return]
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=encryption,
         )
 
     def export_private_key_b58(self, passphrase: str | None = None) -> str:
@@ -125,47 +175,61 @@ class Wallet:
     def sign(self, data: bytes) -> str:
         if self.private_key is None:
             raise NoPrivateKeyError()
-        signer = PKCS1_v1_5.new(self.private_key)
-        hasher = SHA384.new(data=data)
-        return b64encode(signer.sign(hasher))
+        sig = self.private_key.sign(data, padding.PKCS1v15(), hashes.SHA384())
+        return b64encode(sig)
 
     def validate_signature(self, data: bytes, signature: str | None) -> bool:
         if not (data and signature):
             return False
-        verifier = PKCS1_v1_5.new(self.public_key)
-        hasher = SHA384.new(data=data)
-        return bool(verifier.verify(hasher, b64decode(signature)))
+        try:
+            self.public_key.verify(
+                b64decode(signature),
+                data,
+                padding.PKCS1v15(),
+                hashes.SHA384(),
+            )
+        except (InvalidSignature, binascii.Error, ValueError, TypeError):
+            # InvalidSignature: pyca raises this on a bad signature.
+            # binascii.Error: malformed base64 (bad padding, non-b64
+            #   chars). It's a subclass of ValueError in Python 3 so
+            #   the ValueError catch alone would suffice — explicit
+            #   listing makes the b64 failure path obvious.
+            # ValueError: bad-length signature bytes after b64decode.
+            # TypeError: wrong types from caller.
+            return False
+        return True
 
     def encrypt(self, data: bytes) -> str:
-        session_key: bytes = Crypto.Random.get_random_bytes(16)
-        cipher_rsa = PKCS1_OAEP.new(self.public_key)
-        enc_session_key: bytes = cipher_rsa.encrypt(session_key)
-        cipher_aes = AES.new(session_key, AES.MODE_EAX)
-        ciphertext, tag = cipher_aes.encrypt_and_digest(data)
-        return b64encode(
-            b''.join(
-                x for x in (enc_session_key, cipher_aes.nonce, tag, ciphertext)
-            )
+        session_key = os.urandom(AES_SESSION_KEY_SIZE)
+        enc_session_key = self.public_key.encrypt(
+            session_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
         )
+        nonce = os.urandom(GCM_NONCE_SIZE)
+        ciphertext_with_tag = AESGCM(session_key).encrypt(nonce, data, None)
+        return b64encode(enc_session_key + nonce + ciphertext_with_tag)
 
     def decrypt(self, msg: str) -> bytes:
-        def msg_parts(
-            key_size: int, raw: bytes
-        ) -> Generator[bytes, None, None]:
-            for n in (key_size, 16, 16):
-                yield raw[:n]
-                raw = raw[n:]
-            yield raw
-
         if self.private_key is None:
             raise NoPrivateKeyError()
-        part = msg_parts(self.private_key.size_in_bytes(), b64decode(msg))
-        cipher_rsa = PKCS1_OAEP.new(self.private_key)
-        session_key: bytes = cipher_rsa.decrypt(next(part))
-        cipher_aes = AES.new(session_key, AES.MODE_EAX, next(part))
-        tag = next(part)
-        data: bytes = cipher_aes.decrypt_and_verify(next(part), tag)
-        return data
+        raw = b64decode(msg)
+        key_size_bytes = self.private_key.key_size // 8
+        enc_session_key = raw[:key_size_bytes]
+        nonce = raw[key_size_bytes : key_size_bytes + GCM_NONCE_SIZE]
+        ciphertext = raw[key_size_bytes + GCM_NONCE_SIZE :]
+        session_key = self.private_key.decrypt(
+            enc_session_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        return AESGCM(session_key).decrypt(nonce, ciphertext, None)
 
     def to_dict(self) -> dict[str, str]:
         return {'private_key': self.private_key_b58}
@@ -186,11 +250,19 @@ class Wallet:
     def __repr__(self) -> str:
         return f'Wallet({self.address})'
 
-    __hash__: None = None  # type: ignore[assignment]  # not used as dict key/set member
+    __hash__: None = None  # type: ignore[assignment]
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Wallet):
             return NotImplemented
+        # cryptography RSAPrivateKey doesn't implement __eq__ by key
+        # material; compare via unencrypted DER export instead.
+        # RSAPublicKey does implement __eq__ correctly so we let pyca
+        # handle the public-key path.
+        if isinstance(self.key, RSAPrivateKey) and isinstance(
+            other.key, RSAPrivateKey
+        ):
+            return export_binary_key(self.key) == export_binary_key(other.key)
         return bool(self.key == other.key)
 
     @classmethod

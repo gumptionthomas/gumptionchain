@@ -31,6 +31,7 @@ dependencies = [
   "base58check>=1.0.2",
   "blinker>=1.8",
   "celery>=5.4",
+  "cryptography>=44",
   "click>=8.1.7",
   "Flask>=3.0",
   "Flask-Caching>=2.3",
@@ -39,7 +40,6 @@ dependencies = [
   "humanfriendly>=10.0",
   "millify>=0.1.1",
   "pg8000>=1.31",
-  "pycryptodome>=3.20",
   "pydantic>=2.10",
   "pyjwt>=2.9",
   "pymerkle>=5",
@@ -158,10 +158,6 @@ files = ["src/cancelchain"]
 strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-
-[[tool.mypy.overrides]]
-module = ["Crypto", "Crypto.*"]
-ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["base58check", "pymerkle", "pymerkle.*"]
