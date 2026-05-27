@@ -69,7 +69,8 @@ def import_key(ks: bytes | str, passphrase: str | None = None) -> Any | None:
         if isinstance(ks, str):
             ks = ks.encode()
         password = passphrase.encode() if passphrase is not None else None
-        is_pem = b'-----BEGIN' in ks[:30]
+        # lstrip handles leading whitespace/newlines from copy-pasted PEMs
+        is_pem = ks.lstrip().startswith(b'-----BEGIN')
         # Private-key path first (the common case for wallet load flows)
         try:
             if is_pem:
