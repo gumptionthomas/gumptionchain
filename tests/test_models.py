@@ -486,10 +486,11 @@ def test_smart_reorg_shallow(app, mill_block, wallet):
 
 
 def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
-    """The walk stops at the first block found in the materialization.
-    For a steady-state extend, this means walking back one step to
-    find the common ancestor, and inserting exactly one new row —
-    not a full DELETE + bulk INSERT.
+    """The walk stops at the first block found in the materialization
+    instead of falling through to the rebuild path. Verified by
+    patching ChainDAO._rebuild_longest_chain_blocks and asserting it
+    is NOT invoked during a steady-state extend (the smart-reorg
+    common-ancestor branch must handle the case).
     """
     with app.app_context():
         for _ in range(5):
@@ -502,16 +503,24 @@ def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
         )
         snapshot_before = [(r.block_id, r.position) for r in rows_before]
 
-        _m, _new_tip = mill_block(wallet)
+        with patch.object(
+            ChainDAO,
+            '_rebuild_longest_chain_blocks',
+            autospec=True,
+        ) as rebuild_spy:
+            _m, _new_tip = mill_block(wallet)
+
+        # The smart-reorg path must NOT have invoked the rebuild
+        # method for a steady-state extend. If the implementation
+        # regresses to a full rebuild, this fails loudly.
+        rebuild_spy.assert_not_called()
 
         rows_after = (
             db.session.query(LongestChainBlockDAO)
             .order_by(LongestChainBlockDAO.position)
             .all()
         )
-        # First 5 rows' (block_id, position) pairs unchanged: smart-
-        # reorg did NOT delete-and-rebuild. Using ordered pairs (not a
-        # set) catches bugs that would shift block_ids between positions.
+        # First 5 rows' (block_id, position) pairs unchanged.
         snapshot_after = [(r.block_id, r.position) for r in rows_after[:5]]
         assert snapshot_after == snapshot_before
         # And exactly one new row at the tail.
@@ -556,31 +565,85 @@ def test_smart_reorg_already_in_sync_short_circuits(app, mill_block, wallet):
 
 
 def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
-    app, mill_block, wallet
+    app, mill_block, time_stepper, wallet
 ):
     """If the materialization holds block_ids that aren't reachable
     from the current chain's tip via prev pointers, the walk reaches
     genesis without finding a common ancestor. The fallback uses the
     collected list to fully replace the materialization.
+
+    Uses block_ids from a divergent fork chain so the rows satisfy
+    the LongestChainBlockDAO.block_id → block.id FK constraint
+    (which would fire on Postgres or SQLite with foreign_keys=ON).
+    time_stepper ensures the fork's blocks have different timestamps
+    (and thus different block_hashes) than chain_a's, even under the
+    test's easy-target milling.
     """
     with app.app_context():
-        # Build a chain of length 3.
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+
+        # Build chain_a of length 3 (the canonical chain).
         for _ in range(3):
             mill_block(wallet)
-        longest = ChainDAO.longest()
-        assert longest is not None
+            _ = next(time_step)
+        chain_a_longest = ChainDAO.longest()
+        assert chain_a_longest is not None
+        chain_a_block_ids = {
+            r.block_id for r in db.session.query(LongestChainBlockDAO).all()
+        }
 
-        # Corrupt the materialization with fake block_ids that don't
-        # exist in the chain (use very large ints unlikely to collide).
+        # Build a divergent fork chain_b at genesis. Different timestamps
+        # (via time_stepper) make chain_b's blocks have different hashes
+        # than chain_a's blocks under the easy-target deterministic-
+        # nonce milling regime, so they get distinct BlockDAO rows.
+        chain_b = Chain()
+        block_b1 = Block()
+        chain_b.link_block(block_b1)
+        chain_b.seal_block(block_b1, wallet)
+        block_b1.mill()
+        chain_b.add_block(block_b1)
+        _ = next(time_step)
+        block_b2 = Block()
+        chain_b.link_block(block_b2)
+        chain_b.seal_block(block_b2, wallet)
+        block_b2.mill()
+        chain_b.add_block(block_b2)
+        # NOTE: deliberately do NOT call chain_b.to_db() — that would
+        # involve the sync code under test. We want to corrupt the
+        # table by hand to exercise the fallback.
+        fork_block_ids = [
+            BlockDAO.get(block_b1.block_hash).id,
+            BlockDAO.get(block_b2.block_hash).id,
+        ]
+        # Sanity: fork blocks are real BlockDAO rows distinct from
+        # chain_a's.
+        assert all(bid is not None for bid in fork_block_ids)
+        assert not set(fork_block_ids) & chain_a_block_ids
+
+        # Corrupt the materialization with fork block_ids — real FKs
+        # to BlockDAO rows, but not reachable from chain_a's tip via
+        # prev pointers.
         db.session.query(LongestChainBlockDAO).delete()
-        db.session.add(LongestChainBlockDAO(block_id=999_001, position=0))
-        db.session.add(LongestChainBlockDAO(block_id=999_002, position=1))
+        db.session.add(
+            LongestChainBlockDAO(
+                block_id=fork_block_ids[0],
+                position=0,
+            )
+        )
+        db.session.add(
+            LongestChainBlockDAO(
+                block_id=fork_block_ids[1],
+                position=1,
+            )
+        )
         db.session.commit()
 
-        # Sync the longest chain. The walk will not find any block_id
-        # match (chain's blocks aren't 999_001 / 999_002), so it
-        # walks to genesis and falls back to full DELETE + bulk insert.
-        longest.sync_longest_chain_blocks()
+        # Sync chain_a. The walk from chain_a's tip won't find any
+        # fork block in the materialization (chain_a's prev chain
+        # doesn't reach into chain_b's blocks), so it walks to genesis
+        # and falls back to full DELETE + bulk insert.
+        chain_a_longest.sync_longest_chain_blocks()
         db.session.commit()
 
         rows = (
@@ -588,8 +651,9 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
             .order_by(LongestChainBlockDAO.position)
             .all()
         )
-        # 3 real blocks now in the materialization; no 999_* rows.
+        # 3 real chain_a blocks now in the materialization; no fork
+        # block_ids.
         assert len(rows) == 3
-        assert all(r.block_id not in (999_001, 999_002) for r in rows)
+        assert all(r.block_id not in fork_block_ids for r in rows)
         # Positions 0, 1, 2 (genesis-first).
         assert [r.position for r in rows] == [0, 1, 2]
