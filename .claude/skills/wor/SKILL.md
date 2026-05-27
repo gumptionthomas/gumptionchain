@@ -7,8 +7,9 @@ Wait for PR reviews (e.g. Copilot), address any feedback, then report back.
 1. Determine the PR number — use the current branch's open PR (`gh pr view --json number --jq .number`), or accept a PR number as an argument.
 2. Determine the repository (`gh repo view --json nameWithOwner --jq .nameWithOwner`).
 3. Launch a background polling loop (~30s interval, up to 10 minutes) checking for reviews and review comments:
-   - `gh api repos/{owner/repo}/pulls/{n}/reviews`
-   - `gh api repos/{owner/repo}/pulls/{n}/comments`
+   - `gh api --paginate repos/{owner/repo}/pulls/{n}/reviews`
+   - `gh api --paginate repos/{owner/repo}/pulls/{n}/comments`
+   - **Always use `--paginate`.** Without it, `gh api` returns at most ~30 items, and the OLDEST items get returned first — so newer review comments after multiple rounds will be silently hidden, making it look like no new review came in. This caused a confused state on PR #58 round 4. Use `--paginate` even on small PRs.
    - Use `gh pr checks {n} --watch` (or poll) to detect when CI has passed.
    - After CI passes, continue polling until the review is in.
 4. When reviews or comments appear, read them all carefully.

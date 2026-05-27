@@ -17,7 +17,7 @@
 - Phase 4 fully merged. Verify with `gh pr view 57 --json state --jq .state` → `MERGED`, and `grep -c 'marshmallow' pyproject.toml` → `0`.
 - The branch `docs/phase-5a-design` exists locally with the design spec already committed. This plan adds the second commit on that branch and ships both as the docs PR.
 - CI hard-gates `ruff check`, `ruff format --check`, and `mypy` (strict via `[tool.mypy] strict = true` in pyproject.toml; no CLI flag needed — `uv run mypy` honors the config).
-- Test baseline: **205 passed, 1 skipped**. Phase 5a adds ~8-9 new tests, so the final count is ~213-214 passed, 1 skipped.
+- Test baseline: **205 passed, 1 skipped**. Phase 5a adds 8 new tests, so the final count is 213 passed, 1 skipped.
 - Each PR ends with `wor` (Copilot review wait + reply) and `mwg` (merge when green); the controller handles those, not the implementer subagent.
 - Never push directly to `main`.
 
@@ -656,13 +656,13 @@ uv run ruff format --check src tests
 uv run pytest
 ```
 
-All four must exit 0. Test count: 205 → ~213 (8 new tests).
+All four must exit 0. Test count: 205 → 213 (8 new tests).
 
 If `mypy` reports new errors in `wallet.py`, the most common cause is the `Any`-typed `self.key` attribute interacting with method calls. The intent is that `Wallet.key` is `Any` throughout so callers don't need to import RSAPrivateKey/RSAPublicKey types. If a specific line type-errors, add a narrow `# type: ignore` rather than tightening the type. Aim for ≤1 ignore in the new code; if you need more, something's wrong — investigate before suppressing.
 
 If `pytest` fails on:
 - `test_create_from_key` — the fixture regeneration was wrong. Re-run Step 7's assertion script and inspect the mismatch.
-- `test_crypto` (decrypt with wrong wallet) — that test asserts `with pytest.raises(ValueError)`. AES-GCM's `AESGCM.decrypt` on a wrong key raises `InvalidTag`, which is a subclass of `cryptography.exceptions.InvalidTag` (NOT `ValueError`). The test may need its `pytest.raises` argument widened. Check with `uv run pytest tests/test_wallet.py::test_crypto -v` and inspect the error; if it raises `InvalidTag`, update the test to `pytest.raises((ValueError, InvalidTag))` and add `from cryptography.exceptions import InvalidTag` to the test file imports. Document this in the commit message.
+- `test_crypto` (decrypt with wrong wallet) — that test asserts `with pytest.raises(ValueError)`. `AESGCM.decrypt` raises `cryptography.exceptions.InvalidTag` (NOT `ValueError`). The test must be updated. Check with `uv run pytest tests/test_wallet.py::test_crypto -v`; update the assertion to `pytest.raises(InvalidTag)` and add `from cryptography.exceptions import InvalidTag` to the test file imports. Document this in the commit message.
 
 ### Step 10: Commit
 
@@ -671,9 +671,10 @@ git add pyproject.toml uv.lock src/cancelchain/wallet.py tests/conftest.py tests
 git commit -m "$(cat <<'EOF'
 feat(deps): swap pycryptodome → cryptography in wallet.py
 
-Phase 5a. Single-file swap. Greenfield posture (per
-project-no-legacy-chain memory): no backward-compat shims, no
-migration tool.
+Phase 5a. Single-file swap. Greenfield posture (no production
+cancelchain deploy, no legacy wallet .pem files in the wild, no
+existing DB rows holding old-format ApiToken.cipher): no
+backward-compat shims, no migration tool.
 
 src/cancelchain/wallet.py:
 - 5 Crypto.* imports replaced with cryptography hazmat primitives:
@@ -725,7 +726,7 @@ tests/test_wallet.py:
   returns None for private_key, and raises NoPrivateKeyError on
   sign/decrypt while still verifying peer signatures).
 
-Test count: 205 → ~213.
+Test count: 205 → 213.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -741,20 +742,20 @@ gh pr create --base main --title "feat(deps): swap pycryptodome → cryptography
 - Replaces pycryptodome with pyca/cryptography in \`src/cancelchain/wallet.py\` (single-file swap).
 - Drops \`pycryptodome>=3.20\` from \`[project.dependencies]\`, adds \`cryptography>=44\`.
 - Drops the \`[[tool.mypy.overrides]]\` block for the \`Crypto\` module (cryptography ships type stubs).
-- AES-EAX → AES-GCM (pyca doesn't support EAX; JWT challenge ciphertexts aren't persisted so wire-format change is safe).
+- AES-EAX → AES-GCM (pyca doesn't support EAX; JWT challenge ciphertexts ARE persisted briefly in ApiToken.cipher for up to 60s but greenfield project means no existing DB rows to migrate — the wire-format change is safe).
 - OAEP hash defaults switch from SHA-1 to SHA-256.
 - Private-key DER and PEM serialization both switch to PKCS#8 standard format.
 - Encrypted PEM uses BestAvailableEncryption (PBKDF2-SHA256 + AES-256-CBC).
 - 8 new tests in \`tests/test_wallet.py\` covering round-trips, sign/verify happy + reject paths, encrypt/decrypt, encrypted-PEM, and public-key-only Wallet construction.
 - \`WALLET_PRIVATE_KEY_B58\` fixture regenerated under PKCS#8 DER (the underlying RSA key is unchanged; the other 4 WALLET_* fixtures stay byte-identical).
 
-**Greenfield posture** (per \`project-no-legacy-chain\` memory): no backward-compat shims, no migration tool. No persisted wallet \`.pem\` files or in-flight JWT challenges to preserve.
+**Greenfield posture**: no production deploy, no legacy wallet \`.pem\` files in the wild, no existing DB rows holding old-format ApiToken.cipher to migrate. No backward-compat shims; no migration tool.
 
 Phase 5a. Spec/plan merged in the preceding docs PR.
 
 ## Test plan
 - [x] \`uv run mypy\` exits 0.
-- [x] \`uv run pytest\` passes (205 → ~213).
+- [x] \`uv run pytest\` passes (205 → 213).
 - [x] \`uv run ruff check\` + \`format --check\` pass.
 - [x] \`uv run python -c "import Crypto"\` raises ModuleNotFoundError.
 - [x] \`grep -rn 'pycryptodome' src/cancelchain/\` and \`grep -rn 'Crypto\.' src/cancelchain/\` both return nothing.
