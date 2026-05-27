@@ -373,11 +373,11 @@ Test count: 205 → 213 (8 new tests). The existing `test_crypto` may also need 
 
 ## Acceptance
 
-- `grep -rn 'Crypto\b\|pycryptodome' src/cancelchain/` returns nothing (or only docstring references).
+- `grep -rn 'pycryptodome' src/cancelchain/` returns nothing AND `grep -rn 'Crypto\.' src/cancelchain/` returns nothing (or only docstring references). Two greps because `\b` isn't a portable word-boundary in POSIX grep.
 - `grep -i pycryptodome uv.lock` returns nothing.
 - `uv run python -c "import Crypto"` raises `ModuleNotFoundError`.
 - `uv run mypy` exits 0.
-- `uv run ruff check src tests` + `ruff format --check src tests` exit 0.
+- `uv run ruff check src tests` + `uv run ruff format --check src tests` exit 0.
 - `uv run pytest` exits 0; test count grows by 8 (205 → 213).
 - `uv run cancelchain --help` works.
 - `docker build --target builder -t cc-phase5a .` succeeds.

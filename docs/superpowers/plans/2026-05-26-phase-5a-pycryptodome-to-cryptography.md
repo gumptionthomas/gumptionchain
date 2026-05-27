@@ -474,10 +474,11 @@ Notes:
 
 ```bash
 grep -n 'Crypto' src/cancelchain/wallet.py
-grep -rn 'Crypto\b\|pycryptodome' src/cancelchain/
+grep -rn 'pycryptodome' src/cancelchain/
+grep -rn 'Crypto\.' src/cancelchain/
 ```
 
-Expected: both return empty.
+Expected: all three return empty. Two separate `grep`s because POSIX `grep` treats `\b` as a literal backspace, not a word boundary — `Crypto\.` (with a literal dot) catches the import shapes pycryptodome uses (`from Crypto.Cipher`, `from Crypto.PublicKey`, etc.) without false positives on unrelated strings containing "Crypto".
 
 ### Step 6: Regenerate `WALLET_PRIVATE_KEY_B58` in `tests/conftest.py`
 
@@ -756,7 +757,7 @@ Phase 5a. Spec/plan merged in the preceding docs PR.
 - [x] \`uv run pytest\` passes (205 → ~213).
 - [x] \`uv run ruff check\` + \`format --check\` pass.
 - [x] \`uv run python -c "import Crypto"\` raises ModuleNotFoundError.
-- [x] \`grep -rn 'Crypto\b\|pycryptodome' src/cancelchain/\` returns nothing.
+- [x] \`grep -rn 'pycryptodome' src/cancelchain/\` and \`grep -rn 'Crypto\.' src/cancelchain/\` both return nothing.
 - [ ] CI green on 3.12 and 3.13.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -794,13 +795,14 @@ Expected: Python 3.12.x and a fresh venv.
 - [ ] **Step 3: pycryptodome absent**
 
 ```bash
-grep -rn 'pycryptodome\|Crypto\b' src/cancelchain/
+grep -rn 'pycryptodome' src/cancelchain/
+grep -rn 'Crypto\.' src/cancelchain/
 grep -c pycryptodome pyproject.toml
 grep -ci pycryptodome uv.lock
 uv run python -c "import Crypto" 2>&1 | head -3
 ```
 
-Expected: first three grep checks return nothing / 0; the import attempt raises `ModuleNotFoundError`.
+Expected: first four grep checks return nothing / 0; the import attempt raises `ModuleNotFoundError`. Two separate `grep`s because POSIX `grep` treats `\b` as a literal backspace, not a word boundary.
 
 - [ ] **Step 4: cryptography present**
 
