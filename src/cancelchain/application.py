@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import datetime
 import os
+import weakref
 from typing import Any
 
 from flask import Flask
@@ -15,12 +17,28 @@ from cancelchain.util import host_address
 from cancelchain.wallet import Wallet
 
 
+def close_clients(clients: dict[str, ApiClient]) -> None:
+    """Close every ApiClient's wrapped httpx.Client. Swallows errors so a
+    single bad client can't block shutdown of the others — logging is
+    not guaranteed to work at process-exit / finalizer time.
+    """
+    for client in clients.values():
+        with contextlib.suppress(Exception):
+            client.close()
+
+
 def init_app(
     app: Flask,
     register_browser: bool = True,  # noqa: FBT001
 ) -> None:
     app.wallets = read_wallets(app)  # type: ignore[attr-defined]
     app.clients = create_clients(app)  # type: ignore[attr-defined]
+    # Close pooled httpx.Clients when the app is garbage-collected
+    # (deterministic in CPython) or at process exit. weakref.finalize
+    # avoids the test-memory-leak that plain atexit.register would cause
+    # — each app instance gets its own finalizer tied to the app's
+    # lifetime, not the process's.
+    weakref.finalize(app, close_clients, app.clients)  # type: ignore[attr-defined]
 
     app.url_map.converters['address'] = AddressConverter
     app.url_map.converters['mill_hash'] = MillHashConverter
