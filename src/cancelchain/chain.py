@@ -10,6 +10,7 @@ from typing import Any, Self
 from sqlalchemy.exc import SQLAlchemyError
 
 from cancelchain.block import Block
+from cancelchain.database import db
 from cancelchain.exceptions import (
     EmptyChainError,
     FutureBlockError,
@@ -558,6 +559,8 @@ class Chain:
         dao = self.to_dao(create=True)
         dao.commit()
         self.cid = dao.id
+        dao.sync_longest_chain_blocks()
+        db.session.commit()
 
     def __lt__(self, other: Chain) -> bool:
         return self.length < other.length

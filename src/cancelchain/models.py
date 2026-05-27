@@ -377,6 +377,92 @@ class BlockDAO(db.Model):
             q = q.filter_by(idx=idx)
         return q.one_or_none()
 
+    @classmethod
+    def longest_chain_blocks_q(cls) -> Query[BlockDAO]:
+        """Blocks in the longest chain, ordered tip→genesis.
+
+        Matches BlockDAO.block_chain's tip-first ordering so consumers
+        that compose on the result (subquery / filter / first) see the
+        same row order.
+        """
+        return (
+            db.session.query(BlockDAO)
+            .join(
+                LongestChainBlockDAO,
+                BlockDAO.id == LongestChainBlockDAO.block_id,
+            )
+            .order_by(LongestChainBlockDAO.position.desc())
+        )
+
+    @classmethod
+    def longest_chain_transactions_q(cls) -> Query[TransactionDAO]:
+        """Transactions in the longest chain, ordered tip→genesis.
+
+        Matches TransactionDAO.transactions_chain's ordering
+        (timestamp.desc, id) within the longest chain's block set.
+        """
+        blocks_subq = cls.longest_chain_blocks_q().subquery()
+        block_alias = db.aliased(BlockDAO, blocks_subq)
+        q = db.session.query(TransactionDAO)
+        q = q.join(block_alias, TransactionDAO.blocks)
+        return q.order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
+
+    @classmethod
+    def longest_chain_outflows_q(cls) -> Query[OutflowDAO]:
+        """Outflows in the longest chain, ordered by their parent txn's
+        timestamp desc, then txid, then outflow idx — matching
+        OutflowDAO.outflows_chain's ordering.
+        """
+        txn_subq = cls.longest_chain_transactions_q().subquery()
+        txn_alias = db.aliased(TransactionDAO, txn_subq)
+        q = db.session.query(OutflowDAO)
+        q = q.join(txn_alias, OutflowDAO.transaction)
+        return q.order_by(
+            txn_alias.timestamp.desc(),
+            txn_alias.txid,
+            OutflowDAO.idx,
+        )
+
+    @classmethod
+    def longest_chain_inflows_q(cls) -> Query[InflowDAO]:
+        """Inflows in the longest chain, ordered analogously to
+        InflowDAO.inflows_chain (timestamp desc, txid, inflow idx).
+        """
+        txn_subq = cls.longest_chain_transactions_q().subquery()
+        txn_alias = db.aliased(TransactionDAO, txn_subq)
+        q = db.session.query(InflowDAO)
+        q = q.join(txn_alias, InflowDAO.transaction)
+        return q.order_by(
+            txn_alias.timestamp.desc(),
+            txn_alias.txid,
+            InflowDAO.idx,
+        )
+
+
+class LongestChainBlockDAO(db.Model):
+    """Flat materialization of the canonical chain's block membership.
+
+    One row per block in the currently-longest chain, keyed by block.id
+    with `position` 0 at genesis and increasing toward the tip. Maintained
+    by ChainDAO.sync_longest_chain_blocks() — never written from anywhere
+    else. Phase 6 (2026-05-27) introduced this table to eliminate the
+    recursive `BlockDAO._block_chain` CTE from hot-path reads.
+    """
+
+    __tablename__ = 'longest_chain_block'
+
+    block_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey('block.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    block: Mapped[BlockDAO] = relationship()
+
+    def __init__(self, block_id: int, position: int) -> None:
+        self.block_id = block_id
+        self.position = position
+
 
 class ChainDAO(db.Model):
     __tablename__ = 'chain'
@@ -400,18 +486,26 @@ class ChainDAO(db.Model):
 
     @property
     def blocks(self) -> Query[BlockDAO]:
+        if self._is_longest():
+            return BlockDAO.longest_chain_blocks_q()
         return self.block.block_chain
 
     @property
     def transactions(self) -> Query[TransactionDAO]:
+        if self._is_longest():
+            return BlockDAO.longest_chain_transactions_q()
         return self.block.transactions_chain
 
     @property
     def outflows(self) -> Query[OutflowDAO]:
+        if self._is_longest():
+            return BlockDAO.longest_chain_outflows_q()
         return self.block.outflows_chain
 
     @property
     def inflows(self) -> Query[InflowDAO]:
+        if self._is_longest():
+            return BlockDAO.longest_chain_inflows_q()
         return self.block.inflows_chain
 
     def unspent_outflows(
@@ -503,6 +597,86 @@ class ChainDAO(db.Model):
             q = q.limit(limit)
             return db.session.query(db.aliased(q.subquery()))
         return q
+
+    def _is_longest(self) -> bool:
+        """True iff this ChainDAO row is currently the longest chain.
+
+        Used by the property accessors (blocks, transactions, outflows,
+        inflows) to route hot reads through LongestChainBlockDAO
+        instead of the recursive CTE.
+        """
+        longest = ChainDAO.longest()
+        return longest is not None and longest.id == self.id
+
+    def sync_longest_chain_blocks(self) -> None:
+        """Update the longest_chain_block materialization to reflect
+        this chain — if this chain is currently the longest.
+
+        Three sub-cases:
+        - Bootstrap: table is empty → populate from this chain's
+          recursive CTE walk (one-time cost).
+        - Steady-state extend: table's last entry is our previous tip
+          → INSERT one row at position = max + 1.
+        - Reorg / out-of-order: anything else → full DELETE + rebuild.
+
+        No-op when this chain is not the longest. Called from
+        Chain.to_db() so the materialization update participates in
+        the same SQLAlchemy session/transaction as the chain row save.
+        """
+        if not self._is_longest():
+            return
+
+        current_max = db.session.query(
+            db.func.max(LongestChainBlockDAO.position)
+        ).scalar()
+
+        if current_max is None:
+            self._rebuild_longest_chain_blocks()
+            return
+
+        table_tip_block_id = (
+            db.session.query(LongestChainBlockDAO.block_id)
+            .filter(LongestChainBlockDAO.position == current_max)
+            .scalar()
+        )
+
+        if table_tip_block_id == self.block_id:
+            # Already in sync (defensive — e.g., to_db called twice).
+            return
+
+        if table_tip_block_id == self.block.prev_id:
+            # Normal extend: append one row.
+            db.session.add(
+                LongestChainBlockDAO(
+                    block_id=self.block_id,
+                    position=current_max + 1,
+                )
+            )
+            return
+
+        # Reorg or gap: rebuild.
+        self._rebuild_longest_chain_blocks()
+
+    def _rebuild_longest_chain_blocks(self) -> None:
+        """Wipe and repopulate longest_chain_block from this chain's
+        recursive CTE walk. Used on bootstrap and reorg.
+
+        This is the path that still fires the recursive CTE — see
+        Phase 6 spec 'Risks' for the deferred follow-up (Phase 6.5/7)
+        to replace this with an iterative walk when chain length
+        grows past the CTE's tolerable size.
+        """
+        db.session.query(LongestChainBlockDAO).delete()
+        # block_chain walks tip → genesis; reverse so position 0 is
+        # genesis and the tip ends up at the highest position.
+        blocks = list(self.block.block_chain)
+        for position, block in enumerate(reversed(blocks)):
+            db.session.add(
+                LongestChainBlockDAO(
+                    block_id=block.id,
+                    position=position,
+                )
+            )
 
     def set_block_hash(self, block_hash: str) -> None:
         self.block = BlockDAO.get(block_hash)  # type: ignore[assignment]
