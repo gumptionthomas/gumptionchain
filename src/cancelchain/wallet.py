@@ -19,6 +19,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cancelchain.exceptions import InvalidKeyError, NoPrivateKeyError
 from cancelchain.milling import mill_hash_bin
 
+RSAKey = RSAPrivateKey | RSAPublicKey
+
 ADDRESS_TAG = 'CC'
 KEY_SIZE = 2048
 GCM_NONCE_SIZE = 12
@@ -41,26 +43,26 @@ def b64encode(b: bytes) -> str:
     return standard_b64encode(b).decode()
 
 
-def export_binary_key(key: Any, passphrase: str | None = None) -> bytes:
+def export_binary_key(key: RSAKey, passphrase: str | None = None) -> bytes:
     if isinstance(key, RSAPublicKey):
         return key.public_bytes(
             encoding=serialization.Encoding.DER,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
-    # RSAPrivateKey
+    # RSAPrivateKey (narrowed by exclusion)
     encryption: serialization.KeySerializationEncryption
     if passphrase is None:
         encryption = serialization.NoEncryption()
     else:
         encryption = serialization.BestAvailableEncryption(passphrase.encode())
-    return key.private_bytes(  # type: ignore[no-any-return]
+    return key.private_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=encryption,
     )
 
 
-def import_key(ks: bytes | str, passphrase: str | None = None) -> Any | None:
+def import_key(ks: bytes | str, passphrase: str | None = None) -> RSAKey | None:
     """Load an RSA key from PEM or DER bytes. Accepts both private and
     public keys (api.py / schema.py / models.py construct Wallet with
     a peer's public key alone for signature verification).
@@ -74,26 +76,32 @@ def import_key(ks: bytes | str, passphrase: str | None = None) -> Any | None:
         # Private-key path first (the common case for wallet load flows)
         try:
             if is_pem:
-                return serialization.load_pem_private_key(ks, password)
-            return serialization.load_der_private_key(ks, password)
+                key = serialization.load_pem_private_key(ks, password)
+            else:
+                key = serialization.load_der_private_key(ks, password)
+            if isinstance(key, RSAPrivateKey):
+                return key
         except Exception:
             pass
         # Public-key fallback (peer-public-key wrap path)
-        if is_pem:
-            return serialization.load_pem_public_key(ks)
-        return serialization.load_der_public_key(ks)
+        pub = (
+            serialization.load_pem_public_key(ks)
+            if is_pem
+            else serialization.load_der_public_key(ks)
+        )
+        return pub if isinstance(pub, RSAPublicKey) else None
     except Exception:
         return None
 
 
-def import_b58_key(ks: str, passphrase: str | None = None) -> Any | None:
+def import_b58_key(ks: str, passphrase: str | None = None) -> RSAKey | None:
     try:
         return import_key(b58decode(ks), passphrase=passphrase)
     except Exception:
         return None
 
 
-def import_b64_key(ks: str, passphrase: str | None = None) -> Any | None:
+def import_b64_key(ks: str, passphrase: str | None = None) -> RSAKey | None:
     try:
         return import_key(b64decode(ks), passphrase=passphrase)
     except Exception:
@@ -108,33 +116,32 @@ class Wallet:
         ks: bytes | str | None = None,
         passphrase: str | None = None,
     ) -> None:
+        key: RSAKey | None
         if b64ks is not None:
-            self.key: Any = import_b64_key(b64ks, passphrase=passphrase)
+            key = import_b64_key(b64ks, passphrase=passphrase)
         elif b58ks is not None:
-            self.key = import_b58_key(b58ks, passphrase=passphrase)
+            key = import_b58_key(b58ks, passphrase=passphrase)
         elif ks is not None:
-            self.key = import_key(ks, passphrase=passphrase)
+            key = import_key(ks, passphrase=passphrase)
         else:
-            self.key = rsa.generate_private_key(
+            key = rsa.generate_private_key(
                 public_exponent=65537, key_size=KEY_SIZE
             )
-        if not (
-            isinstance(self.key, (RSAPrivateKey, RSAPublicKey))
-            and self.key.key_size == KEY_SIZE
-        ):
+        if not isinstance(key, (RSAPrivateKey, RSAPublicKey)):
             raise InvalidKeyError()
+        if key.key_size != KEY_SIZE:
+            raise InvalidKeyError()
+        self.key: RSAKey = key
 
     @property
-    def private_key(self) -> Any | None:
+    def private_key(self) -> RSAPrivateKey | None:
         return self.key if isinstance(self.key, RSAPrivateKey) else None
 
     @property
-    def public_key(self) -> Any:
-        return (
-            self.private_key.public_key()
-            if self.private_key is not None
-            else self.key
-        )
+    def public_key(self) -> RSAPublicKey:
+        if isinstance(self.key, RSAPrivateKey):
+            return self.key.public_key()
+        return self.key
 
     @property
     def private_key_b58(self) -> str:
@@ -159,7 +166,7 @@ class Wallet:
             encryption = serialization.BestAvailableEncryption(
                 passphrase.encode()
             )
-        return self.private_key.private_bytes(  # type: ignore[no-any-return]
+        return self.private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=encryption,
