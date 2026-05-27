@@ -1,5 +1,5 @@
+import httpx
 import pytest
-import requests
 
 from cancelchain.api import API_TOKEN_SECONDS
 from cancelchain.api_client import ApiClient
@@ -11,7 +11,7 @@ def test_invalid_wallet(app, host, mill_block, requests_proxy, wallet):
     with app.app_context():
         _m, _b = mill_block(wallet)
         w = Wallet()
-        with pytest.raises(requests.exceptions.HTTPError, match='401'):
+        with pytest.raises(httpx.HTTPStatusError, match='401'):
             ApiClient(host, w).get_block()
 
 
@@ -34,13 +34,30 @@ def test_expired_token(
         client = ApiClient(host, wallet)
         _m, b = mill_block(wallet)
         response = client.get_block()
-        assert response.status_code == requests.codes.ok
+        assert response.status_code == httpx.codes.OK
         _ = next(time_step)
         response = client.get_block()
-        assert response.status_code == requests.codes.ok
+        assert response.status_code == httpx.codes.OK
         _ = next(time_step)
         m2 = Miller(milling_wallet=wallet)
         b = m2.create_block()
         m2.mill_block(b)
         response = client.post_block(b)
-        assert response.status_code == requests.codes.ok
+        assert response.status_code == httpx.codes.OK
+
+
+def test_api_client_close_releases_underlying_client(app, host, wallet):
+    """ApiClient.close() releases the wrapped httpx.Client."""
+    with app.app_context():
+        c = ApiClient(host, wallet)
+        assert c._client.is_closed is False
+        c.close()
+        assert c._client.is_closed is True
+
+
+def test_api_client_context_manager_closes_on_exit(app, host, wallet):
+    """`with ApiClient(...) as c:` closes the wrapped httpx.Client on exit."""
+    with app.app_context():
+        with ApiClient(host, wallet) as c:
+            assert c._client.is_closed is False
+        assert c._client.is_closed is True

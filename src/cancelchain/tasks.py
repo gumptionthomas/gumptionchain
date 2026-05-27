@@ -4,7 +4,7 @@ from __future__ import annotations
 # mypy: disable-error-code="untyped-decorator"
 from typing import Any
 
-import requests
+import httpx
 from celery import Celery
 from flask import Flask
 
@@ -27,5 +27,5 @@ def init_tasks(app: Flask) -> Celery:
 def post_process(
     url: str, data: str | bytes | None, headers: dict[str, str] | None = None
 ) -> None:
-    r = requests.post(url, headers=headers, data=data, timeout=360)
+    r = httpx.post(url, headers=headers, content=data, timeout=360)
     r.raise_for_status()

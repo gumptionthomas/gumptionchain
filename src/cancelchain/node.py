@@ -6,7 +6,7 @@ from logging import Logger
 from time import sleep
 from typing import Any
 
-import requests
+import httpx
 from sqlalchemy.exc import SQLAlchemyError
 
 from cancelchain.block import TXN_TIMEOUT, Block
@@ -68,7 +68,7 @@ class Node:
                 continue
             try:
                 client.post_transaction(txn, visited_hosts=visited_hosts)
-            except requests.RequestException as re:
+            except httpx.RequestError as re:
                 self.logger.warning(re)
             except Exception as e:
                 self.logger.exception(e)
@@ -132,7 +132,7 @@ class Node:
                 )
                 if r.status_code == 404:
                     self.fill_peer(peer, block)
-            except requests.RequestException as re:
+            except httpx.RequestError as re:
                 self.logger.warning(re)
             except Exception as e:
                 self.logger.exception(e)
@@ -211,7 +211,7 @@ class Node:
                 )
                 if r.status_code == 200:
                     return Block.from_json(r.text)
-            except requests.RequestException as re:
+            except httpx.RequestError as re:
                 self.logger.error(re)
             except Exception as e:
                 self.logger.exception(e)
@@ -228,7 +228,7 @@ class Node:
             try:
                 r = client.get_block()
                 yield Block.from_json(r.text), p
-            except requests.RequestException as re:
+            except httpx.RequestError as re:
                 self.logger.error(re)
             except Exception as e:
                 self.logger.exception(e)

@@ -5,7 +5,7 @@ from collections.abc import Generator
 from logging import Logger
 from typing import Any
 
-import requests
+import httpx
 
 from cancelchain.block import MAX_TRANSACTIONS, TXN_TIMEOUT, Block
 from cancelchain.chain import Chain
@@ -52,7 +52,7 @@ class Miller(Node):
                                 json.dumps(txn_json),
                                 visited_hosts=visited_hosts,
                             )
-                except requests.RequestException as re:
+                except httpx.RequestError as re:
                     self.logger.error(re)
                 except Exception as e:
                     self.logger.exception(e)

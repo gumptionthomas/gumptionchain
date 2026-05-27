@@ -1,14 +1,15 @@
 import datetime
 import json
 import logging
-import re
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import patch
 from urllib.parse import urlparse
 
+import httpx
 import pytest
 
 from cancelchain import create_app
+from cancelchain.application import create_clients
 from cancelchain.block import Block
 from cancelchain.chain import REWARD, Chain
 from cancelchain.database import db
@@ -439,43 +440,59 @@ def remote_test_client(remote_app):
 
 
 @pytest.fixture
-def requests_proxy(app, host, requests_mock, test_client):
-    def test_client_proxy(request, context):
-        if request.method == 'GET':
-            r = test_client.get(request.url, headers=dict(request.headers))
-        elif request.method == 'POST':
-            r = test_client.post(
-                request.url, headers=dict(request.headers), data=request.body
-            )
-        context.headers = r.headers
-        context.status_code = r.status_code
-        return r.data
+def requests_proxy(app, host):
+    """WSGITransport-backed httpx client that routes outbound HTTP from
+    ApiClient into the Flask test app. Named `requests_proxy` for
+    backward-compatibility with the ~25 tests that consume the fixture
+    by name; the underlying mechanism is httpx + WSGITransport.
 
-    matcher = re.compile(f'{host}/.*')
-    requests_mock.get(matcher, content=test_client_proxy)
-    requests_mock.post(matcher, content=test_client_proxy)
+    Side effect: rebuilds app.clients under the active _make_client
+    monkeypatch so peer-gossip code in Node / Miller routes through
+    WSGI too.
+    """
+    transport = httpx.WSGITransport(app=app)
+
+    def _wsgi_make_client(base_url, timeout):
+        return httpx.Client(
+            transport=transport, base_url=base_url, timeout=timeout
+        )
+
+    with patch(
+        'cancelchain.api_client._make_client',
+        side_effect=_wsgi_make_client,
+    ):
+        for c in list(app.clients.values()):
+            c.close()
+        app.clients = create_clients(app)
+        with httpx.Client(transport=transport, base_url=host) as client:
+            yield client
+        for c in list(app.clients.values()):
+            c.close()
 
 
 @pytest.fixture
-def remote_requests_proxy(
-    remote_app, remote_host, requests_mock, remote_test_client
-):
-    def remote_test_client_proxy(request, context):
-        if request.method == 'GET':
-            r = remote_test_client.get(
-                request.url, headers=dict(request.headers)
-            )
-        elif request.method == 'POST':
-            r = remote_test_client.post(
-                request.url, headers=dict(request.headers), data=request.body
-            )
-        context.headers = r.headers
-        context.status_code = r.status_code
-        return r.data
+def remote_requests_proxy(remote_app, remote_host):
+    """Counterpart to `requests_proxy` for the second Flask app used in
+    peer-gossip tests. See `requests_proxy` for mechanism.
+    """
+    transport = httpx.WSGITransport(app=remote_app)
 
-    matcher = re.compile(f'{remote_host}/.*')
-    requests_mock.get(matcher, content=remote_test_client_proxy)
-    requests_mock.post(matcher, content=remote_test_client_proxy)
+    def _wsgi_make_client(base_url, timeout):
+        return httpx.Client(
+            transport=transport, base_url=base_url, timeout=timeout
+        )
+
+    with patch(
+        'cancelchain.api_client._make_client',
+        side_effect=_wsgi_make_client,
+    ):
+        for c in list(remote_app.clients.values()):
+            c.close()
+        remote_app.clients = create_clients(remote_app)
+        with httpx.Client(transport=transport, base_url=remote_host) as client:
+            yield client
+        for c in list(remote_app.clients.values()):
+            c.close()
 
 
 @pytest.fixture

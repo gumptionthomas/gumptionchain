@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import timedelta
 from http.client import responses
 from typing import Any
 
 import click
-import requests
+import httpx
 from flask import current_app
 from flask.cli import AppGroup, with_appcontext
 from humanfriendly import format_timespan
@@ -60,9 +61,9 @@ def human_timespan(secs: float) -> str:
     return str(format_timespan(secs))
 
 
-def http_error_message(e: requests.HTTPError) -> str | None:
+def http_error_message(e: httpx.HTTPStatusError) -> str | None:
     try:
-        msg = e.response.json().get('error')  # type: ignore[union-attr]
+        msg = e.response.json().get('error')
         if msg:
             if isinstance(msg, dict):
                 return ','.join([f'{k} => {v}' for k, v in msg.items()])
@@ -71,9 +72,9 @@ def http_error_message(e: requests.HTTPError) -> str | None:
             else:
                 return str(msg)
         else:
-            return e.response.text  # type: ignore[union-attr]
-    except (AttributeError, requests.exceptions.JSONDecodeError):
-        return responses.get(e.response.status_code)  # type: ignore[union-attr]
+            return e.response.text
+    except (AttributeError, json.JSONDecodeError):
+        return responses.get(e.response.status_code)
 
 
 def host_api_client(
@@ -376,7 +377,7 @@ def sync_blocks_command() -> None:
                 with progress_bar as progress:
                     node.fill_chain(latest_block, progress=progress)
                     progress.finish()
-            except requests.HTTPError as e:
+            except httpx.HTTPStatusError as e:
                 console.print(
                     f'Synchronization failed: {http_error_message(e)}',
                     style='error',
@@ -672,7 +673,7 @@ def create_transfer(
             console.print('Transfer created.', style='success')
         else:
             console.print('Transfer aborted.', style='error')
-    except requests.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         console.print(
             f'Transfer failed: {http_error_message(e)}', style='error'
         )
@@ -749,7 +750,7 @@ def create_subject(
             console.print(f'Subject created: {txn.txid}', style='success')
         else:
             console.print('Subject aborted.', style='error')
-    except requests.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         console.print(f'Subject failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Subject failed: {e}', style='error')
@@ -824,7 +825,7 @@ def create_forgive(
             console.print(f'Forgive created: {txn.txid}', style='success')
         else:
             console.print('Forgive aborted.', style='error')
-    except requests.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         console.print(f'Forgive failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Forgive failed: {e} ', style='error')
@@ -899,7 +900,7 @@ def create_support(
             console.print(f'Support created: {txn.txid}', style='success')
         else:
             console.print('Support aborted.', style='error')
-    except requests.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         console.print(f'Support failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Support failed: {e}', style='error')
@@ -952,7 +953,7 @@ def wallet_balance(address: str, host: str | None, wallet: str | None) -> None:
         r = client.get_wallet_balance(address)
         balance = r.json().get('balance')
         console.print(f'{human_curmudgeons(balance)} CCG', style='success')
-    except requests.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         console.print(f'Balance failed: {http_error_message(e)}', style='error')
     except Exception as e:
         console.print(f'Balance failed: {e}', style='error')
@@ -989,7 +990,7 @@ def subject_balance(subject: str, host: str | None, wallet: str | None) -> None:
         r = client.get_subject_balance(encode_subject(subject))
         balance = r.json().get('balance')
         console.print(f'{human_curmudgeons(balance)} CCG', style='success')
-    except requests.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         console.print(
             f'Subject balance failed: {http_error_message(e)}', style='error'
         )
@@ -1024,7 +1025,7 @@ def support_balance(subject: str, host: str | None, wallet: str | None) -> None:
         r = client.get_subject_support(encode_subject(subject))
         support = r.json().get('support')
         console.print(f'{human_curmudgeons(support)} CCG', style='success')
-    except requests.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         console.print(
             f'Support balance failed: {http_error_message(e)}', style='error'
         )

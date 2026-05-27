@@ -2,19 +2,28 @@ from __future__ import annotations
 
 import datetime
 import json
-from urllib.parse import urljoin
+from types import TracebackType
+from typing import Self
 
-import requests
+import httpx
 
 from cancelchain.block import Block
 from cancelchain.transaction import Transaction
 from cancelchain.util import dt_2_ciso, host_address
 from cancelchain.wallet import Wallet
 
-OK = requests.codes.ok
-UNAUTHORIZED = requests.codes.unauthorized
+OK = httpx.codes.OK
+UNAUTHORIZED = httpx.codes.UNAUTHORIZED
 PEER_HOST_HEADER = 'Peer-Hosts'
 ADDRESS_MISMATCH_MSG = 'Address/wallet mismatch'
+
+
+def _make_client(base_url: str, timeout: float) -> httpx.Client:
+    """Module-scope factory so tests can monkeypatch a single seam to
+    inject httpx.WSGITransport(app=flask_app). Production callers never
+    touch this directly.
+    """
+    return httpx.Client(base_url=base_url, timeout=timeout)
 
 
 def json_header(headers: dict[str, str] | None = None) -> dict[str, str]:
@@ -47,20 +56,34 @@ class ApiClient:
         self.wallet = wallet
         self.token: str | None = None
         self.timeout: int | float = timeout if timeout is not None else 10
+        self._client = _make_client(self.host, float(self.timeout))
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.close()
 
     def request_token(self, rfs: bool = True) -> str | None:  # noqa: FBT001
-        r = requests.get(
-            urljoin(self.host, f'/api/token/{self.wallet.address}'),
-            timeout=self.timeout,
+        r = self._client.get(
+            f'/api/token/{self.wallet.address}', timeout=self.timeout
         )
         if rfs:
             r.raise_for_status()
         if r.status_code == OK:
             secret = self.wallet.decrypt(r.json().get('cipher')).decode()
-            r = requests.post(
-                urljoin(self.host, f'/api/token/{self.wallet.address}'),
+            r = self._client.post(
+                f'/api/token/{self.wallet.address}',
                 headers=json_header(),
-                data=json.dumps({'challenge': secret}),
+                content=json.dumps({'challenge': secret}),
                 timeout=self.timeout,
             )
             if rfs:
@@ -96,16 +119,16 @@ class ApiClient:
         params: dict[str, str] | None = None,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
-        timeout = self.timeout if timeout is None else timeout
-        r: requests.Response
+    ) -> httpx.Response:
+        timeout_v: int | float = self.timeout if timeout is None else timeout
+        r: httpx.Response
         for _i in range(2):
             headers = self.auth_header(headers=headers, rfs=raise_for_status)
-            r = requests.get(
-                urljoin(self.host, path),
+            r = self._client.get(
+                path,
                 headers=headers,
                 params=params,
-                timeout=timeout,
+                timeout=timeout_v,
             )
             if r.status_code == UNAUTHORIZED:
                 self.reset_token()
@@ -122,16 +145,16 @@ class ApiClient:
         data: str | bytes | None = None,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
-        timeout = self.timeout if timeout is None else timeout
-        r: requests.Response
+    ) -> httpx.Response:
+        timeout_v: int | float = self.timeout if timeout is None else timeout
+        r: httpx.Response
         for _i in range(2):
             headers = self.auth_header(headers=headers, rfs=raise_for_status)
-            r = requests.post(
-                urljoin(self.host, path),
+            r = self._client.post(
+                path,
                 headers=headers,
-                data=data,
-                timeout=timeout,
+                content=data,
+                timeout=timeout_v,
             )
             if r.status_code == UNAUTHORIZED:
                 self.reset_token()
@@ -148,7 +171,7 @@ class ApiClient:
         address: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             '/api/transaction/transfer',
             params={
@@ -167,7 +190,7 @@ class ApiClient:
         subject: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             '/api/transaction/subject',
             params={
@@ -186,7 +209,7 @@ class ApiClient:
         subject: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             '/api/transaction/forgive',
             params={
@@ -205,7 +228,7 @@ class ApiClient:
         subject: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             '/api/transaction/support',
             params={
@@ -223,7 +246,7 @@ class ApiClient:
         visited_hosts: list[str] | None = None,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         headers = peer_header(visited_hosts, headers=json_header())
         return self.post(
             f'/api/transaction/{txn.txid}',
@@ -238,7 +261,7 @@ class ApiClient:
         earliest: datetime.datetime | None = None,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         params: dict[str, str] | None = None
         if earliest is not None:
             params = {'earliest': dt_2_ciso(earliest)}
@@ -254,7 +277,7 @@ class ApiClient:
         block_hash: str | None = None,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             f'/api/block/{block_hash}' if block_hash else '/api/block',
             timeout=timeout,
@@ -267,7 +290,7 @@ class ApiClient:
         visited_hosts: list[str] | None = None,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         headers = peer_header(visited_hosts, headers=json_header())
         return self.post(
             f'/api/block/{block.block_hash}',
@@ -282,7 +305,7 @@ class ApiClient:
         address: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             f'/api/wallet/{address}/balance',
             timeout=timeout,
@@ -294,7 +317,7 @@ class ApiClient:
         subject: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             f'/api/subject/{subject}/balance',
             timeout=timeout,
@@ -306,7 +329,7 @@ class ApiClient:
         subject: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
-    ) -> requests.Response:
+    ) -> httpx.Response:
         return self.get(
             f'/api/subject/{subject}/support',
             timeout=timeout,
