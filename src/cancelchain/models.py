@@ -22,6 +22,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from cancelchain.database import Base, db
 from cancelchain.wallet import Wallet
 
+# Chain-factory returns below carry `# type: ignore[no-any-return]` because
+# Flask-SQLAlchemy's `db.select` / `db.aliased` / `db.desc` facade methods
+# return `Any`, even though the underlying `sqlalchemy` primitives are typed.
+# Remove the ignores when FSA's stubs improve, or when these sites migrate
+# to direct `from sqlalchemy import select, desc` / `from sqlalchemy.orm
+# import aliased` imports.
+
 _PASSWORD_HASHER = PasswordHasher()
 
 
