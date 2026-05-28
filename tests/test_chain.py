@@ -2,6 +2,7 @@ import datetime
 from unittest.mock import patch
 
 import pytest
+from _sa_helpers import _count_select
 
 from cancelchain.block import TXN_TIMEOUT, Block
 from cancelchain.chain import (
@@ -10,6 +11,7 @@ from cancelchain.chain import (
     REWARD,
     Chain,
 )
+from cancelchain.database import db
 from cancelchain.exceptions import (
     FutureBlockError,
     ImbalancedTransactionError,
@@ -297,34 +299,64 @@ def test_dao(add_chain_block, app, time_machine, time_stepper, wallet):
         time_machine.move_to(now_dt)
 
         blocks = chain.to_dao(create=True).blocks
-        assert blocks.count() == 8
-        assert [b.id for b in blocks.all()] == [10, 9, 8, 7, 6, 4, 2, 1]
+        assert _count_select(blocks) == 8
+        assert [b.id for b in db.session.execute(blocks).scalars().all()] == [
+            10,
+            9,
+            8,
+            7,
+            6,
+            4,
+            2,
+            1,
+        ]
         alt_blocks = alt_chain.to_dao(create=True).blocks
-        assert alt_blocks.count() == 4
-        assert [b.id for b in alt_blocks.all()] == [5, 3, 2, 1]
+        assert _count_select(alt_blocks) == 4
+        assert [
+            b.id for b in db.session.execute(alt_blocks).scalars().all()
+        ] == [5, 3, 2, 1]
 
         transactions = chain.to_dao(create=True).transactions
-        assert transactions.count() == 8
-        assert [t.id for t in transactions.all()] == [10, 9, 8, 7, 6, 4, 2, 1]
+        assert _count_select(transactions) == 8
+        assert [
+            t.id for t in db.session.execute(transactions).scalars().all()
+        ] == [10, 9, 8, 7, 6, 4, 2, 1]
         alt_transactions = alt_chain.to_dao(create=True).transactions
-        assert alt_transactions.count() == 4
-        assert [b.id for b in alt_transactions.all()] == [5, 3, 2, 1]
+        assert _count_select(alt_transactions) == 4
+        assert [
+            b.id for b in db.session.execute(alt_transactions).scalars().all()
+        ] == [5, 3, 2, 1]
 
         outflows = chain.to_dao(create=True).outflows
-        assert outflows.count() == 8
-        assert [t.id for t in outflows.all()] == [10, 9, 8, 7, 6, 4, 2, 1]
+        assert _count_select(outflows) == 8
+        assert [t.id for t in db.session.execute(outflows).scalars().all()] == [
+            10,
+            9,
+            8,
+            7,
+            6,
+            4,
+            2,
+            1,
+        ]
         alt_outflows = alt_chain.to_dao(create=True).outflows
-        assert alt_outflows.count() == 4
-        assert [b.id for b in alt_outflows.all()] == [5, 3, 2, 1]
+        assert _count_select(alt_outflows) == 4
+        assert [
+            b.id for b in db.session.execute(alt_outflows).scalars().all()
+        ] == [5, 3, 2, 1]
 
         inflows = chain.to_dao(create=True).inflows
-        assert inflows.count() == 0
-        assert [t.id for t in inflows.all()] == []
+        assert _count_select(inflows) == 0
+        assert [t.id for t in db.session.execute(inflows).scalars().all()] == []
         alt_inflows = alt_chain.to_dao(create=True).inflows
-        assert alt_inflows.count() == 0
-        assert [b.id for b in alt_inflows.all()] == []
+        assert _count_select(alt_inflows) == 0
+        assert [
+            b.id for b in db.session.execute(alt_inflows).scalars().all()
+        ] == []
 
-        wallet_leaders = list(chain.to_dao(create=True).wallet_leaderboard())
+        wallet_leaders = list(
+            db.session.execute(chain.to_dao(create=True).wallet_leaderboard())
+        )
         assert wallet_leaders[0][0] == wallet.address
         assert wallet_leaders[0][1] == 5 * REWARD
         assert wallet_leaders[1][0] == wallet3.address
@@ -333,10 +365,12 @@ def test_dao(add_chain_block, app, time_machine, time_stepper, wallet):
         assert wallet_leaders[2][1] == REWARD
         assert len(wallet_leaders) == 3
         wallet_leaders = list(
-            chain.to_dao(create=True).wallet_leaderboard(
-                earliest=block2.timestamp_dt,
-                latest=last_block.timestamp_dt,
-                limit=2,
+            db.session.execute(
+                chain.to_dao(create=True).wallet_leaderboard(
+                    earliest=block2.timestamp_dt,
+                    latest=last_block.timestamp_dt,
+                    limit=2,
+                )
             )
         )
         assert len(wallet_leaders) == 2

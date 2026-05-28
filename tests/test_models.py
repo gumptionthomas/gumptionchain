@@ -1,6 +1,8 @@
 import datetime
 from unittest.mock import patch
 
+from _sa_helpers import _count, _count_select
+
 from cancelchain.block import Block
 from cancelchain.chain import Chain
 from cancelchain.database import db
@@ -24,10 +26,10 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         chain_a.to_db()
         dao_a = chain_a.to_dao()
 
-        assert BlockDAO.query.count() == 1
-        assert LongestChainBlockDAO.query.count() == 1
+        assert _count(BlockDAO) == 1
+        assert _count(LongestChainBlockDAO) == 1
         assert dao_a is not None
-        assert dao_a.unspent_outflows(wallet.address).count() == 1
+        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 1
         balance = chain_a.block_reward()
         assert dao_a.wallet_balance(wallet.address) == balance
 
@@ -56,9 +58,9 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         chain_a.add_block(block_2a)
         chain_a.to_db()
 
-        assert BlockDAO.query.count() == 2
-        assert LongestChainBlockDAO.query.count() == 2
-        assert dao_a.unspent_outflows(wallet.address).count() == 2
+        assert _count(BlockDAO) == 2
+        assert _count(LongestChainBlockDAO) == 2
+        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 2
         balance = int(1.5 * chain_a.block_reward())
         assert dao_a.wallet_balance(wallet.address) == balance
         assert dao_a.subject_balance(subject) == cb_1_amount
@@ -70,19 +72,19 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         dao_b = chain_b.to_dao()
         assert dao_b is not None
 
-        assert BlockDAO.query.count() == 3
+        assert _count(BlockDAO) == 3
         # Materialization mirrors the longest chain only. chain_a and
         # chain_b both have length 2 but chain_a wins the (idx DESC,
         # timestamp ASC) tiebreaker in ChainDAO.chains(), so the
         # materialization holds chain_a's 2 blocks (not the 3 distinct
         # BlockDAOs in the database).
-        assert LongestChainBlockDAO.query.count() == 2
-        assert dao_b.unspent_outflows(wallet.address).count() == 2
+        assert _count(LongestChainBlockDAO) == 2
+        assert _count_select(dao_b.unspent_outflows(wallet.address)) == 2
         balance = 2 * chain_b.block_reward()
         assert dao_b.wallet_balance(wallet.address) == balance
         assert dao_b.subject_balance(subject) == 0
 
-        assert dao_a.unspent_outflows(wallet.address).count() == 2
+        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 2
         balance = int(1.5 * chain_a.block_reward())
         assert dao_a.wallet_balance(wallet.address) == balance
         assert dao_a.subject_balance(subject) == cb_1_amount
@@ -96,8 +98,12 @@ def test_longest_chain_block_bootstrap(app, mill_block, wallet):
         _m, _b1 = mill_block(wallet)
         _m, b2 = mill_block(wallet)
         rows = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         assert len(rows) == 2
@@ -114,8 +120,12 @@ def test_longest_chain_block_single_extend(app, mill_block, wallet):
     with app.app_context():
         _m, _b1 = mill_block(wallet)
         rows_before = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         before_count = len(rows_before)
@@ -124,8 +134,12 @@ def test_longest_chain_block_single_extend(app, mill_block, wallet):
         _m, b2 = mill_block(wallet)
 
         rows_after = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         assert len(rows_after) == before_count + 1
@@ -179,7 +193,11 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         longest = ChainDAO.longest()
         assert longest is not None
         non_longest = next(
-            (d for d in ChainDAO.chains() if d.id != longest.id),
+            (
+                d
+                for d in db.session.execute(ChainDAO.chains()).scalars()
+                if d.id != longest.id
+            ),
             None,
         )
         assert non_longest is not None, (
@@ -188,14 +206,22 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         assert non_longest._is_longest() is False
 
         longest_rows_before = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         non_longest.sync_longest_chain_blocks()
         longest_rows_after = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         assert [(r.block_id, r.position) for r in longest_rows_after] == [
@@ -213,11 +239,18 @@ def test_longest_chain_block_property_matches_cte(app, mill_block, wallet):
             mill_block(wallet)
         longest = ChainDAO.longest()
         assert longest is not None
-        cte_ids = [b.id for b in longest.block.block_chain]
+        cte_ids = [
+            b.id
+            for b in db.session.execute(longest.block.block_chain).scalars()
+        ]
         mat_ids = [
             r.block_id
-            for r in db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position.desc())
+            for r in db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position.desc()
+                )
+            )
+            .scalars()
             .all()
         ]
         assert cte_ids == mat_ids
@@ -234,9 +267,7 @@ def test_longest_chain_blocks_q_fast_path_skips_cte(app, mill_block, wallet):
         longest = ChainDAO.longest()
         assert longest is not None
         compiled_sql = str(
-            longest.blocks.statement.compile(
-                compile_kwargs={'literal_binds': True}
-            )
+            longest.blocks.compile(compile_kwargs={'literal_binds': True})
         )
         assert 'RECURSIVE' not in compiled_sql.upper(), (
             f'Expected no recursive CTE in fast-path SQL, got:\n{compiled_sql}'
@@ -286,7 +317,11 @@ def test_non_longest_chain_blocks_uses_cte(app, time_stepper, wallet):
         longest = ChainDAO.longest()
         assert longest is not None
         non_longest = next(
-            (d for d in ChainDAO.chains() if d.id != longest.id),
+            (
+                d
+                for d in db.session.execute(ChainDAO.chains()).scalars()
+                if d.id != longest.id
+            ),
             None,
         )
         assert non_longest is not None, (
@@ -295,9 +330,7 @@ def test_non_longest_chain_blocks_uses_cte(app, time_stepper, wallet):
         assert non_longest._is_longest() is False
 
         compiled_sql = str(
-            non_longest.blocks.statement.compile(
-                compile_kwargs={'literal_binds': True}
-            )
+            non_longest.blocks.compile(compile_kwargs={'literal_binds': True})
         )
         # CTE fallback uses 'WITH RECURSIVE' on SQLite/Postgres.
         assert 'RECURSIVE' in compiled_sql.upper()
@@ -313,17 +346,17 @@ def test_longest_chain_block_rebuild_on_reorg(app, mill_block, wallet):
         _m, _b2 = mill_block(wallet)
         _m, _b3 = mill_block(wallet)
         # Sanity: table has 3 rows.
-        assert db.session.query(LongestChainBlockDAO).count() == 3
+        assert _count(LongestChainBlockDAO) == 3
 
         # Insert junk to simulate a corrupted / out-of-date table.
-        db.session.query(LongestChainBlockDAO).delete()
+        db.session.execute(db.delete(LongestChainBlockDAO))
         db.session.add(
             LongestChainBlockDAO(
                 block_id=BlockDAO.get(b1.block_hash).id, position=99
             )
         )
         db.session.commit()
-        assert db.session.query(LongestChainBlockDAO).count() == 1
+        assert _count(LongestChainBlockDAO) == 1
 
         # Rebuild from the current longest chain.
         longest = ChainDAO.longest()
@@ -332,11 +365,18 @@ def test_longest_chain_block_rebuild_on_reorg(app, mill_block, wallet):
         db.session.commit()
 
         # Table is back to 3 rows in tip→genesis order matching CTE.
-        cte_ids = [b.id for b in longest.block.block_chain]
+        cte_ids = [
+            b.id
+            for b in db.session.execute(longest.block.block_chain).scalars()
+        ]
         mat_ids = [
             r.block_id
-            for r in db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position.desc())
+            for r in db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position.desc()
+                )
+            )
+            .scalars()
             .all()
         ]
         assert cte_ids == mat_ids
@@ -356,7 +396,10 @@ def test_iterative_walk_matches_cte(app, mill_block, wallet):
         assert longest is not None
 
         # Capture CTE ground truth before rebuild.
-        cte_ids = [b.id for b in longest.block.block_chain]
+        cte_ids = [
+            b.id
+            for b in db.session.execute(longest.block.block_chain).scalars()
+        ]
 
         # Force a rebuild via the iterative walk (also runs on bootstrap
         # by sync_longest_chain_blocks; here we exercise it directly).
@@ -365,8 +408,12 @@ def test_iterative_walk_matches_cte(app, mill_block, wallet):
 
         mat_ids = [
             r.block_id
-            for r in db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position.desc())
+            for r in db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position.desc()
+                )
+            )
+            .scalars()
             .all()
         ]
         assert cte_ids == mat_ids
@@ -385,7 +432,7 @@ def test_iterative_walk_long_chain(app, mill_block, wallet):
         assert longest is not None
         longest._rebuild_longest_chain_blocks()
         db.session.commit()
-        count = db.session.query(LongestChainBlockDAO).count()
+        count = _count(LongestChainBlockDAO)
         assert count == 50
 
 
@@ -460,8 +507,12 @@ def test_smart_reorg_shallow(app, mill_block, wallet):
         _m, _a2 = mill_block(wallet)
 
         before = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         assert [r.position for r in before] == [0, 1]
@@ -474,8 +525,12 @@ def test_smart_reorg_shallow(app, mill_block, wallet):
         _m, _a3 = mill_block(wallet)
 
         after = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         # Positions 0 and 1 unchanged.
@@ -497,8 +552,12 @@ def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
             mill_block(wallet)
 
         rows_before = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         snapshot_before = [(r.block_id, r.position) for r in rows_before]
@@ -516,8 +575,12 @@ def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
         rebuild_spy.assert_not_called()
 
         rows_after = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         # First 5 rows' (block_id, position) pairs unchanged.
@@ -541,8 +604,12 @@ def test_smart_reorg_already_in_sync_short_circuits(app, mill_block, wallet):
 
         gen_before = ChainDAO._chain_generation
         rows_before = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         snapshot_before = [(r.block_id, r.position) for r in rows_before]
@@ -551,8 +618,12 @@ def test_smart_reorg_already_in_sync_short_circuits(app, mill_block, wallet):
         longest.sync_longest_chain_blocks()
 
         rows_after = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         snapshot_after = [(r.block_id, r.position) for r in rows_after]
@@ -590,7 +661,10 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
         chain_a_longest = ChainDAO.longest()
         assert chain_a_longest is not None
         chain_a_block_ids = {
-            r.block_id for r in db.session.query(LongestChainBlockDAO).all()
+            r.block_id
+            for r in db.session.execute(db.select(LongestChainBlockDAO))
+            .scalars()
+            .all()
         }
 
         # Build a divergent fork chain_b at genesis. Different timestamps
@@ -624,7 +698,7 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
         # Corrupt the materialization with fork block_ids — real FKs
         # to BlockDAO rows, but not reachable from chain_a's tip via
         # prev pointers.
-        db.session.query(LongestChainBlockDAO).delete()
+        db.session.execute(db.delete(LongestChainBlockDAO))
         db.session.add(
             LongestChainBlockDAO(
                 block_id=fork_block_ids[0],
@@ -647,8 +721,12 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
         db.session.commit()
 
         rows = (
-            db.session.query(LongestChainBlockDAO)
-            .order_by(LongestChainBlockDAO.position)
+            db.session.execute(
+                db.select(LongestChainBlockDAO).order_by(
+                    LongestChainBlockDAO.position
+                )
+            )
+            .scalars()
             .all()
         )
         # 3 real chain_a blocks now in the materialization; no fork

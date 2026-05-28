@@ -7,6 +7,7 @@ from werkzeug.exceptions import HTTPException
 
 from cancelchain.block import Block
 from cancelchain.chain import Chain
+from cancelchain.database import db
 from cancelchain.models import BlockDAO, ChainDAO, TransactionDAO
 from cancelchain.node import Node
 from cancelchain.transaction import Transaction
@@ -34,7 +35,7 @@ def index_view() -> Any:
 @blueprint.route('/chains')
 def chains_view() -> Any:
     try:
-        chains_page = ChainDAO.chains().paginate()  # type: ignore[attr-defined]
+        chains_page = db.paginate(ChainDAO.chains())
     except HTTPException as e:
         return e
     except Exception as e:

@@ -32,6 +32,7 @@ from cancelchain.api_client import PEER_HOST_HEADER, ApiClient
 from cancelchain.block import TXN_TIMEOUT, Block
 from cancelchain.cache import cache
 from cancelchain.chain import Chain
+from cancelchain.database import db
 from cancelchain.exceptions import CCError, EmptyChainError, MissingBlockError
 from cancelchain.models import ApiToken
 from cancelchain.node import Node
@@ -193,7 +194,12 @@ class TokenView(MethodView):
                 _, _, lc_dao = node_lc_dao()
                 if lc_dao is None:
                     abort(401)
-                if txn := lc_dao.address_transactions(address).first():
+                txn = (
+                    db.session.execute(lc_dao.address_transactions(address))
+                    .scalars()
+                    .first()
+                )
+                if txn:
                     wallet = Wallet(b64ks=txn.public_key)
             if not wallet:
                 abort(401)

@@ -3,16 +3,14 @@ from __future__ import annotations
 # Flask-SQLAlchemy's `db.Model` is dynamically attached and shows up as
 # `Any` to mypy strict, which triggers `name-defined` (Name "db.Model"
 # is not defined) and `misc` (Class cannot subclass "Model" of type
-# "Any") errors on every DAO class declaration here. Switching to a
-# typed `DeclarativeBase` subclass would lose the `Model.query` API
-# that this codebase still uses (Phase 6 modernizes those call sites
-# to `db.session.execute(db.select(...))` style at which point this
-# suppression can be removed).
+# "Any") errors on every DAO class declaration here. Phase 7b will
+# switch to a typed `DeclarativeBase` subclass and remove this
+# suppression.
 # mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"
 import datetime
 import uuid
 from collections.abc import Generator
-from typing import TYPE_CHECKING, ClassVar
+from typing import Any, ClassVar
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -22,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Select,
     String,
     Text,
 )
@@ -29,9 +28,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from cancelchain.database import db
 from cancelchain.wallet import Wallet
-
-if TYPE_CHECKING:
-    from sqlalchemy.orm import Query
 
 _PASSWORD_HASHER = PasswordHasher()
 
@@ -104,16 +100,20 @@ class TransactionDAO(db.Model):
 
     @classmethod
     def get(cls, txid: str) -> TransactionDAO | None:
-        return cls.query.filter_by(txid=txid).one_or_none()
+        return db.session.execute(
+            db.select(cls).filter_by(txid=txid)
+        ).scalar_one_or_none()
 
     @classmethod
     def transactions_chain(
-        cls, block_chain: Query[BlockDAO]
-    ) -> Query[TransactionDAO]:
+        cls, block_chain: Select[tuple[BlockDAO]]
+    ) -> Select[tuple[TransactionDAO]]:
         block_alias = db.aliased(BlockDAO, block_chain.subquery())
-        q = db.session.query(TransactionDAO)
-        q = q.join(block_alias, TransactionDAO.blocks)
-        return q.order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
+        return (
+            db.select(TransactionDAO)
+            .join(block_alias, TransactionDAO.blocks)
+            .order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
+        )
 
 
 class OutflowDAO(db.Model):
@@ -167,21 +167,24 @@ class OutflowDAO(db.Model):
 
     @classmethod
     def get(cls, outflow_txid: str, outflow_idx: int) -> OutflowDAO | None:
-        return cls.query.filter_by(
-            outflow_txid=outflow_txid, outflow_idx=outflow_idx
-        ).one_or_none()
+        return db.session.execute(
+            db.select(cls).filter_by(txid=outflow_txid, idx=outflow_idx)
+        ).scalar_one_or_none()
 
     @classmethod
     def outflows_chain(
-        cls, transactions_chain: Query[TransactionDAO]
-    ) -> Query[OutflowDAO]:
+        cls, transactions_chain: Select[tuple[TransactionDAO]]
+    ) -> Select[tuple[OutflowDAO]]:
         txn_alias = db.aliased(TransactionDAO, transactions_chain.subquery())
-        q = db.session.query(OutflowDAO)
-        q = q.join(txn_alias, OutflowDAO.transaction)
-        q = q.order_by(
-            txn_alias.timestamp.desc(), txn_alias.txid, OutflowDAO.idx
+        return (
+            db.select(OutflowDAO)
+            .join(txn_alias, OutflowDAO.transaction)
+            .order_by(
+                txn_alias.timestamp.desc(),
+                txn_alias.txid,
+                OutflowDAO.idx,
+            )
         )
-        return q
 
 
 class InflowDAO(db.Model):
@@ -221,23 +224,28 @@ class InflowDAO(db.Model):
             self.outflow_txid = outflow_txid
             self.outflow_idx = outflow_idx
             if not outflow_dao:
-                outflow_dao = OutflowDAO.query.filter_by(
-                    txid=outflow_txid, idx=outflow_idx
-                ).one_or_none()
-            self.outflow = outflow_dao
+                outflow_dao = db.session.execute(
+                    db.select(OutflowDAO).filter_by(
+                        txid=outflow_txid, idx=outflow_idx
+                    )
+                ).scalar_one_or_none()
+            self.outflow = outflow_dao  # type: ignore[assignment]
             self.transaction = transaction_dao  # type: ignore[assignment]
 
     @classmethod
     def inflows_chain(
-        cls, transactions_chain: Query[TransactionDAO]
-    ) -> Query[InflowDAO]:
+        cls, transactions_chain: Select[tuple[TransactionDAO]]
+    ) -> Select[tuple[InflowDAO]]:
         txn_alias = db.aliased(TransactionDAO, transactions_chain.subquery())
-        q = db.session.query(InflowDAO)
-        q = q.join(txn_alias, InflowDAO.transaction)
-        q = q.order_by(
-            txn_alias.timestamp.desc(), txn_alias.txid, InflowDAO.idx
+        return (
+            db.select(InflowDAO)
+            .join(txn_alias, InflowDAO.transaction)
+            .order_by(
+                txn_alias.timestamp.desc(),
+                txn_alias.txid,
+                InflowDAO.idx,
+            )
         )
-        return q
 
 
 class BlockDAO(db.Model):
@@ -298,23 +306,30 @@ class BlockDAO(db.Model):
 
     @property
     def _block_chain(self) -> CTE:
-        q = BlockDAO.query.filter(BlockDAO.id == self.id).cte(recursive=True)
-        return q.union_all(BlockDAO.query.filter(BlockDAO.id == q.c.prev_id))
+        base = (
+            db.select(BlockDAO)
+            .where(BlockDAO.id == self.id)
+            .cte(recursive=True)
+        )
+        return base.union_all(
+            db.select(BlockDAO).where(BlockDAO.id == base.c.prev_id)
+        )
 
     @property
-    def block_chain(self) -> Query[BlockDAO]:
-        return db.session.query(self._block_chain)
+    def block_chain(self) -> Select[tuple[BlockDAO]]:
+        block_alias = db.aliased(BlockDAO, self._block_chain)
+        return db.select(block_alias)
 
     @property
-    def transactions_chain(self) -> Query[TransactionDAO]:
+    def transactions_chain(self) -> Select[tuple[TransactionDAO]]:
         return TransactionDAO.transactions_chain(self.block_chain)
 
     @property
-    def outflows_chain(self) -> Query[OutflowDAO]:
+    def outflows_chain(self) -> Select[tuple[OutflowDAO]]:
         return OutflowDAO.outflows_chain(self.transactions_chain)
 
     @property
-    def inflows_chain(self) -> Query[InflowDAO]:
+    def inflows_chain(self) -> Select[tuple[InflowDAO]]:
         return InflowDAO.inflows_chain(self.transactions_chain)
 
     def commit(self) -> None:
@@ -322,63 +337,66 @@ class BlockDAO(db.Model):
         db.session.commit()
 
     def get_transaction_in_chain(self, txid: str) -> TransactionDAO | None:
-        return self.transactions_chain.filter(
-            TransactionDAO.txid == txid
-        ).one_or_none()
+        return db.session.execute(
+            self.transactions_chain.where(TransactionDAO.txid == txid)
+        ).scalar_one_or_none()
 
-    def address_transactions(self, address: str) -> Query[TransactionDAO]:
-        return self.transactions_chain.filter(TransactionDAO.address == address)
+    def address_transactions(
+        self, address: str
+    ) -> Select[tuple[TransactionDAO]]:
+        return self.transactions_chain.where(TransactionDAO.address == address)
 
     def get_block_in_chain(
         self, block_hash: str | None = None, idx: int | None = None
     ) -> BlockDAO | None:
         block_alias = db.aliased(BlockDAO, self.block_chain.subquery())
-        q = db.session.query(BlockDAO)
-        q = q.join(block_alias, BlockDAO.id == block_alias.id)
+        stmt = db.select(BlockDAO).join(
+            block_alias, BlockDAO.id == block_alias.id
+        )
         if block_hash is not None:
-            q = q.filter(BlockDAO.block_hash == block_hash)
+            stmt = stmt.where(BlockDAO.block_hash == block_hash)
         if idx is not None:
-            q = q.filter(BlockDAO.idx == idx)
-        return q.one_or_none()
+            stmt = stmt.where(BlockDAO.idx == idx)
+        return db.session.execute(stmt).scalar_one_or_none()
 
     def inflows_in_chain_count(
         self, outflow_txid: str, outflow_idx: int
     ) -> int:
+        stmt = self.inflows_chain.where(
+            InflowDAO.outflow_txid == outflow_txid,
+            InflowDAO.outflow_idx == outflow_idx,
+        )
         return (
-            1
-            if self.inflows_chain.filter(
-                InflowDAO.outflow_txid == outflow_txid,
-                InflowDAO.outflow_idx == outflow_idx,
-            ).first()
-            is not None
-            else 0
+            1 if db.session.execute(stmt).scalars().first() is not None else 0
         )
 
     @classmethod
     def count(cls) -> int:
-        result = db.session.query(db.func.count(cls.id)).one_or_none()
-        return result[0] if result is not None else 0
+        return (
+            db.session.scalar(db.select(db.func.count()).select_from(cls)) or 0
+        )
 
     @classmethod
     def block_hashes(cls) -> Generator[str, None, None]:
-        for r in cls.query.with_entities(cls.block_hash).order_by(
+        stmt = db.select(cls.block_hash).order_by(
             cls.timestamp.desc(), cls.block_hash
-        ):
-            yield r[0]
+        )
+        for (block_hash,) in db.session.execute(stmt):
+            yield block_hash
 
     @classmethod
     def get(
         cls, block_hash: str | None = None, idx: int | None = None
     ) -> BlockDAO | None:
-        q = cls.query
+        stmt = db.select(cls)
         if block_hash:
-            q = q.filter_by(block_hash=block_hash)
+            stmt = stmt.filter_by(block_hash=block_hash)
         else:
-            q = q.filter_by(idx=idx)
-        return q.one_or_none()
+            stmt = stmt.filter_by(idx=idx)
+        return db.session.execute(stmt).scalar_one_or_none()
 
     @classmethod
-    def longest_chain_blocks_q(cls) -> Query[BlockDAO]:
+    def longest_chain_blocks_q(cls) -> Select[tuple[BlockDAO]]:
         """Blocks in the longest chain, ordered tip→genesis.
 
         Matches BlockDAO.block_chain's tip-first ordering so consumers
@@ -386,7 +404,7 @@ class BlockDAO(db.Model):
         same row order.
         """
         return (
-            db.session.query(BlockDAO)
+            db.select(BlockDAO)
             .join(
                 LongestChainBlockDAO,
                 BlockDAO.id == LongestChainBlockDAO.block_id,
@@ -395,7 +413,7 @@ class BlockDAO(db.Model):
         )
 
     @classmethod
-    def longest_chain_transactions_q(cls) -> Query[TransactionDAO]:
+    def longest_chain_transactions_q(cls) -> Select[tuple[TransactionDAO]]:
         """Transactions in the longest chain, ordered tip→genesis.
 
         Matches TransactionDAO.transactions_chain's ordering
@@ -403,39 +421,45 @@ class BlockDAO(db.Model):
         """
         blocks_subq = cls.longest_chain_blocks_q().subquery()
         block_alias = db.aliased(BlockDAO, blocks_subq)
-        q = db.session.query(TransactionDAO)
-        q = q.join(block_alias, TransactionDAO.blocks)
-        return q.order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
+        return (
+            db.select(TransactionDAO)
+            .join(block_alias, TransactionDAO.blocks)
+            .order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
+        )
 
     @classmethod
-    def longest_chain_outflows_q(cls) -> Query[OutflowDAO]:
+    def longest_chain_outflows_q(cls) -> Select[tuple[OutflowDAO]]:
         """Outflows in the longest chain, ordered by their parent txn's
         timestamp desc, then txid, then outflow idx — matching
         OutflowDAO.outflows_chain's ordering.
         """
         txn_subq = cls.longest_chain_transactions_q().subquery()
         txn_alias = db.aliased(TransactionDAO, txn_subq)
-        q = db.session.query(OutflowDAO)
-        q = q.join(txn_alias, OutflowDAO.transaction)
-        return q.order_by(
-            txn_alias.timestamp.desc(),
-            txn_alias.txid,
-            OutflowDAO.idx,
+        return (
+            db.select(OutflowDAO)
+            .join(txn_alias, OutflowDAO.transaction)
+            .order_by(
+                txn_alias.timestamp.desc(),
+                txn_alias.txid,
+                OutflowDAO.idx,
+            )
         )
 
     @classmethod
-    def longest_chain_inflows_q(cls) -> Query[InflowDAO]:
+    def longest_chain_inflows_q(cls) -> Select[tuple[InflowDAO]]:
         """Inflows in the longest chain, ordered analogously to
         InflowDAO.inflows_chain (timestamp desc, txid, inflow idx).
         """
         txn_subq = cls.longest_chain_transactions_q().subquery()
         txn_alias = db.aliased(TransactionDAO, txn_subq)
-        q = db.session.query(InflowDAO)
-        q = q.join(txn_alias, InflowDAO.transaction)
-        return q.order_by(
-            txn_alias.timestamp.desc(),
-            txn_alias.txid,
-            InflowDAO.idx,
+        return (
+            db.select(InflowDAO)
+            .join(txn_alias, InflowDAO.transaction)
+            .order_by(
+                txn_alias.timestamp.desc(),
+                txn_alias.txid,
+                InflowDAO.idx,
+            )
         )
 
 
@@ -495,25 +519,25 @@ class ChainDAO(db.Model):
         self.block = block_dao or BlockDAO.get(block_hash)  # type: ignore[assignment]
 
     @property
-    def blocks(self) -> Query[BlockDAO]:
+    def blocks(self) -> Select[tuple[BlockDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_blocks_q()
         return self.block.block_chain
 
     @property
-    def transactions(self) -> Query[TransactionDAO]:
+    def transactions(self) -> Select[tuple[TransactionDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_transactions_q()
         return self.block.transactions_chain
 
     @property
-    def outflows(self) -> Query[OutflowDAO]:
+    def outflows(self) -> Select[tuple[OutflowDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_outflows_q()
         return self.block.outflows_chain
 
     @property
-    def inflows(self) -> Query[InflowDAO]:
+    def inflows(self) -> Select[tuple[InflowDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_inflows_q()
         return self.block.inflows_chain
@@ -522,91 +546,89 @@ class ChainDAO(db.Model):
         self,
         address: str,
         filter_pending: bool = False,  # noqa: FBT001
-    ) -> Query[OutflowDAO]:
+    ) -> Select[tuple[OutflowDAO]]:
         inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
-        q = self.outflows.filter(OutflowDAO.address == address)
-        q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        q = q.filter(inflows_alias.id.is_(None))
+        stmt = self.outflows.where(OutflowDAO.address == address)
+        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
+        stmt = stmt.where(inflows_alias.id.is_(None))
         if filter_pending:
-            q = q.filter(~OutflowDAO.pending.any())
-        return q
+            stmt = stmt.where(~OutflowDAO.pending.any())
+        return stmt
 
     def wallet_balance(self, address: str) -> int:
         inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
-        q = self.outflows.filter(OutflowDAO.address == address)
-        q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        q = q.filter(inflows_alias.id.is_(None))
-        outflows_alias = db.aliased(OutflowDAO, q.subquery())
-        q2 = db.session.query(db.func.sum(OutflowDAO.amount)).join(
+        stmt = self.outflows.where(OutflowDAO.address == address)
+        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
+        stmt = stmt.where(inflows_alias.id.is_(None))
+        outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
+        sum_stmt = db.select(db.func.sum(OutflowDAO.amount)).join(
             outflows_alias, OutflowDAO.id == outflows_alias.id
         )
-        amount = q2.one_or_none()
-        return (amount[0] or 0) if amount is not None else 0
+        return db.session.scalar(sum_stmt) or 0
 
     def unforgiven_outflows(
         self,
         subject: str,
         address: str | None = None,
         filter_pending: bool = False,  # noqa: FBT001
-    ) -> Query[OutflowDAO]:
+    ) -> Select[tuple[OutflowDAO]]:
         inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
-        q = self.outflows.filter(OutflowDAO.subject == subject)
-        q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        q = q.filter(inflows_alias.id.is_(None))
+        stmt = self.outflows.where(OutflowDAO.subject == subject)
+        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
+        stmt = stmt.where(inflows_alias.id.is_(None))
         if address is not None:
             txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
-            q = q.join(txn_alias, OutflowDAO.transaction)
-            q = q.filter(txn_alias.address == address)
+            stmt = stmt.join(txn_alias, OutflowDAO.transaction)
+            stmt = stmt.where(txn_alias.address == address)
         if filter_pending:
-            q = q.filter(~OutflowDAO.pending.any())
-        return q
+            stmt = stmt.where(~OutflowDAO.pending.any())
+        return stmt
 
     def subject_balance(self, subject: str) -> int:
         inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
-        q = self.outflows.filter(OutflowDAO.subject == subject)
-        q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        q = q.filter(inflows_alias.id.is_(None))
-        outflows_alias = db.aliased(OutflowDAO, q.subquery())
-        q2 = db.session.query(db.func.sum(OutflowDAO.amount)).join(
+        stmt = self.outflows.where(OutflowDAO.subject == subject)
+        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
+        stmt = stmt.where(inflows_alias.id.is_(None))
+        outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
+        sum_stmt = db.select(db.func.sum(OutflowDAO.amount)).join(
             outflows_alias, OutflowDAO.id == outflows_alias.id
         )
-        amount = q2.one_or_none()
-        return (amount[0] or 0) if amount is not None else 0
+        return db.session.scalar(sum_stmt) or 0
 
     def subject_support(self, subject: str) -> int:
-        q = self.outflows.filter(OutflowDAO.support == subject)
-        outflows_alias = db.aliased(OutflowDAO, q.subquery())
-        q2 = db.session.query(db.func.sum(OutflowDAO.amount)).join(
+        stmt = self.outflows.where(OutflowDAO.support == subject)
+        outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
+        sum_stmt = db.select(db.func.sum(OutflowDAO.amount)).join(
             outflows_alias, OutflowDAO.id == outflows_alias.id
         )
-        amount = q2.one_or_none()
-        return (amount[0] or 0) if amount is not None else 0
+        return db.session.scalar(sum_stmt) or 0
 
     def wallet_leaderboard(
         self,
         earliest: datetime.datetime | None = None,
         latest: datetime.datetime | None = None,
         limit: int | None = None,
-    ) -> Query[OutflowDAO]:
+    ) -> Select[Any]:
         inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
         txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
-        q = db.session.query(
-            OutflowDAO.address, db.func.sum(OutflowDAO.amount).label('ct')
+        stmt = db.select(
+            OutflowDAO.address,
+            db.func.sum(OutflowDAO.amount).label('ct'),
         )
-        q = q.filter(OutflowDAO.address.is_not(None))
-        q = q.join(txn_alias, OutflowDAO.transaction)
-        q = q.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        q = q.filter(inflows_alias.id.is_(None))
+        stmt = stmt.where(OutflowDAO.address.is_not(None))
+        stmt = stmt.join(txn_alias, OutflowDAO.transaction)
+        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
+        stmt = stmt.where(inflows_alias.id.is_(None))
         if earliest is not None:
-            q = q.filter(txn_alias.timestamp >= earliest)
+            stmt = stmt.where(txn_alias.timestamp >= earliest)
         if latest is not None:
-            q = q.filter(txn_alias.timestamp < latest)
-        q = q.group_by(OutflowDAO.address)
-        q = q.order_by(db.desc('ct'), OutflowDAO.address)
+            stmt = stmt.where(txn_alias.timestamp < latest)
+        stmt = stmt.group_by(OutflowDAO.address)
+        stmt = stmt.order_by(db.desc('ct'), OutflowDAO.address)
         if limit is not None:
-            q = q.limit(limit)
-            return db.session.query(db.aliased(q.subquery()))
-        return q
+            stmt = stmt.limit(limit)
+            return db.select(db.aliased(stmt.subquery()))
+        return stmt
 
     def _is_longest(self) -> bool:
         """True iff this ChainDAO row is currently the longest chain.
@@ -662,9 +684,9 @@ class ChainDAO(db.Model):
         # Bootstrap fast-path: empty materialization → use the
         # rebuild method directly, skipping per-step lookups against
         # an empty table.
-        if not db.session.query(
-            db.session.query(LongestChainBlockDAO).exists()
-        ).scalar():
+        if not db.session.scalar(
+            db.select(db.exists(db.select(LongestChainBlockDAO)))
+        ):
             self._rebuild_longest_chain_blocks()
             return
 
@@ -674,10 +696,10 @@ class ChainDAO(db.Model):
         current: BlockDAO | None = self.block
         common_ancestor_position: int | None = None
         while current is not None:
-            pos = (
-                db.session.query(LongestChainBlockDAO.position)
-                .filter(LongestChainBlockDAO.block_id == current.id)
-                .scalar()
+            pos = db.session.scalar(
+                db.select(LongestChainBlockDAO.position).where(
+                    LongestChainBlockDAO.block_id == current.id
+                )
             )
             if pos is not None:
                 common_ancestor_position = pos
@@ -693,7 +715,7 @@ class ChainDAO(db.Model):
             # Walked to genesis without overlap: different chain
             # entirely. Use the collected list directly instead of
             # re-walking via _rebuild_*.
-            db.session.query(LongestChainBlockDAO).delete()
+            db.session.execute(db.delete(LongestChainBlockDAO))
             for position, block in enumerate(reversed(diverging)):
                 db.session.add(
                     LongestChainBlockDAO(
@@ -706,9 +728,11 @@ class ChainDAO(db.Model):
 
         # Common ancestor at position K. Truncate above K, append
         # the diverging suffix in genesis-first order.
-        db.session.query(LongestChainBlockDAO).filter(
-            LongestChainBlockDAO.position > common_ancestor_position
-        ).delete()
+        db.session.execute(
+            db.delete(LongestChainBlockDAO).where(
+                LongestChainBlockDAO.position > common_ancestor_position
+            )
+        )
         for offset, block in enumerate(reversed(diverging), start=1):
             db.session.add(
                 LongestChainBlockDAO(
@@ -728,7 +752,7 @@ class ChainDAO(db.Model):
         ChainDAO._chain_generation at the end so cached _is_longest
         values on any in-process ChainDAO instance are invalidated.
         """
-        db.session.query(LongestChainBlockDAO).delete()
+        db.session.execute(db.delete(LongestChainBlockDAO))
         blocks: list[BlockDAO] = []
         current: BlockDAO | None = self.block
         while current is not None:
@@ -761,7 +785,9 @@ class ChainDAO(db.Model):
     def get_transaction(self, txid: str) -> TransactionDAO | None:
         return self.block.get_transaction_in_chain(txid)
 
-    def address_transactions(self, address: str) -> Query[TransactionDAO]:
+    def address_transactions(
+        self, address: str
+    ) -> Select[tuple[TransactionDAO]]:
         return self.block.address_transactions(address)
 
     def commit(self) -> None:
@@ -770,34 +796,40 @@ class ChainDAO(db.Model):
 
     @classmethod
     def count(cls) -> int:
-        result = db.session.query(db.func.count(cls.id)).one_or_none()
-        return result[0] if result is not None else 0
+        return (
+            db.session.scalar(db.select(db.func.count()).select_from(cls)) or 0
+        )
 
     @classmethod
     def get(
         cls, block_hash: str | None = None, id: int | None = None
     ) -> ChainDAO | None:
-        q = cls.query
+        stmt = db.select(cls)
         if block_hash:
-            q = q.filter_by(block_hash=block_hash)
+            stmt = stmt.filter_by(block_hash=block_hash)
         else:
-            q = q.filter_by(id=id)
-        return q.one_or_none()
+            stmt = stmt.filter_by(id=id)
+        return db.session.execute(stmt).scalar_one_or_none()
 
     @classmethod
     def ids(cls) -> Generator[int, None, None]:
-        for r in cls.query.with_entities(cls.id).order_by(cls.id):
-            yield r[0]
+        stmt = db.select(cls.id).order_by(cls.id)
+        for (cid,) in db.session.execute(stmt):
+            yield cid
 
     @classmethod
-    def chains(cls) -> Query[ChainDAO]:
-        return cls.query.join(cls.block).order_by(
-            BlockDAO.idx.desc(), BlockDAO.timestamp, BlockDAO.block_hash
+    def chains(cls) -> Select[tuple[ChainDAO]]:
+        return (
+            db.select(cls)
+            .join(cls.block)
+            .order_by(
+                BlockDAO.idx.desc(), BlockDAO.timestamp, BlockDAO.block_hash
+            )
         )
 
     @classmethod
     def longest(cls) -> ChainDAO | None:
-        return cls.chains().first()
+        return db.session.execute(cls.chains()).scalars().first()
 
 
 class PendingTxnDAO(db.Model):
@@ -829,8 +861,9 @@ class PendingTxnDAO(db.Model):
 
     @classmethod
     def count(cls) -> int:
-        result = db.session.query(db.func.count(cls.id)).one_or_none()
-        return result[0] if result is not None else 0
+        return (
+            db.session.scalar(db.select(db.func.count()).select_from(cls)) or 0
+        )
 
     @classmethod
     def json_datas(
@@ -838,18 +871,20 @@ class PendingTxnDAO(db.Model):
         earliest: datetime.datetime | None = None,
         expired: datetime.datetime | None = None,
     ) -> Generator[str, None, None]:
-        q = cls.query.with_entities(cls.json_data)
+        stmt = db.select(cls.json_data)
         if earliest is not None:
-            q = q.filter(cls.received >= earliest)
+            stmt = stmt.where(cls.received >= earliest)
         if expired is not None:
-            q = q.filter(cls.timestamp >= expired)
-        q = q.order_by(cls.timestamp, cls.txid)
-        for r in q:
-            yield r[0]
+            stmt = stmt.where(cls.timestamp >= expired)
+        stmt = stmt.order_by(cls.timestamp, cls.txid)
+        for (json_data,) in db.session.execute(stmt):
+            yield json_data
 
     @classmethod
     def get(cls, txid: str) -> PendingTxnDAO | None:
-        return cls.query.filter_by(txid=txid).one_or_none()
+        return db.session.execute(
+            db.select(cls).filter_by(txid=txid)
+        ).scalar_one_or_none()
 
 
 class PendingIOflowDAO(db.Model):
@@ -977,7 +1012,9 @@ class ApiToken(db.Model):
 
     @classmethod
     def get(cls, address: str) -> ApiToken | None:
-        return cls.query.filter_by(address=address).one_or_none()
+        return db.session.execute(
+            db.select(cls).filter_by(address=address)
+        ).scalar_one_or_none()
 
     @classmethod
     def create(cls, wallet: Wallet) -> ApiToken:

@@ -339,9 +339,11 @@ class Chain:
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Iterator[tuple[str, int, Outflow]]:
         amount = 0
-        outflow_daos = self.to_dao().unspent_outflows(
-            address, filter_pending=filter_pending
-        )
+        outflow_daos = db.session.execute(
+            self.to_dao().unspent_outflows(
+                address, filter_pending=filter_pending
+            )
+        ).scalars()
         for outflow_dao in outflow_daos:
             txn = Transaction.from_dao(outflow_dao.transaction)
             index = outflow_dao.idx
@@ -358,9 +360,11 @@ class Chain:
         subject: str,
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Iterator[tuple[str, int, Outflow]]:
-        outflow_daos = self.to_dao().unforgiven_outflows(
-            subject, filter_pending=filter_pending
-        )
+        outflow_daos = db.session.execute(
+            self.to_dao().unforgiven_outflows(
+                subject, filter_pending=filter_pending
+            )
+        ).scalars()
         for outflow_dao in outflow_daos:
             txn = Transaction.from_dao(outflow_dao.transaction)
             index = outflow_dao.idx
@@ -377,9 +381,11 @@ class Chain:
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Iterator[tuple[str, int, Outflow]]:
         amount = 0
-        outflow_daos = self.to_dao().unforgiven_outflows(
-            subject, address=address, filter_pending=filter_pending
-        )
+        outflow_daos = db.session.execute(
+            self.to_dao().unforgiven_outflows(
+                subject, address=address, filter_pending=filter_pending
+            )
+        ).scalars()
         for outflow_dao in outflow_daos:
             txn = Transaction.from_dao(outflow_dao.transaction)
             index = outflow_dao.idx
