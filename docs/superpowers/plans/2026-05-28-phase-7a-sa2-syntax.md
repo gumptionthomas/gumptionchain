@@ -198,12 +198,38 @@ Three changes:
 2. `Select` is added to the `sqlalchemy` import alphabetically.
 3. The entire `if TYPE_CHECKING:` block (lines 33-34) is removed — without this, ruff (`F401`) flags `TYPE_CHECKING` as unused after `Query` is gone.
 
-Verify:
-```bash
-grep -n 'TYPE_CHECKING\|^from sqlalchemy.orm import Query\| Query ' src/cancelchain/models.py
+Also update the stale header comment above the `mypy: disable-error-code` line (currently lines 3-10) so it no longer references the now-retired `Model.query` API. The comment's "Phase 6 modernizes those call sites" phrasing literally describes this PR's work, so the wording is stale and the bare `Model.query` token would also cause the acceptance grep in the spec to false-positive against the comment text:
+
+Before (lines 3-10):
+```python
+# Flask-SQLAlchemy's `db.Model` is dynamically attached and shows up as
+# `Any` to mypy strict, which triggers `name-defined` (Name "db.Model"
+# is not defined) and `misc` (Class cannot subclass "Model" of type
+# "Any") errors on every DAO class declaration here. Switching to a
+# typed `DeclarativeBase` subclass would lose the `Model.query` API
+# that this codebase still uses (Phase 6 modernizes those call sites
+# to `db.session.execute(db.select(...))` style at which point this
+# suppression can be removed).
 ```
 
-Expected: returns nothing.
+After:
+```python
+# Flask-SQLAlchemy's `db.Model` is dynamically attached and shows up as
+# `Any` to mypy strict, which triggers `name-defined` (Name "db.Model"
+# is not defined) and `misc` (Class cannot subclass "Model" of type
+# "Any") errors on every DAO class declaration here. Phase 7b will
+# switch to a typed `DeclarativeBase` subclass and remove this
+# suppression.
+```
+
+Removes the `Model.query` reference (since that API is no longer used post-7a) and updates the Phase pointer from "Phase 6" to "Phase 7b". The `mypy: disable-error-code` line itself stays unchanged.
+
+Verify:
+```bash
+grep -n 'TYPE_CHECKING\|^from sqlalchemy.orm import Query\| Query \|Model\.query' src/cancelchain/models.py
+```
+
+Expected: returns nothing — the grep catches both the import-side leftovers AND any leftover `Model.query` reference in comments or code.
 
 ### Step 2: Migrate `TransactionDAO` (lines ~107–116)
 
@@ -2024,4 +2050,4 @@ The leaderboard returns tuples of `(address, sum)`, not a single Model. `Select[
 
 ### Risk: `bench/rebuild_walk_bench.py` references models APIs that changed
 
-The bench script uses `BlockDAO`, `LongestChainBlockDAO`, `ChainDAO` directly, and uses `db.session.query(LongestChainBlockDAO).delete()` in the wipe helper. **The bench script is OUT OF SCOPE** for Phase 7a per the spec (it's not in the file list), but since the spec mandates `grep` returning empty for legacy patterns across `src/`, we should also migrate bench/ for consistency. Add to Step 7 if reviewers flag it; otherwise call out in the PR body that the bench script is intentionally left as-is for now and will migrate as part of Phase 7b's broader cleanup.
+The bench script uses `BlockDAO`, `LongestChainBlockDAO`, `ChainDAO` directly, and uses `db.session.query(LongestChainBlockDAO).delete()` in the wipe helper. **The bench script is OUT OF SCOPE for Phase 7a** — not in the impl file list, not in the commit's `git add`, and explicitly excluded from the acceptance grep (the grep covers `src/` and `tests/` only). The bench's legacy patterns will migrate as part of Phase 7b's broader cleanup. The only 7a interaction with `bench/` is running `bench/rebuild_walk_bench.py` during Step 12 to verify no perf regression — that run continues to work because the migrated DAO methods are call-compatible from the bench script's perspective (`LongestChainBlockDAO`-based wipe + reads still work; the bench doesn't touch any of the chain-factory return-type-changed methods).

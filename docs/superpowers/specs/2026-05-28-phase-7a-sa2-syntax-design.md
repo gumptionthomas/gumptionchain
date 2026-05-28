@@ -159,7 +159,7 @@ Test count: 236 (unchanged).
 
 ## Acceptance
 
-- `grep -rn 'Model\.query\|\.query\.\|\.query\b' src/cancelchain/ tests/` returns nothing (or only matches for `requests_proxy` fixture-name false positives — verify by eye).
+- `grep -rn 'Model\.query\|\.query\.\|\.query\b' src/cancelchain/ tests/` returns nothing — verify by eye against false positives like the `requests_proxy` fixture name. Note: the existing `Model.query` mention in the `mypy: disable-error-code` header comment block at the top of `src/cancelchain/models.py` is rewritten as part of Step 1 (the comment's "Phase 6 modernizes those call sites" phrasing literally describes this PR's work and is stale post-7a), so the grep is clean.
 - `grep -rn 'db\.session\.query' src/cancelchain/ tests/` returns nothing.
 - `grep -n 'Query\[' src/cancelchain/models.py` returns nothing (all 24 occurrences — 21 returns + 3 params — migrated to `Select[tuple[X]]`, or `Select[Any]` for the one row-tuple leaderboard case).
 - `uv run mypy` exits 0 (the existing `mypy: disable-error-code` block at the top of `models.py` stays; no new errors introduced).
