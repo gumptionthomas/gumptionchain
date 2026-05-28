@@ -404,7 +404,7 @@ Open `migrations/versions/<hex>_initial_schema.py`. Manually verify the autogene
   ```bash
   grep -c 'op.create_table' migrations/versions/*_initial_schema.py
   ```
-  Expected: `11` (matching the 11 `db.Model` subclasses: `TransactionDAO`, `OutflowDAO`, `InflowDAO`, `BlockDAO`, `LongestChainBlockDAO`, `ChainDAO`, `PendingTxnDAO`, `PendingIOflowDAO`, `ChainFill`, `ChainFillBlock`, `ApiToken`).
+  Expected: `11` (matching the 11 `Base` subclasses in `models.py` post-Phase-7b: `TransactionDAO`, `OutflowDAO`, `InflowDAO`, `BlockDAO`, `LongestChainBlockDAO`, `ChainDAO`, `PendingTxnDAO`, `PendingIOflowDAO`, `ChainFill`, `ChainFillBlock`, `ApiToken` — all declared as `class XClass(Base):` since Phase 7b's Pattern C migration; the Alembic spec language sometimes calls them "ORM models" generically).
 
 - **The 1 association table present.** `models.py` defines a Python variable `block_transactions` (plural — `block_transactions = db.Table(...)` at line ~39) that wires up the `BlockDAO`↔`TransactionDAO` many-to-many. The underlying SQL table name is **`'block_transaction'`** (singular — the first positional arg to `db.Table(...)`). The grep checks the SQL table name, NOT the Python variable, so don't "fix" one to match the other. Verify by:
   ```bash
@@ -513,8 +513,10 @@ FLASK_SQLALCHEMY_DATABASE_URI=sqlite:// uv run cancelchain db check
 Verify the workflow file is still valid YAML:
 
 ```bash
-python -c "import yaml; yaml.safe_load(open('.github/workflows/tests.yml'))"
+uv run python -c "import yaml; yaml.safe_load(open('.github/workflows/tests.yml'))"
 ```
+
+(`uv run` ensures PyYAML is available — it ships as a transitive dep of the project's existing tooling. Bare `python -c ...` would only work if PyYAML is on the system interpreter, which isn't guaranteed.)
 
 Expected: no exception printed.
 
