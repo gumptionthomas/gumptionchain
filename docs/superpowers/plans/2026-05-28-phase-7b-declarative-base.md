@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Switch Flask-SQLAlchemy's `db = SQLAlchemy()` to a typed `DeclarativeBase` subclass via `db = SQLAlchemy(model_class=Base)`, then remove the `# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"` directive and the 7-line stale header comment block from `src/cancelchain/models.py`. Fix any mypy errors that surface; if FSA's stubs don't propagate `model_class=Base` through to `db.Model`, fall back to direct `class XDAO(Base):` subclassing across the ~10 DAOs.
+**Goal:** Switch Flask-SQLAlchemy's `db = SQLAlchemy()` to a typed `DeclarativeBase` subclass via `db = SQLAlchemy(model_class=Base)`, then remove the `# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"` directive and the 6-line stale header comment block from `src/cancelchain/models.py`. Fix any mypy errors that surface; if FSA's stubs don't propagate `model_class=Base` through to `db.Model`, fall back to direct `(Base):` subclassing across all 11 `db.Model` subclasses (8 `DAO`-suffixed + `ChainFill`, `ChainFillBlock`, `ApiToken`).
 
 **Architecture:** Pure typing change. Two production files touched (`database.py` adds `Base(DeclarativeBase)` + the `model_class=Base` kwarg; `models.py` loses the per-file mypy disable header). No schema, no behavior, no test count changes. The fallback (direct `Base` subclassing) is mechanical and decided after the first mypy run — no upfront commitment needed.
 
@@ -67,12 +67,13 @@ docs(phase-7b): add typed DeclarativeBase migration implementation plan
 
 Spells out the single-PR impl: branch off main, edit database.py
 to add Base(DeclarativeBase) + the model_class=Base kwarg, edit
-models.py to remove the 7-line stale header comment block and the
+models.py to remove the 6-line stale header comment block and the
 # mypy: disable-error-code directive, run mypy to see what
 surfaces, fix surfaced errors inline (per-line # type: ignore[code]
 is the explicit escape hatch), fall back to direct
-class XDAO(Base): subclassing across the ~10 DAOs if FSA stubs
-don't propagate model_class through to db.Model. Pure typing
+(Base): subclassing across all 11 db.Model subclasses if FSA
+stubs don't propagate model_class through to db.Model (8
+DAO-suffixed classes + ChainFill, ChainFillBlock, ApiToken). Pure typing
 pass — no schema, no behavior, no test count changes (236 stays
 236).
 
@@ -115,7 +116,7 @@ EOF
 
 **Files:**
 - Modify: `src/cancelchain/database.py` (3 changes: add `DeclarativeBase` import, define `Base` class, add `model_class=Base` kwarg)
-- Modify: `src/cancelchain/models.py` (remove the 7-line header comment block + the `# mypy: disable-error-code` directive; possibly add narrow per-line ignores or rewrite DAO declarations to `class XDAO(Base):` depending on the Step 6 mypy run)
+- Modify: `src/cancelchain/models.py` (remove the 6-line header comment block + the `# mypy: disable-error-code` directive; possibly add narrow per-line ignores or rewrite DAO declarations to `class XDAO(Base):` depending on the Step 6 mypy run)
 
 The migration is short. Steps 2 and 4 are the actual edits; Step 3 is a measurement (run mypy with the override gone and inventory what surfaces); Step 6 is the remediation based on Step 3's findings. After each edit, run `uv run pytest -x 2>&1 | tail -5` to catch runtime regressions early.
 
@@ -180,7 +181,7 @@ Verify:
 grep -n 'DeclarativeBase\|model_class=Base' src/cancelchain/database.py
 ```
 
-Expected: two matches — the import and the `SQLAlchemy(...)` call.
+Expected: three matches — (1) the `from sqlalchemy.orm import DeclarativeBase` import, (2) the `class Base(DeclarativeBase):` class definition, and (3) the `db = SQLAlchemy(model_class=Base)` call.
 
 ### Step 3: Run pytest + mypy to measure the surface
 
@@ -216,7 +217,7 @@ from __future__ import annotations
 import datetime
 ```
 
-Delete lines 3-11 (the 7-line `#` comment block plus the `# mypy: disable-error-code` directive plus the blank-line-equivalent that connects them). The result:
+Delete lines 3-9 (the 6-line `#` explanatory comment block at lines 3-8 plus the `# mypy: disable-error-code` directive at line 9). **Do NOT delete lines 10-11** — those are `import datetime` and `import uuid`, which stay. The result:
 
 ```python
 from __future__ import annotations
@@ -286,13 +287,13 @@ def get(...) -> XDAO | None:
 
 Prefer this over Pattern A when the cast clearly improves readability or types-check verification at the call site. Add `cast` to the `typing` imports if needed.
 
-**Pattern C — switch DAO declarations to `class XDAO(Base):` directly.** ONLY if Step 5 surfaced `name-defined` or `misc` errors on the DAO class declarations themselves (meaning FSA's stubs don't propagate `model_class` through `db.Model`). Locate the ~10 DAO class declarations:
+**Pattern C — switch DAO declarations to `class XDAO(Base):` directly.** ONLY if Step 5 surfaced `name-defined` or `misc` errors on the class declarations themselves (meaning FSA's stubs don't propagate `model_class` through `db.Model`). Locate ALL `db.Model` subclasses (note: not all of them have a `DAO` suffix — `ChainFill`, `ChainFillBlock`, and `ApiToken` don't):
 
 ```bash
-grep -n '^class .*DAO(db\.Model):\|^class ApiToken(db\.Model):' src/cancelchain/models.py
+grep -n '^class [A-Za-z]*(db\.Model):' src/cancelchain/models.py
 ```
 
-For each declaration, change `(db.Model)` → `(Base)` and add `from cancelchain.database import Base` to the imports (alongside the existing `from cancelchain.database import db`). The runtime behavior is identical because `db.Model IS Base` after Step 2 — this change is purely for mypy's resolution.
+Expected: 11 matches in the current code — `TransactionDAO`, `OutflowDAO`, `InflowDAO`, `BlockDAO`, `LongestChainBlockDAO`, `ChainDAO`, `PendingTxnDAO`, `PendingIOflowDAO`, `ChainFill`, `ChainFillBlock`, `ApiToken`. For each, change `(db.Model)` → `(Base)` and add `from cancelchain.database import Base` to the imports (alongside the existing `from cancelchain.database import db`). The runtime behavior is identical because `db.Model IS Base` after Step 2 — this change is purely for mypy's resolution. Missing any class would leave `name-defined` / `misc` errors on that line and fail the override-removal acceptance gate.
 
 **After remediation, re-run mypy AND pytest:**
 
@@ -333,7 +334,7 @@ Phase 7b. Switches Flask-SQLAlchemy's db = SQLAlchemy() to use a
 typed DeclarativeBase subclass via db = SQLAlchemy(model_class=
 Base), then removes the # mypy: disable-error-code=
 "no-untyped-call,no-any-return,name-defined,misc" directive and
-the 7-line stale header comment block from src/cancelchain/
+the 6-line stale header comment block from src/cancelchain/
 models.py. Closes Phase 3's explicit sunset commitment for the
 per-file mypy override on models.py — the last remaining blocker
 after Phase 7a (commit 4070978) modernized every legacy call site
@@ -349,8 +350,8 @@ src/cancelchain/database.py:
 - `db = SQLAlchemy()` → `db = SQLAlchemy(model_class=Base)`.
 
 src/cancelchain/models.py:
-- Remove the 7-line `#` comment block at the top of the file
-  explaining why the disable block existed.
+- Remove the 6-line `#` comment block (lines 3-8) at the top of
+  the file explaining why the disable block existed.
 - Remove the `# mypy: disable-error-code="no-untyped-call,
   no-any-return,name-defined,misc"` directive.
 - [Add any per-line `# type: ignore[code]` additions or DAO
@@ -375,7 +376,7 @@ git push -u origin feat/phase-7b-declarative-base
 gh pr create --base main --title "feat(models): typed DeclarativeBase + remove mypy override block" --body "$(cat <<'EOF'
 ## Summary
 - Switches Flask-SQLAlchemy's \`db = SQLAlchemy()\` to use a typed \`DeclarativeBase\` subclass via \`db = SQLAlchemy(model_class=Base)\` (new \`Base(DeclarativeBase)\` class in \`src/cancelchain/database.py\`).
-- Removes the \`# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"\` directive and the 7-line stale header comment block from \`src/cancelchain/models.py\`.
+- Removes the \`# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"\` directive and the 6-line stale header comment block from \`src/cancelchain/models.py\`.
 - Pure typing pass — no schema changes, no behavior changes, no new tests, no test-count change (236 stays 236).
 
 ## Why
@@ -427,7 +428,7 @@ Expected: returns nothing. The override directive is gone from `models.py`.
 grep -n 'DeclarativeBase\|model_class=Base' src/cancelchain/database.py
 ```
 
-Expected: two matches (the import line and the `SQLAlchemy(...)` call).
+Expected: three matches — the `from sqlalchemy.orm import DeclarativeBase` import, the `class Base(DeclarativeBase):` class definition, and the `db = SQLAlchemy(model_class=Base)` call.
 
 - [ ] **Step 3: Hard CI gates pass**
 
@@ -493,7 +494,7 @@ If Copilot review requests substantive changes, push a new commit (do not amend)
 
 ### Risk: FSA stubs don't propagate `model_class=Base` through to `db.Model`
 
-Per the spec's Risks section, this is the most likely source of unexpected mypy surface. If Step 5's mypy output shows `name-defined` errors on the `class XDAO(db.Model):` declarations themselves (e.g., `error: Name "db.Model" is not defined  [name-defined]`) or `misc` errors on follow-on `Class cannot subclass "Model" of type "Any"`, FSA's stubs aren't carrying the type. The fix is Step 6's Pattern C — direct `Base` subclassing across the ~10 DAOs. This is mechanical (find/replace `(db.Model)` → `(Base)` in DAO class headers, plus add `Base` to the import block in `models.py`) and shouldn't take more than a few minutes.
+Per the spec's Risks section, this is the most likely source of unexpected mypy surface. If Step 5's mypy output shows `name-defined` errors on the `class XDAO(db.Model):` declarations themselves (e.g., `error: Name "db.Model" is not defined  [name-defined]`) or `misc` errors on follow-on `Class cannot subclass "Model" of type "Any"`, FSA's stubs aren't carrying the type. The fix is Step 6's Pattern C — direct `Base` subclassing across all 11 `db.Model` subclasses (not just the DAO-suffixed ones — `ChainFill`, `ChainFillBlock`, and `ApiToken` also inherit from `db.Model`). This is mechanical (find/replace `(db.Model)` → `(Base)` in class headers, plus add `Base` to the import block in `models.py`) and shouldn't take more than a few minutes. Missing any of the 11 would leave `name-defined` / `misc` errors on that line and fail the override-removal gate.
 
 ### Risk: `no-any-return` on `scalar_one_or_none()` / `scalars().first()` chains
 

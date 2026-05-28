@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 **Date:** 2026-05-28
-**Scope:** Switch Flask-SQLAlchemy's `db = SQLAlchemy()` to use a typed `DeclarativeBase` subclass via `db = SQLAlchemy(model_class=Base)`, then remove the `# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"` block at the top of `src/cancelchain/models.py` and the stale 7-line header comment that explained it. Fix any mypy errors that surface from removing the override. Phase 7b closes Phase 3's explicit sunset commitment for the per-file mypy override and is the second half of the two-PR Phase 7 split that began with Phase 7a's SA 2.0 call-site syntax migration (merged as commit `4070978`).
+**Scope:** Switch Flask-SQLAlchemy's `db = SQLAlchemy()` to use a typed `DeclarativeBase` subclass via `db = SQLAlchemy(model_class=Base)`, then remove the `# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"` block at the top of `src/cancelchain/models.py` and the stale 6-line header comment that explained it. Fix any mypy errors that surface from removing the override. Phase 7b closes Phase 3's explicit sunset commitment for the per-file mypy override and is the second half of the two-PR Phase 7 split that began with Phase 7a's SA 2.0 call-site syntax migration (merged as commit `4070978`).
 
 ## Goal
 
@@ -59,7 +59,7 @@ db = SQLAlchemy(model_class=Base)
 
 ### `models.py` header
 
-Current top of `src/cancelchain/models.py` (lines 3-11 in the post-7a diff):
+Current top of `src/cancelchain/models.py` (lines 3-9 in the post-7a diff — lines 3-8 are the 6-line `#` explanatory comment, line 9 is the `# mypy: disable-error-code` directive; lines 10-11 immediately below are `import datetime` and `import uuid` and are NOT touched by this PR):
 
 ```python
 # Flask-SQLAlchemy's `db.Model` is dynamically attached and shows up as
@@ -71,7 +71,7 @@ Current top of `src/cancelchain/models.py` (lines 3-11 in the post-7a diff):
 # mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"
 ```
 
-Post-7b: both the 7-line comment block AND the `# mypy: disable-error-code` directive are removed. No replacement header — `models.py` should look like any other file in the module after this.
+Post-7b: both the 6-line comment block AND the `# mypy: disable-error-code` directive are removed. No replacement header — `models.py` should look like any other file in the module after this.
 
 ### Expected mypy error coverage by code
 
@@ -103,7 +103,7 @@ Phase 7a added both to the `typing` and `sqlalchemy` import groups at the top of
 ### Files
 
 - Modify: `src/cancelchain/database.py` — add `Base(DeclarativeBase)` class definition + the `model_class=Base` keyword on the `SQLAlchemy(...)` call + one new import (`from sqlalchemy.orm import DeclarativeBase`).
-- Modify: `src/cancelchain/models.py` — remove the 7-line stale header comment block (lines 3-9) and the `# mypy: disable-error-code` directive line (line 11). Nothing else changes unless mypy surfaces an error that needs an inline annotation or per-line ignore.
+- Modify: `src/cancelchain/models.py` — remove the 6-line stale header comment block (lines 3-8) and the `# mypy: disable-error-code` directive line (line 9). Lines 10-11 (`import datetime`, `import uuid`) are NOT touched. Nothing else changes unless mypy surfaces an error that needs an inline annotation or per-line ignore.
 - Potentially modify: `src/cancelchain/models.py` — narrowly-scoped per-line `# type: ignore[code]` additions for any surfaced mypy errors that resist clean annotation fixes. Anticipated count: 0-5 lines. If significantly more, surface as a concern during impl and consider a Phase 7c follow-up rather than ballooning this PR.
 
 ### Imports
@@ -124,7 +124,7 @@ Test count: 236 (unchanged). No new tests; no test removed.
 ## Acceptance
 
 - `grep -n 'mypy: disable-error-code' src/cancelchain/models.py` returns nothing.
-- `grep -n 'DeclarativeBase' src/cancelchain/database.py` returns the class definition.
+- `grep -n 'DeclarativeBase' src/cancelchain/database.py` returns two matches: the `from sqlalchemy.orm import DeclarativeBase` import line and the `class Base(DeclarativeBase):` class definition.
 - `grep -n 'model_class=Base' src/cancelchain/database.py` returns the `SQLAlchemy(...)` call.
 - `uv run mypy` exits 0 — the **headline acceptance gate**. No per-file overrides on `models.py`, no per-call `# type: ignore` lines beyond the documented pre-existing 5 plus any narrowly-scoped additions documented in the PR body.
 - `uv run ruff check src tests` + `uv run ruff format --check src tests` exit 0.
@@ -140,13 +140,13 @@ Test count: 236 (unchanged). No new tests; no test removed.
 
 - **Flask-SQLAlchemy `model_class=Base` interaction edge cases.** The `SQLAlchemy(model_class=...)` kwarg is documented and stable in Flask-SQLAlchemy 3.1+, but there's always a small chance that a Flask-SQLAlchemy-specific feature we use (the dynamic table_args, the lazy session, the relationship back-population) interacts with the typed base in a surprising way. Mitigation: the full test suite is the safety net; if anything breaks at runtime, we surface immediately.
 
-- **`db.Model` mypy resolution through FSA stubs.** At runtime, `db.Model` IS the `Base` class we passed via `model_class=Base` — that's how Flask-SQLAlchemy 3.x wires it. Whether mypy sees that resolution depends on FSA's type stubs. If FSA's stubs propagate `model_class` through to `Model` (FSA 3.1+ does in most cases), then `class XDAO(db.Model):` becomes typed automatically and we get the override-removal for free. If they don't, mypy still sees `db.Model` as `Any`-typed and we have two options: (a) switch DAO declarations to `class XDAO(Base):` directly (one-line-per-class change across ~10 DAOs in models.py — mechanical, but expands the diff), or (b) add a per-line `# type: ignore[misc]` on each DAO declaration. We default to (a) if FSA's stubs don't carry the type — direct subclassing is cleaner long-term and doesn't add a sea of per-line ignores. The impl PR makes this call after running mypy once with the override removed.
+- **`db.Model` mypy resolution through FSA stubs.** At runtime, `db.Model` IS the `Base` class we passed via `model_class=Base` — that's how Flask-SQLAlchemy 3.x wires it. Whether mypy sees that resolution depends on FSA's type stubs. If FSA's stubs propagate `model_class` through to `Model` (FSA 3.1+ does in most cases), then `class XDAO(db.Model):` becomes typed automatically and we get the override-removal for free. If they don't, mypy still sees `db.Model` as `Any`-typed and we have two options: (a) switch every `db.Model` subclass declaration to `(Base):` directly (one-line-per-class change across 11 classes in models.py — `TransactionDAO`, `OutflowDAO`, `InflowDAO`, `BlockDAO`, `LongestChainBlockDAO`, `ChainDAO`, `PendingTxnDAO`, `PendingIOflowDAO`, `ChainFill`, `ChainFillBlock`, `ApiToken` — mechanical, but expands the diff), or (b) add a per-line `# type: ignore[misc]` on each declaration. We default to (a) if FSA's stubs don't carry the type — direct subclassing is cleaner long-term and doesn't add a sea of per-line ignores. The impl PR makes this call after running mypy once with the override removed.
 
 - **Test fixtures that subclass DAOs or rely on `db.Model` dynamically.** A repo-wide check should confirm none exist. Mitigation: a `grep -rn 'db\.Model\|db.Model\b' tests/` before the impl PR opens; if any matches, evaluate whether the typed base breaks the pattern.
 
 - **Mypy strict in CI vs. local resolution.** Mypy versions can disagree about a few edge cases (mostly around `Any` propagation and `cast` validity). Mitigation: pin behavior to `uv run mypy` consistently and verify both locally AND in CI before merging.
 
-- **Phase 6 reference in the stale comment is being removed.** The 7-line header comment block we're removing in this PR mentions "Phase 6 modernizes those call sites" — that text was rewritten in 7a to point at Phase 7b instead, but the entire block goes away now. Anyone searching `git log -S` for these phrases lands on the 7a/7b commits, which is fine. Documented here only because future code archaeologists might wonder where the comment went.
+- **Phase 6 reference in the stale comment is being removed.** The 6-line header comment block we're removing in this PR mentions "Phase 6 modernizes those call sites" — that text was rewritten in 7a to point at Phase 7b instead, but the entire block goes away now. Anyone searching `git log -S` for these phrases lands on the 7a/7b commits, which is fine. Documented here only because future code archaeologists might wonder where the comment went.
 
 ## Open decisions
 
