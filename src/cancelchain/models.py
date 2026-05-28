@@ -1,12 +1,5 @@
 from __future__ import annotations
 
-# Flask-SQLAlchemy's `db.Model` is dynamically attached and shows up as
-# `Any` to mypy strict, which triggers `name-defined` (Name "db.Model"
-# is not defined) and `misc` (Class cannot subclass "Model" of type
-# "Any") errors on every DAO class declaration here. Phase 7b will
-# switch to a typed `DeclarativeBase` subclass and remove this
-# suppression.
-# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"
 import datetime
 import uuid
 from collections.abc import Generator
@@ -26,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from cancelchain.database import db
+from cancelchain.database import Base, db
 from cancelchain.wallet import Wallet
 
 _PASSWORD_HASHER = PasswordHasher()
@@ -50,7 +43,7 @@ block_transactions = db.Table(
 )
 
 
-class TransactionDAO(db.Model):
+class TransactionDAO(Base):
     __tablename__ = 'transaction'
 
     id: Mapped[int] = mapped_column(
@@ -109,14 +102,14 @@ class TransactionDAO(db.Model):
         cls, block_chain: Select[tuple[BlockDAO]]
     ) -> Select[tuple[TransactionDAO]]:
         block_alias = db.aliased(BlockDAO, block_chain.subquery())
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(TransactionDAO)
             .join(block_alias, TransactionDAO.blocks)
             .order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
         )
 
 
-class OutflowDAO(db.Model):
+class OutflowDAO(Base):
     __tablename__ = 'outflow'
 
     id: Mapped[int] = mapped_column(
@@ -176,7 +169,7 @@ class OutflowDAO(db.Model):
         cls, transactions_chain: Select[tuple[TransactionDAO]]
     ) -> Select[tuple[OutflowDAO]]:
         txn_alias = db.aliased(TransactionDAO, transactions_chain.subquery())
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(OutflowDAO)
             .join(txn_alias, OutflowDAO.transaction)
             .order_by(
@@ -187,7 +180,7 @@ class OutflowDAO(db.Model):
         )
 
 
-class InflowDAO(db.Model):
+class InflowDAO(Base):
     __tablename__ = 'inflow'
 
     id: Mapped[int] = mapped_column(
@@ -237,7 +230,7 @@ class InflowDAO(db.Model):
         cls, transactions_chain: Select[tuple[TransactionDAO]]
     ) -> Select[tuple[InflowDAO]]:
         txn_alias = db.aliased(TransactionDAO, transactions_chain.subquery())
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(InflowDAO)
             .join(txn_alias, InflowDAO.transaction)
             .order_by(
@@ -248,7 +241,7 @@ class InflowDAO(db.Model):
         )
 
 
-class BlockDAO(db.Model):
+class BlockDAO(Base):
     __tablename__ = 'block'
 
     id: Mapped[int] = mapped_column(
@@ -311,14 +304,14 @@ class BlockDAO(db.Model):
             .where(BlockDAO.id == self.id)
             .cte(recursive=True)
         )
-        return base.union_all(
+        return base.union_all(  # type: ignore[no-any-return]
             db.select(BlockDAO).where(BlockDAO.id == base.c.prev_id)
         )
 
     @property
     def block_chain(self) -> Select[tuple[BlockDAO]]:
         block_alias = db.aliased(BlockDAO, self._block_chain)
-        return db.select(block_alias)
+        return db.select(block_alias)  # type: ignore[no-any-return]
 
     @property
     def transactions_chain(self) -> Select[tuple[TransactionDAO]]:
@@ -403,7 +396,7 @@ class BlockDAO(db.Model):
         that compose on the result (subquery / filter / first) see the
         same row order.
         """
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(BlockDAO)
             .join(
                 LongestChainBlockDAO,
@@ -421,7 +414,7 @@ class BlockDAO(db.Model):
         """
         blocks_subq = cls.longest_chain_blocks_q().subquery()
         block_alias = db.aliased(BlockDAO, blocks_subq)
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(TransactionDAO)
             .join(block_alias, TransactionDAO.blocks)
             .order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
@@ -435,7 +428,7 @@ class BlockDAO(db.Model):
         """
         txn_subq = cls.longest_chain_transactions_q().subquery()
         txn_alias = db.aliased(TransactionDAO, txn_subq)
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(OutflowDAO)
             .join(txn_alias, OutflowDAO.transaction)
             .order_by(
@@ -452,7 +445,7 @@ class BlockDAO(db.Model):
         """
         txn_subq = cls.longest_chain_transactions_q().subquery()
         txn_alias = db.aliased(TransactionDAO, txn_subq)
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(InflowDAO)
             .join(txn_alias, InflowDAO.transaction)
             .order_by(
@@ -463,7 +456,7 @@ class BlockDAO(db.Model):
         )
 
 
-class LongestChainBlockDAO(db.Model):
+class LongestChainBlockDAO(Base):
     """Flat materialization of the canonical chain's block membership.
 
     One row per block in the currently-longest chain, keyed by block.id
@@ -488,7 +481,7 @@ class LongestChainBlockDAO(db.Model):
         self.position = position
 
 
-class ChainDAO(db.Model):
+class ChainDAO(Base):
     __tablename__ = 'chain'
 
     id: Mapped[int] = mapped_column(
@@ -627,8 +620,8 @@ class ChainDAO(db.Model):
         stmt = stmt.order_by(db.desc('ct'), OutflowDAO.address)
         if limit is not None:
             stmt = stmt.limit(limit)
-            return db.select(db.aliased(stmt.subquery()))
-        return stmt
+            return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]
+        return stmt  # type: ignore[no-any-return]
 
     def _is_longest(self) -> bool:
         """True iff this ChainDAO row is currently the longest chain.
@@ -819,7 +812,7 @@ class ChainDAO(db.Model):
 
     @classmethod
     def chains(cls) -> Select[tuple[ChainDAO]]:
-        return (
+        return (  # type: ignore[no-any-return]
             db.select(cls)
             .join(cls.block)
             .order_by(
@@ -832,7 +825,7 @@ class ChainDAO(db.Model):
         return db.session.execute(cls.chains()).scalars().first()
 
 
-class PendingTxnDAO(db.Model):
+class PendingTxnDAO(Base):
     __tablename__ = 'pending_txn'
 
     id: Mapped[int] = mapped_column(
@@ -887,7 +880,7 @@ class PendingTxnDAO(db.Model):
         ).scalar_one_or_none()
 
 
-class PendingIOflowDAO(db.Model):
+class PendingIOflowDAO(Base):
     __tablename__ = 'pending_ioflow'
 
     id: Mapped[int] = mapped_column(
@@ -911,7 +904,7 @@ class PendingIOflowDAO(db.Model):
         db.session.commit()
 
 
-class ChainFill(db.Model):
+class ChainFill(Base):
     __tablename__ = 'chain_fill'
 
     id: Mapped[int] = mapped_column(
@@ -935,7 +928,7 @@ class ChainFill(db.Model):
         db.session.commit()
 
 
-class ChainFillBlock(db.Model):
+class ChainFillBlock(Base):
     __tablename__ = 'chain_fill_block'
 
     id: Mapped[int] = mapped_column(
@@ -957,7 +950,7 @@ class ChainFillBlock(db.Model):
         db.session.commit()
 
 
-class ApiToken(db.Model):
+class ApiToken(Base):
     __tablename__ = 'api_token'
 
     id: Mapped[int] = mapped_column(
