@@ -67,7 +67,7 @@ git commit -m "$(cat <<'EOF'
 docs(phase-8): add Flask-Migrate (Alembic) integration implementation plan
 
 Single-PR impl walking through: branch off main, add
-flask-migrate dependency, wire Migrate(app, db) in create_app(),
+Flask-Migrate dependency, wire Migrate(app, db) in create_app(),
 set MetaData(naming_convention=...) on Base, run cancelchain db init,
 configure env.py (compare_type/compare_server_default), generate
 initial migration via cancelchain db migrate, hand-review the
@@ -873,7 +873,7 @@ The convention attached to `Base.metadata` in Step 4 changes constraint names in
 
 ### Risk: The `pyproject.toml` dependency list ordering breaks ruff
 
-ruff doesn't lint `pyproject.toml` itself, but the project may have a separate convention (e.g., `pyproject-fmt`) that enforces dep ordering. The cancelchain codebase doesn't appear to (per `pyproject.toml` review), so alphabetical insertion (`flask-migrate` between `flask` and `flask-sqlalchemy`) is safe. If the project enforces a different order, follow the existing pattern in the file.
+ruff doesn't lint `pyproject.toml` itself, but the project may have a separate convention (e.g., `pyproject-fmt`) that enforces dep ordering. The cancelchain codebase doesn't appear to (per `pyproject.toml` review), so case-insensitive alphabetical insertion (`Flask-Migrate` between `Flask-Caching` and `Flask-SQLAlchemy`, matching the file's existing capitalized Flask-family ordering) is safe. If the project enforces a different order, follow the existing pattern in the file.
 
 ### Risk: Docker build fails because `flask-migrate` isn't in the builder image's runtime deps
 
