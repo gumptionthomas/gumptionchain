@@ -278,10 +278,16 @@ After:
     def get(cls, outflow_txid: str, outflow_idx: int) -> OutflowDAO | None:
         return db.session.execute(
             db.select(cls).filter_by(
-                outflow_txid=outflow_txid, outflow_idx=outflow_idx
+                txid=outflow_txid, idx=outflow_idx
             )
         ).scalar_one_or_none()
+```
 
+**Note on the parameter→column mapping:** the original `OutflowDAO.get` body calls `filter_by(outflow_txid=outflow_txid, outflow_idx=outflow_idx)` — but `OutflowDAO`'s mapped columns are `txid` and `idx` (only `InflowDAO` has columns named `outflow_txid` / `outflow_idx`, since each inflow references an outflow). The original body would raise `InvalidRequestError: Entity 'OutflowDAO' has no property 'outflow_txid'` if anyone called it; the bug has been latent because `OutflowDAO.get` is dead code (a repo-wide grep returns no callers). The migration corrects the column names in the body while keeping the public parameter names unchanged — a deliberate in-place fix, NOT scope creep, since we're already rewriting this function's body and carrying the bug forward verbatim would write knowingly-broken code. No tests change because no caller exists.
+
+And the `outflows_chain` classmethod (still in `OutflowDAO`):
+
+```python
     @classmethod
     def outflows_chain(
         cls, transactions_chain: Select[tuple[TransactionDAO]]
@@ -2004,13 +2010,13 @@ The legacy `db.session.query(SomeModel).exists()` returns an `exists()` clause e
 
 ### Risk: `db.session.query` showing up in unexpected files
 
-Wide grep to catch any miss:
+Wide grep to catch any miss across the 7a scope:
 
 ```bash
-grep -rn 'Model\.query\|\.query\.\|db\.session\.query\|with_entities' src/ tests/ bench/
+grep -rn 'Model\.query\|\.query\.\|db\.session\.query\|with_entities' src/ tests/
 ```
 
-Expected: empty after Step 11 across `models.py`, `api.py`, `chain.py`, and `tests/test_models.py` (all 7a-scope files). If any other file (`node.py`, `miller.py`, `command.py`, `tasks.py`, anything under `bench/`) surfaces a legacy site, that's out-of-scope — surface it to the user before expanding scope. The most likely additional surface is `bench/`, which is intentionally not in scope here (see the next risk).
+Expected: empty after Step 11 across `models.py`, `api.py`, `browser.py`, `chain.py`, `tests/test_models.py`, and `tests/test_chain.py` (all 7a-scope files). If any other file (`node.py`, `miller.py`, `command.py`, `tasks.py`) surfaces a legacy site, that's out-of-scope — surface it to the user before expanding scope. **`bench/` is deliberately excluded from this grep** because the bench script still uses legacy patterns and is out of scope here (see the next risk for details).
 
 ### Risk: wallet_leaderboard's Select[Any] type
 
