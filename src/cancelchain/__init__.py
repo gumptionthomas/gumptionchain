@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from importlib.metadata import version as _pkg_version
+from pathlib import Path as _Path
 from typing import Any
 
 import click
@@ -26,6 +27,12 @@ from flask.cli import FlaskGroup
 from flask_migrate import Migrate
 
 __version__ = _pkg_version('cancelchain')
+
+# Package-relative migrations path so `cancelchain init` / `cancelchain db
+# upgrade` work in any CWD (pip-installed wheel, container, dev). Computed
+# from __file__ at import time rather than left to Flask-Migrate's default
+# `directory='migrations'` (which resolves against the process CWD).
+_MIGRATIONS_DIR = str(_Path(__file__).parent / 'migrations')
 
 
 def create_app(
@@ -64,7 +71,7 @@ def create_app(
 
     try:
         db.init_app(app)
-        Migrate(app, db)
+        Migrate(app, db, directory=_MIGRATIONS_DIR)
     except RuntimeError as e:
         app.logger.error(e)
 
