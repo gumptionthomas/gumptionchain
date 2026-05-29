@@ -39,7 +39,7 @@ The companion design spec is `docs/superpowers/specs/2026-05-29-a2e-fill-chain-a
 | 3 | impl PR | `src/cancelchain/models.py` — `BlockDAO.commit(*, commit: bool = True)` |
 | 3 | impl PR | `src/cancelchain/block.py` — `Block.to_db(*, commit: bool = True)` |
 | 3 | impl PR | `src/cancelchain/chain.py` — `Chain.to_db(*, commit: bool = True)` and `Chain.add_block(*, commit: bool = True)` |
-| 3 | impl PR | `src/cancelchain/node.py` — `Node.add_block(*, commit: bool = True)` and `Node.fill_chain` apply-loop refactor |
+| 3 | impl PR | `src/cancelchain/node.py` — `Node.add_block(*, commit: bool = True)`, `Node.create_chain(*, commit: bool = True)`, and `Node.fill_chain` apply-loop refactor |
 | 4 | impl PR | `src/cancelchain/signals.py` — multi-line `#` comment documenting deferred-batch semantics |
 | 5 | impl PR | `tests/test_verification_audit.py` — remove xfail decorator |
 | 6 | impl PR | `docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md` — close A2.e in 3 spots |
@@ -47,7 +47,7 @@ The companion design spec is `docs/superpowers/specs/2026-05-29-a2e-fill-chain-a
 | 8 | impl PR | run gates + single commit + push + open PR |
 | 9 | acceptance | none (verification only) |
 
-The impl PR is a single commit (the change is one logical unit — fix + housekeeping). No new files; all 5 modified files are existing.
+The impl PR is a single commit (the change is one logical unit — fix + housekeeping). No new files; all 8 modified files are existing (4 src files + signals.py + test_verification_audit.py + audit doc + ROADMAP).
 
 ---
 
@@ -774,7 +774,7 @@ A hostile peer can no longer force partial adoption of a fork prefix by serving 
 
 ## Out of scope
 
-- Single-block receive path (already atomic).
+- Single-block receive path. Today this path runs two commits per block (Block.to_db() then Chain.to_db()); the default \`commit=True\` preserves that behavior. The race window where the first commit succeeds and the second fails is left as-is for this PR; addressing it would mean making single-block receive also atomic (a separate concern).
 - Orphan ChainFill rows on process crash (audit A5.c hygiene observation; separate concern).
 - Headers-first / batched-blocks redesign (not motivated by A2.e alone).
 
