@@ -189,7 +189,16 @@ class Node:
             chain.to_db(commit=commit)
         except SQLAlchemyError:
             rollback_session()
-            if not (block.block_hash and Block.from_db(block.block_hash)):
+            # In batch mode (commit=False, used by Node.fill_chain),
+            # rollback_session() above has already undone every flushed
+            # block earlier in the batch. Re-raise unconditionally so
+            # fill_chain's except handler aborts the whole batch — otherwise
+            # the swallow path below would let fill_chain continue and
+            # commit later blocks on top of a half-rolled-back session,
+            # reintroducing the partial-adoption bug A2.e is meant to fix.
+            if not commit or not (
+                block.block_hash and Block.from_db(block.block_hash)
+            ):
                 raise
             block = None  # type: ignore[assignment]
         return block
