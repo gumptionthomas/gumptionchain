@@ -6,7 +6,13 @@
 
 ## Executive summary
 
-[Placeholder — filled in by Task 10 after all per-adversary tasks complete.]
+This audit traced 42 attack attempts across 7 adversary categories through cancelchain's verification pipeline (`Node.receive_transaction`, `Node.receive_block`, `Block.validate`, `Chain.validate_block`, `Chain.validate_block_txn`, `Chain.validate_block_coinbase`, and the surrounding fill / reorg / pending-pool machinery). Six findings were confirmed, all Medium or Low; no Critical or High findings were produced. Each finding is paired with a `@pytest.mark.xfail(strict=True)` demonstration in `tests/test_verification_audit.py`.
+
+The headline conclusion is that **the chain-correctness invariant is structurally well-defended**. The PoW core (Adversary 3) and the schema layer (Adversary 1 attack c, Adversary 7 attacks a/c/d/f/g) produced zero findings. The per-block recursive CTE on `prev_id` (`BlockDAO._block_chain`) correctly scopes value-conservation checks to each candidate block's lineage, so competing forks can coexist in `BlockDAO` without their UTXO checks interfering — that invariant absorbed every reorg / cross-fork attack in Adversaries 4-5 without surfacing a validation gap. Phase 6.5's documented cross-worker stale-cache risk for `_is_longest` was confirmed bounded to the read/UX layer (Adversary 5 attack d): block-validation paths never consult the materialization, so the stale cache cannot escalate to validation correctness.
+
+The findings concentrate in two structurally related pockets. First, **operational state management around `Node.fill_chain` / `ChainFill`** (A2.e Medium): the apply loop commits each block individually, so a hostile peer can force partial adoption of a fork prefix by appending a cheap-to-construct invalid tip. Second, **accounting-side replays that do not violate value conservation** (A4.c Medium, A1.f Low): a malicious miller can replay another miller's coinbase txn to inflate the original miller's wallet-balance reads, and any transactor can replay a mined txid back into the pending pool until 4h `TXN_TIMEOUT` expiry. Three further Low findings on Adversary 7 surfaced conceptual gaps (missing checks) rather than off-by-one errors: alternate-genesis fragments the chain registry (A7.b), `TXN_TIMEOUT` uses three different comparison operators across three call sites (A7.e), and subjects accept arbitrary UTF-8 codepoints including control characters and bidi overrides (A7.h).
+
+Cross-cutting patterns and prioritized remediation are detailed in the Cross-cutting observations and Recommendations sections below. The reorg-double-spend cluster (A4.d note + A5.a + A5.b) is a canonical PoW property, not a validation-pipeline gap — its mitigation belongs in operator-facing confirmation-depth guidance, not in `validate_*` code. Auth-layer correctness (challenge cipher, JWT issuance, role regex matching) is out of scope per the audit spec's Non-goals; it will get its own audit pass.
 
 ## Threat model
 
@@ -29,10 +35,16 @@ Findings are ID'd as `A<N>.<letter>` where `N` is the adversary number (1-7) and
 
 ## Findings table
 
-[Placeholder — built by Task 10 as a cross-cutting summary of every finding produced by per-adversary tasks.]
+6 findings: 0 Critical, 0 High, 2 Medium, 4 Low. Sorted by severity (highest first), then by ID within each severity.
 
 | ID | Severity | Description | Remediation sketch | Test |
 |---|---|---|---|---|
+| A2.e | Medium | `Node.fill_chain`'s apply loop commits each block individually; when the staged tip fails validation, the legitimately-mined prefix blocks remain persisted and `ChainDAO`'s tip is advanced into a hostile peer's fork. Each prefix block is valid in isolation (PoW + chain rules pass), so chain-correctness holds — but the node's operational head adopts the adversary's fork until a longer canonical sync arrives. | Wrap the apply loop at `src/cancelchain/node.py:345-351` in `db.session.begin_nested()` and roll back on `InvalidBlockError`; alternatively, run a two-phase validate-then-persist (one read-only validation walk before any `block.to_db()`). | `test_a2_e_partial_chain_adoption_via_invalid_tip` |
+| A4.c | Medium | A MILLER-role adversary mines a block whose coinbase is a verbatim replay of any prior block's coinbase txn. `Chain.validate_block_coinbase` (`src/cancelchain/chain.py:278-285`) enforces only the canonical REWARD and S/G/M shape; no check rejects a coinbase whose txid is already on the lineage. The duplicate `block_transactions` m2m row makes the join in `BlockDAO.longest_chain_transactions_q` produce two rows for the replayed coinbase, inflating the original miller's `ChainDAO.wallet_balance` by one REWARD per replay. The inflated balance is not directly spendable (`InflowDAO`'s `(txid, idx)` unique constraint blocks double-consumption) but the accounting layer reports a violation of the no-double-counting invariant. | Add a `self.get_transaction(cb.txid, start_block=block)` check in `Chain.validate_block_coinbase` (`src/cancelchain/chain.py:278`), analogous to the inflow-uniqueness check in `validate_txn_inflow`; raise a new `DuplicateCoinbaseError(InvalidCoinbaseError)` when the lineage-scoped lookup returns non-None. | `test_a4_c_ii_coinbase_replay_inflates_balance` |
+| A1.f | Low | `Node.receive_transaction` does not check whether a candidate txn's txid is already in `TransactionDAO`, so any actor can replay mined txids back into the pending pool, where each entry lives for `TXN_TIMEOUT = 4h` until expiry. The chain itself is unaffected (block-assembly filters mined txids out), but the pool can be inflated, increasing read/walk costs for `/api/transaction/pending` and `Miller.pending_chain_txns`. | In `Node.receive_transaction` (`src/cancelchain/node.py:76`), before `self.pending_txns.add(txn)`, look up `TransactionDAO.get(txn.txid)`; raise a new `DuplicateMinedTransactionError(InvalidTransactionError)` on hit so the rejection is observable as a 400 to the submitter. | `test_a1_f_mined_txid_replay_into_pending` |
+| A7.b | Low | `Chain.validate_block` accepts any block whose `prev_hash == GENESIS_HASH`, `idx == 0`, `target == MAX_TARGET`, regardless of whether a different genesis is already persisted. Each accepted alternate-genesis spawns a fresh `ChainDAO` row, fragmenting the chain registry into parallel single-block chains. `ChainDAO.longest()` still picks the canonical winner by deterministic tiebreaker (chain-correctness preserved), but the DB accumulates unrooted rows with no recovery path. Also unlocks A7.j (disjoint-ancestor reorg). | In `Chain.validate_block` (`src/cancelchain/chain.py:170`), after the `is_genesis_block(block)` branch passes, query `BlockDAO` for any existing block with `idx == 0` and `prev_hash == GENESIS_HASH` whose `block_hash` differs from the candidate; raise a new `DuplicateGenesisError(InvalidBlockError)` if found. Closes A7.j's only entry path. | `test_a7_b_alternate_genesis_fragments_chain_registry` |
+| A7.e | Low | Three call sites apply `TXN_TIMEOUT` with three different comparison operators: `Block.validate_transaction` uses strict `<` (`src/cancelchain/block.py:269`), `Miller.pending_chain_txns` uses strict `>` (`src/cancelchain/miller.py:74`), `Node.discard_expired_pending_txns` uses `<=` (`src/cancelchain/node.py:105`). A txn whose timestamp is exactly `now - TXN_TIMEOUT` is "non-expired" per the block validator but "expired" per pool maintenance / miller selection. No correctness invariant is violated today (miller exclusion catches it first), but the inconsistency is a refactor foot-gun. | Pick one canonical comparison and apply consistently across all three sites. Recommended: open boundary (`<` for "expired"); change `discard_expired_pending_txns` to `<` and `Miller.pending_chain_txns` to `>=`. Document the semantics in a `TXN_TIMEOUT` docstring. | `test_a7_e_txn_timeout_boundary_inconsistency` |
+| A7.h | Low | `validate_subject` / `validate_raw_subject` (`src/cancelchain/payload.py:39-55`) enforce length (`1 <= len <= 79`) and canonical encoding round-trip, but accept any UTF-8 codepoint — including null bytes, C0/C1 control chars (BEL, ESC, LF, DEL), RTL override, zero-width joiners, and zero-width spaces. Subjects propagate to `BalanceView` HTML, CLI `subject` outputs, and `wallet_leaderboard` JSON; any consumer that doesn't strip control chars will render deceptively. | Add a content-class check in `validate_raw_subject` after the length check: reject Unicode categories `Cc` (control), `Cf` (format — bidi + zero-width), `Cn` (unassigned), `Cs` (surrogates) via `unicodedata.category(c)`. Apply symmetrically in `validate_subject` after `decode_subject`. | `test_a7_h_non_printable_subject_accepted` |
 
 ## Per-adversary traces
 
@@ -1088,8 +1100,102 @@ So the boundary semantics are:
 
 ## Cross-cutting observations
 
-[Placeholder — filled in by Task 10. Patterns that span multiple adversaries: validation order inconsistencies between API entry and gossip receive; recurring near-misses that suggest a structural issue; etc.]
+These patterns surfaced across multiple adversary traces. Each captures something the flat findings list above does not: a structural property of the pipeline that explains *why* findings cluster where they do, and that informs how future audits and remediations should be scoped.
+
+### 1. Validation reads and "longest chain" reads are architecturally decoupled
+
+Per-block validation (`Chain.validate_block`, `Chain.validate_block_txn`, `Chain.validate_block_coinbase`) consults `BlockDAO._block_chain` — a per-block recursive CTE on `prev_id` that walks the *candidate block's own lineage*. Read-side queries (`wallet_balance`, `wallet_leaderboard`, `unspent_outflows`, `unforgiven_outflows`) consult the materialized `LongestChainBlockDAO` table and the in-process `_is_longest` cache.
+
+Evidenced by: Adversary 4 attack d's trace through `get_inflows_count`, Adversary 5 attack d's enumeration of all `validate_*` reads, Adversary 5 attack a's DB-state inventory, Adversary 7 attack j's catastrophic-rebuild walkthrough.
+
+The implication is large: Phase 6.5's documented cross-worker stale-cache risk for `_is_longest` cannot escalate to validation correctness in a multi-worker deploy, because no `validate_*` code path consults the cache. The worst case is wrong reads or wrong UTXO selection during transaction construction (which the validation layer then rejects). Future audits of the read/perf layer can be scoped independently of validation; the two surfaces share only the underlying `BlockDAO` rows.
+
+### 2. Receive-transaction admits to mempool with intrinsic checks only
+
+`Node.receive_transaction` runs schema + signature + txid + same-txid-in-pending checks; it does NOT run chain-rule checks (no double-spend lookup, no inflow-existence lookup, no value-conservation check, no timestamp-window check, no mined-already lookup). Chain-rule violations are caught at block assembly via `Miller.create_block` (which drops failures via the `txn_failed` signal) and at admission via `Chain.validate_block_txn`.
+
+Evidenced by: Adversary 1 attacks a, b, d, e, f, g (every one passes through pending and is caught later); Adversary 4 attack a's reduction to A1.f's frame.
+
+This is the standard Bitcoin-style mempool model — the pending pool is a candidate queue, not authoritative state. A1.f is the most visible consequence: mined txids re-admitted to pending until 4h expiry. The architecture is intentional and well-justified (deep checks at receive would push DB load into the public submit endpoint), but it means the pool can carry "noise" that doesn't compromise the chain. A1.f's specific gap (re-admission of mined txids) is worth closing because the check is cheap and the noise is unbounded; broader mempool sanitization (rejecting at receive on every chain-rule violation) is out of scope.
+
+### 3. InflowDAO unique constraint scopes by consuming txn, not by consumed outflow
+
+`InflowDAO.__table_args__` carries `UniqueConstraint('txid', 'idx')` (`src/cancelchain/models.py:208`) — but `(txid, idx)` here refers to the consuming transaction's own `(txid, idx)`, NOT to `(outflow_txid, outflow_idx)`. So InflowDAO does not enforce DB-level uniqueness of outflow consumption. That's the job of `Chain.get_inflows_count`, which is lineage-scoped.
+
+Evidenced by: Adversary 4 attack d (the cross-fork double-spend trace explains why this scoping is the correct design), Adversary 5 attacks a and b (every "double-spend across fork" attack relies on this scoping for the per-chain UTXO model to work).
+
+The implication: a single outflow CAN be consumed once per fork without DB error; cross-fork double-spend is permitted at the validation layer and resolved by longest-chain selection. This is the canonical UTXO-on-PoW design (Bitcoin behaves identically). The architectural alternative — "globally unique outflow consumption across all forks" — would break legitimate fork-replay (Adversary 4 attack b) and require defining "recent" in a network-agnostic way. The audit confirms the current scoping is sound; surfacing it here as a design note so future reviewers don't mistake it for a missing check.
+
+### 4. Block-assembly is the comprehensive defense, not receive-transaction
+
+Across multiple adversaries (A1, A3, A4, A6), the architectural pattern repeats: shallow checks at receive (schema + intrinsic), deep checks at validate_block (chain context). A1.f and A4.c are both consequences of this: the offending content was admitted at the shallow tier and counted somewhere (pending pool, `block_transactions` m2m) before the deep tier had a chance to filter it.
+
+Evidenced by: A1.f (txid re-admitted to pending), A4.c (coinbase replayed via m2m duplicate row), Adversary 3's validation-pipeline summary (the receive path's three layers), Adversary 6's three-defense backstop pattern (`unique=True` on `BlockDAO.block_hash` + `PendingTxnDAO.txid` + catch-and-recheck on SQLAlchemyError).
+
+This is a sound multi-layer defense (it keeps the receive endpoint fast and pushes expensive checks into milling, where economic incentives align with thorough validation), but its "deep checks happen late" property is exactly what makes A1.f and A4.c possible. Both findings are remediated by pulling one deep check earlier — A1.f to receive_transaction, A4.c into `validate_block_coinbase`. Future audits scanning for similar patterns should look at every "this txn / block was already counted before the deep check fired" frame; A4.c suggests there may be more accounting-layer (read-side) replays worth probing once the read layer's own audit happens.
+
+### 5. Difficulty retargeting is structurally tamper-resistant
+
+Adversary 3 attack e probed timestamp manipulation past the ±4× clamp. The clamp is computed BY the validator (`Chain.block_target` at `src/cancelchain/chain.py:109-138`), not BY the miller — so the miller cannot push it past its bounds regardless of what they put in the timestamp. The `MAX_TARGET` cap (`src/cancelchain/chain.py:43`) also blocks the miller from claiming an arbitrarily easy difficulty.
+
+Evidenced by: Adversary 3 attack e (timestamp manipulation), attack g (wrong-difficulty block), the difficulty-retarget code at `Chain.block_target`. Zero findings on Adversary 3.
+
+This is a sound design pattern worth recording. The validator computes the consensus-critical value from chain state; the miller's block-level inputs (their claimed timestamp, their claimed target) are checked against the validator's computation. Any future change to difficulty retargeting (e.g., a different retarget interval or a different clamp ratio) should preserve this property: derive the canonical value from chain state in the validator and reject any miller-supplied value that disagrees.
+
+### 6. Boundary-condition sweep found conceptual gaps, not off-by-ones
+
+Adversary 7 explicitly probed every documented numeric boundary in the validation pipeline: subject length (1-79 inclusive), MAX_TRANSACTIONS (1-100 inclusive), PoW hash strictly less than target. All three are correctly enforced; no off-by-ones surfaced.
+
+Evidenced by: Adversary 7 attacks a, c, d, g — all "no finding" via inclusive/exclusive boundary matching the documented intent.
+
+The three Low findings from Adversary 7 (A7.b, A7.e, A7.h) are all **conceptual gaps** — missing checks rather than incorrect ones. A7.b: no canonical-genesis check exists. A7.e: three different operators used at three sites (no single site is wrong, but the inconsistency is a refactor hazard). A7.h: a check that exists (length) and a check that doesn't exist (character class). Future boundary-sweep audits should pair "test every documented boundary" with "for each invariant the docs claim, prove the check that enforces it exists" — A7.h would have surfaced earlier under that frame.
+
+### 7. The validate-then-persist ordering is consistently observed at the single-block level — and consistently broken at the multi-block level
+
+Adversary 2 attack f explicitly probed for early-write leaks in single-block receive. None found: every chain-context check in `Chain.validate_block` is read-only against the DB, and `block.to_db()` only fires after `validate_block` returns successfully (`Chain.add_block` at `src/cancelchain/chain.py:153-156`). The `SQLAlchemyError` catch at `src/cancelchain/node.py:189-193` provides per-block atomicity.
+
+Evidenced by: A2.f (no finding, clean ordering), Adversary 3's persistence trace, Adversary 6's three-defense backstop.
+
+A2.e is the multi-block analog: `Node.fill_chain`'s apply loop validates and commits each block individually with no enclosing transaction. The single-block invariant (validate-then-persist) holds, but the multi-block aggregate doesn't — an invalid block N can leave blocks 1..N-1 persisted. This is a structural mismatch between two layers: the per-block layer guarantees per-block atomicity, but the multi-block syncing layer doesn't extend that guarantee to the batch. A2.e's remediation (wrap in `db.session.begin_nested()`, or do a two-phase validate-then-persist) restores the symmetry. Any future "operation that applies N blocks atomically" should explicitly state which layer's atomicity boundary it inherits.
 
 ## Recommendations
 
-[Placeholder — filled in by Task 10. Prioritized remediation ordering, dependencies between findings, suggestion of severity grouping into remediation PRs.]
+The six findings are ordered below by remediation tractability and blast-radius alignment, not strictly by severity. Each item below maps cleanly to a single small PR; the cross-finding effects (e.g., A7.b closing A7.j) are noted in-line. A standalone follow-up PR is suggested for each item rather than batching, because per-finding test coverage already exists in `tests/test_verification_audit.py` and converting each xfail to a passing test is the cleanest acceptance signal.
+
+### 1. A2.e (Medium) — atomic apply loop in `Node.fill_chain`
+
+The fix lives at `src/cancelchain/node.py:345-351`. Two implementation paths are viable: wrap the apply loop in `db.session.begin_nested()` and roll back inside the existing `except Exception` handler at line 353, or refactor to a two-phase validate-then-persist (one read-only pass calling `Chain.validate_block` against an in-memory `Chain` instance with no `block.to_db()`, then a second pass that persists each block only if all passed validation). The second path is more compatible with SQLite's lock model and maps onto Bitcoin Core's `headers-first → blocks-batched` pattern, at the cost of one extra validation walk; pick based on perf measurement of `cancelchain sync` against realistic peers. Blast radius: closes the partial-chain-adoption attack from any hostile peer in `CC_PEERS`; reduces operator exposure during transient peer connectivity. Acceptance signal: `test_a2_e_partial_chain_adoption_via_invalid_tip` flips from xfail to pass.
+
+### 2. A4.c (Medium) — coinbase-uniqueness check in `Chain.validate_block_coinbase`
+
+The fix lives at `src/cancelchain/chain.py:278-285`. Add a `self.get_transaction(cb.txid, start_block=block)` lookup; if non-None (and the matched txn isn't this candidate block's own coinbase — i.e., the matched txn's `block_transactions` m2m doesn't include `block`), raise a new `DuplicateCoinbaseError(InvalidCoinbaseError)` defined in `src/cancelchain/exceptions.py`. The lookup is lineage-scoped (it walks the candidate's ancestry, not the global `TransactionDAO`), so it correctly preserves legitimate cross-fork coinbase replay (the A4.b case). Blast radius: closes the wallet-balance inflation surface for any MILLER-role adversary; restores the no-double-counting invariant for coinbase outflows. Acceptance signal: `test_a4_c_ii_coinbase_replay_inflates_balance` flips from xfail to pass.
+
+### 3. A7.b (Low) — canonical-genesis check in `Chain.validate_block`
+
+The fix lives at `src/cancelchain/chain.py:170-198`. After the `is_genesis_block(block)` branch passes the existing parent / idx / target checks, query `BlockDAO` for any existing block with `idx == 0` and `prev_hash == GENESIS_HASH` whose `block_hash` differs from the candidate; raise a new `DuplicateGenesisError(InvalidBlockError)` if found. Blast radius: closes the chain-registry fragmentation surface from any MILLER-role adversary AND closes A7.j's only entry path (disjoint-ancestor reorg can only occur if an alternate genesis was first admitted). Acceptance signal: `test_a7_b_alternate_genesis_fragments_chain_registry` flips from xfail to pass. Two-for-one fix.
+
+### 4. A7.h (Low) — content-class check in `validate_raw_subject`
+
+The fix lives at `src/cancelchain/payload.py:49-55` (with symmetric application at lines 39-46 after `decode_subject`). After the existing length check, reject any `raw_subject` whose codepoints include Unicode general categories `Cc` (control), `Cf` (format — bidi + zero-width), `Cn` (unassigned), `Cs` (surrogates) via `unicodedata.category(c)`. The audit's design intent originally implied human-readable subjects; the audit just surfaced that no check existed to enforce it. Blast radius: closes the rendering-spoof surface for any consumer of `OutflowDAO.subject` (`BalanceView`, CLI `subject` commands, `wallet_leaderboard`). Acceptance signal: `test_a7_h_non_printable_subject_accepted` flips from xfail to pass. Note: while the audit's Non-goals deferred "spec changes to validation rules", A7.h is arguably already in the spec's intent — the audit just confirms the check doesn't exist.
+
+### 5. A7.e (Low) — pick one `TXN_TIMEOUT` comparison operator
+
+The fix lives at three sites: `src/cancelchain/block.py:269` (currently `<`), `src/cancelchain/miller.py:74` (currently `>`), `src/cancelchain/node.py:105` (currently `<=`). Pick one canonical comparison and apply consistently. Recommended: open boundary (`<` for "expired") — change `discard_expired_pending_txns` line 105 from `<=` to `<`, change `Miller.pending_chain_txns` line 74 from `>` to `>=`. After the change, all three sites agree that `txn_ts == now - TXN_TIMEOUT` is "alive". Add a docstring on `TXN_TIMEOUT` clarifying the open/closed semantics. Blast radius: pure refactor; no observable behavior change for txns that aren't exactly at the boundary. Defensive against the refactor risk where a future change to one site silently desynchronizes the other two. Acceptance signal: `test_a7_e_txn_timeout_boundary_inconsistency` flips from xfail to pass.
+
+### 6. A1.f (Low) — mined-txid check in `Node.receive_transaction`
+
+The fix lives at `src/cancelchain/node.py:76-96`. Before `self.pending_txns.add(txn)` at line 92, look up `TransactionDAO.get(txn.txid)` (or equivalently `Chain.get_transaction` against the longest chain) and raise a new `DuplicateMinedTransactionError(InvalidTransactionError)` defined in `src/cancelchain/exceptions.py` when the lookup returns a hit. The check belongs on the receive path (not at block-assembly time, where `Miller.pending_chain_txns` already filters mined txids implicitly) so that the rejection is observable to the submitter as a 400 response and never enters the pool. Blast radius: closes the pending-pool inflation DoS surface; per-receive cost is one indexed lookup on `TransactionDAO.txid`. Acceptance signal: `test_a1_f_mined_txid_replay_into_pending` flips from xfail to pass.
+
+### Out of scope — operator guidance, not validation
+
+**Reorg double-spend cluster (A4.d note + A5.a + A5.b).** Across three traces the audit confirmed: a hostile fork that overtakes the canonical chain can rewrite history including outflow consumption, regardless of what `validate_*` does. This is the canonical Proof-of-Work property; Bitcoin and every UTXO chain inherit the same shape. No validation-pipeline change can reject the attack without breaking PoW longest-chain selection (which would in turn break legitimate reorgs).
+
+Recommendation: document explicit confirmation-depth guidance in user-facing docs — something like "For transactions exchanging value off-chain, recipients should wait N confirmations before treating the payment as settled, where N reflects the operator's risk tolerance and the network's observed orphan rate." This belongs in `README.md` / operator docs, not in `validate_*` code. The chain layer's job ends with "the canonical chain is consistent under its own UTXO rules"; the off-chain settlement guarantee is an application-layer policy.
+
+**Orphan `ChainFill` row sweep (A5.c, no-finding note).** A process kill mid-`fill_chain` leaves `ChainFill` and `ChainFillBlock` rows that no codepath cleans up. The validation-correctness impact is zero (the staging tables are not consulted by validation or longest-chain selection), and the DB-bloat consequence requires external process-kill capability that this audit's threat model doesn't grant. A one-line startup sweep (`DELETE FROM chain_fill` during app init) would close the operational hygiene gap; if the cancelchain operator policy targets long-running deployments, consider a follow-up PR. Not blocking.
+
+### Closed by design
+
+**A3.c (subject censorship).** A malicious miller refusing to include txns matching a pattern (e.g., subject == "their pet peeve") is not a validation-pipeline gap — the chain doesn't enforce inclusion fairness by design. Mitigation is "submit your txn to multiple millers"; the protocol cannot force any single miller to honor any single txn. No remediation appropriate.
+
+**`_is_longest` cross-worker stale cache (A5.d).** Phase 6.5's documented risk. Validation paths do not consult the cache (Cross-cutting observation 1), so the cross-worker stale-cache cannot escalate to validation correctness. Read-layer mitigation belongs to a separate read-layer audit, not this one.
