@@ -24,7 +24,7 @@ The companion design spec is `docs/superpowers/specs/2026-05-29-a2e-fill-chain-a
   - `aee422d docs(a2e): add fill_chain atomicity remediation design spec`
   This plan adds a second commit on that branch (the plan file itself) and ships both as the docs PR.
 - CI hard-gates (per `.github/workflows/tests.yml`): `ruff check`, `ruff format --check`, `pytest`, `mypy`, and `cancelchain db upgrade` + `cancelchain db check`.
-- Test baseline: **236 passed, 6 xfailed, 1 skipped** (post-audit). After this PR, expect **237 passed, 5 xfailed, 1 skipped** (A2.e moves from xfail to pass).
+- Test baseline: **236 passed, 6 xfailed, 1 skipped** (post-audit). After the impl PR lands, expect **237 passed, 5 xfailed, 1 skipped** (A2.e moves from xfail to pass).
 - Each PR ends with `wor` (Copilot review wait + reply) and `mwg` (merge when green); the controller handles those, not the implementer subagent. Auto-rereview on cancelchain is inconsistent in practice (per `project_copilot_auto_rereview`) — the controller asks the user to click "Re-request review" if the polling loop times out.
 - Never push directly to `main`.
 
