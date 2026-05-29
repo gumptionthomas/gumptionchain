@@ -2,7 +2,7 @@
 
 **Status:** Draft for review
 **Date:** 2026-05-29
-**Scope:** Remediate audit finding A2.e (Medium) by wrapping `Node.fill_chain`'s apply loop in a SQLAlchemy SAVEPOINT (`db.session.begin_nested()`) so a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Closes A2.e; removes its xfail demonstration test (which becomes a real pass under `strict=True`); updates the audit doc + ROADMAP to reflect closure.
+**Scope:** Remediate audit finding A2.e (Medium) by making `Node.fill_chain`'s apply loop atomic via deferred commits — a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Closes A2.e; removes its xfail demonstration test (which becomes a real pass under `strict=True`); updates the audit doc + ROADMAP to reflect closure.
 
 ## Goal
 
@@ -13,77 +13,108 @@ Eliminate the partial-fork-prefix-adoption gap surfaced by audit finding A2.e: a
 - **Single-block receive path** (`Node.receive_block` → `Node.add_block`). Already atomic — one commit per receive; the existing `except SQLAlchemyError` handler rolls it back. No change.
 - **Orphan `ChainFill` rows on process crash** (audit's A5.c hygiene observation). The `finally`-block `chain_fill.delete()` handles graceful exceptions but not SIGKILL. A periodic-sweep job is a separate concern; not addressed here.
 - **Headers-first / batched-blocks redesign** (the "validate-then-persist" Option C from brainstorming). Larger refactor not justified by A2.e alone; deferred to a future Phase if profiling motivates it.
-- **`new_block_signal` listener semantics.** No listeners are registered today. The signal-deferral behavior introduced here (fires only for blocks that survived the savepoint commit, in apply order) is a defense-in-depth refinement, not a behavior change anyone observes today.
+- **`new_block_signal` listener semantics.** No listeners are registered today. The signal-deferral behavior introduced here (fires only for blocks that survived the batch's `db.session.commit()`, in apply order) is a defense-in-depth refinement, not a behavior change anyone observes today.
 - **No spec changes to validation rules.** The validation rules inside `Chain.validate_block` are unchanged. This PR only changes how the apply loop reacts to a validation failure.
 
 ## Decisions taken during brainstorming
 
-- **Savepoint wrap (`db.session.begin_nested()`) over deferred-commits or validate-then-persist.** Smallest code footprint (~10 lines in `node.py` only); no signature changes to `Block.to_db()` / `Chain.to_db()`; SQLAlchemy 2.0 + SQLite both support SAVEPOINT natively. Deferred-commits required changing `to_db()` signatures across multiple files; validate-then-persist required teaching `Chain.validate_block` to resolve `prev_block` from an in-memory candidate map before the DB, which is invasive.
-- **Defer `new_block_signal` emission to after the savepoint commits.** Today no listeners exist, so the change is unobservable. But emitting signals during the savepoint then rolling back leaves a brief "signal fired for a block that doesn't exist" gap for any future consumer — and the deferral costs one extra list traversal (cheap). Worth doing once, in this PR.
-- **No changes to `Node.add_block`'s existing `except SQLAlchemyError` handler.** Inside a savepoint, `rollback_session()` rolls back to the savepoint (not the outer transaction); the row that "ended up persisted anyway" race-loss swallow at `node.py:191-193` becomes dead under savepoint, but harmlessly so — `Block.from_db` returns None after the savepoint rollback, so `Node.add_block` re-raises and the outer savepoint catches it.
+- **Deferred commits over savepoint or validate-then-persist.** The initial brainstorm picked savepoint (`db.session.begin_nested()`); Copilot review on PR #86 surfaced that SQLAlchemy 2.0's `Session.commit()` explicitly commits the *root* transaction unconditionally (verified in `Session.commit` docstring: "The outermost database transaction is committed unconditionally, automatically releasing any SAVEPOINTs in effect" — and in source: `trans.commit(_to_root=True)`). Because `Block.to_db()` and `Chain.to_db()` both call `db.session.commit()` internally, the first per-block commit inside `begin_nested()` would commit the root and release the savepoint, defeating the atomicity. Switched to deferred-commits: add `commit: bool = True` parameter to `BlockDAO.commit()`, `Block.to_db()`, `Chain.to_db()`, `Chain.add_block()`, and `Node.add_block()`; `Node.fill_chain` calls with `commit=False` per block and issues a single `db.session.commit()` after the loop succeeds (or `db.session.rollback()` on exception). Validate-then-persist remains out of scope (larger refactor: requires teaching `Chain.validate_block` to resolve `prev_block` from an in-memory candidate map before the DB).
+- **Defer `new_block_signal` emission to after the post-loop commit.** Today no listeners exist, so the change is unobservable. But emitting signals during the loop and then rolling back leaves a brief "signal fired for a block that doesn't exist" gap for any future consumer — and the deferral costs one extra list traversal (cheap). Worth doing once, in this PR.
+- **`Node.add_block`'s existing `except SQLAlchemyError` handler propagates `commit` through.** With `commit=False`, the only DB call inside the try block is `db.session.flush()` (not commit). The existing `rollback_session()` path still rolls back to the (autobegun) root transaction, which is what we want when an `SQLAlchemyError` happens mid-loop — the fill_chain outer `except` catches the propagated error and triggers the explicit `db.session.rollback()` for the whole batch. The race-loss swallow at `node.py:191-193` (where a row "ended up persisted anyway" via concurrent write) is unchanged in semantics: if a concurrent writer persisted the same block while we were trying to, `Block.from_db` still returns the row, and we still swallow as today.
 - **Single PR for spec + impl plan; second PR for implementation.** Mirrors the verification-audit precedent (PR #83 docs / PR #84 impl). Keeps each PR focused.
 
 ## Architecture
 
-### The change site
+### Why SAVEPOINT doesn't work here
 
-`src/cancelchain/node.py`, `Node.fill_chain` apply loop (lines 344-352):
+The original brainstorm picked SAVEPOINT (`db.session.begin_nested()`) on the assumption that `Session.commit()` inside `begin_nested()` would `RELEASE SAVEPOINT` while leaving the outer savepoint open. That assumption is incorrect in SQLAlchemy 2.0. The `Session.commit` docstring is explicit:
+
+> "The outermost database transaction is committed unconditionally, automatically releasing any SAVEPOINTs in effect."
+
+And in source (SQLAlchemy 2.0.50, `sqlalchemy/orm/session.py`): `trans.commit(_to_root=True)`. So the very first per-block `db.session.commit()` inside the nested context would commit the root and release all savepoints — defeating atomicity. By the time a later block's validation fails, there is no savepoint to roll back to.
+
+The deferred-commits approach makes the inner persistence calls use `db.session.flush()` instead of `db.session.commit()`, leaving the autobegun root transaction open until `fill_chain` finishes the loop. A single explicit `db.session.commit()` after the loop persists all blocks atomically; an exception triggers `db.session.rollback()` which undoes every flushed block in the loop.
+
+### The change shape
+
+Five method signatures gain an optional `commit: bool = True` parameter (default preserves today's behavior; only `fill_chain` passes `commit=False`):
+
+1. `BlockDAO.commit()` in `src/cancelchain/models.py` (line ~793).
+2. `Block.to_db()` in `src/cancelchain/block.py` (line 342) — forwards to `BlockDAO.commit()`.
+3. `Chain.to_db()` in `src/cancelchain/chain.py` (line 564) — has inline `db.session.commit()` at line 570; replaced with conditional commit.
+4. `Chain.add_block()` in `src/cancelchain/chain.py` (line 153) — forwards to `Block.to_db()`.
+5. `Node.add_block()` in `src/cancelchain/node.py` (line 181) — forwards to `chain.add_block()` and `chain.to_db()`.
+
+Then `Node.fill_chain` calls `self.add_block(block, commit=False)` inside its apply loop, and commits once at the end:
 
 ```python
-# BEFORE
-progress_switch()
-for chain_fill_block in chain_fill.blocks:
-    if chain_fill_block.block_json is None:
-        continue
-    block = Block.from_json(chain_fill_block.block_json)
-    self.add_block(block)
-    new_block_signal.send(self, block=block)
-    progress_next()
-return True
-```
-
-```python
-# AFTER
+# Node.fill_chain apply loop — AFTER
 progress_switch()
 applied: list[Block] = []
-with db.session.begin_nested():
+try:
     for chain_fill_block in chain_fill.blocks:
         if chain_fill_block.block_json is None:
             continue
         block = Block.from_json(chain_fill_block.block_json)
-        self.add_block(block)
+        self.add_block(block, commit=False)
         applied.append(block)
         progress_next()
-# Savepoint committed — fire signals only for confirmed-persisted blocks.
+    db.session.commit()  # Atomic commit of all flushed blocks.
+except Exception:
+    db.session.rollback()  # Undo every flushed block.
+    raise
+# Post-commit — fire signals only for confirmed-persisted blocks, in apply order.
 for block in applied:
     new_block_signal.send(self, block=block)
 return True
 ```
 
-The outer `try/except Exception` + `finally` block (lines 312-358) keep their current roles unchanged: log the exception, delete the `ChainFill` staging row. When `begin_nested()` rolls back on exception, the exception re-propagates to the outer `except`, which logs it; the function falls through to `return False`.
+The outer `try/except Exception` + `finally` block (lines 312-358) keep their current roles: log the exception, delete the `ChainFill` staging row. The inner `try/except` propagates failures to the outer handler; the explicit `db.session.rollback()` inside the inner `except` ensures the autobegun root transaction is reset before logging proceeds.
 
-### Why savepoint semantics are correct here
+### `BlockDAO.commit(commit=False)` semantics
 
-Three SQLAlchemy 2.0 behaviors make this work without further code changes:
+```python
+# src/cancelchain/models.py — BlockDAO.commit (sketch)
+def commit(self, *, commit: bool = True) -> None:
+    db.session.add(self)
+    if commit:
+        db.session.commit()
+    else:
+        db.session.flush()
+```
 
-1. **`Session.commit()` inside `begin_nested()` releases the inner savepoint, not the outer transaction.** `Block.to_db()` (`block.py:342-343`) calls `db.session.commit()`; `Chain.to_db()` (`chain.py:564-570`) does too. Inside the nested context, those calls translate to `RELEASE SAVEPOINT` operations against the inner savepoint — the outer savepoint remains open and accumulates all the released writes.
-2. **Exiting `begin_nested()` via exception triggers `ROLLBACK TO SAVEPOINT`.** Every "released" inner savepoint inside is undone, because SQLite rolls back all uncommitted-to-outer changes when the outer SAVEPOINT is rolled back.
-3. **`db.session.rollback()` inside an active savepoint rolls back to the savepoint, not the outer transaction.** `Node.add_block`'s `except SQLAlchemyError: rollback_session()` (lines 189-190) therefore behaves correctly inside the savepoint: SQLAlchemyError rolls back to the savepoint, the row that would have been retried is truly gone, `Block.from_db` returns None, the swallow path at lines 191-193 doesn't trigger, and the exception re-raises to the savepoint context manager.
+When `commit=False`, the row is added to the autobegun root transaction and flushed (so subsequent reads within the session see it, and FK relationships resolve correctly for `Chain.to_db()`'s call to `dao.sync_longest_chain_blocks()`). The root transaction stays open. A later `db.session.commit()` commits all flushed-but-uncommitted rows together; a later `db.session.rollback()` discards them.
 
-### Why deferring signals matters
+`Chain.to_db(commit=False)` follows the same pattern: the inline `db.session.commit()` at line 570 becomes conditional. The intermediate `db.session.flush()` at line 567 (needed for `self.cid = dao.id` and `dao.sync_longest_chain_blocks()`) is unchanged — that flush is already required for FK resolution and is harmless to call before another flush.
 
-Today `new_block_signal` has no registered listeners (the only `.send` callsites are `Node.receive_block:177` and `Node.fill_chain:350`; no `.connect` callsites exist). But emitting signals inside the savepoint, then rolling back, creates a brief observable inconsistency for any future consumer: the signal fires for a block that isn't (or won't be) in the chain. Moving the emission outside the savepoint ensures signals only fire for blocks that survived the savepoint commit, in apply order. Cost: one extra list traversal, length ≤ the apply loop's iteration count.
+### Why deferring `new_block_signal` matters
+
+Today `new_block_signal` has no registered listeners (the only `.send` callsites are `Node.receive_block:177` and `Node.fill_chain:350`; no `.connect` callsites exist). But emitting signals inside the apply loop, then rolling back, creates a brief observable inconsistency for any future consumer: the signal fires for a block that isn't (or won't be) in the chain. Moving the emission to after the explicit `db.session.commit()` ensures signals only fire for blocks that actually committed, in apply order. Cost: one extra list traversal, length ≤ the apply loop's iteration count.
 
 ### Callers of `fill_chain` (unchanged)
 
-Only two: `Miller.poll_latest_blocks` (`miller.py:108`, called when polling peers for a longer chain) and `cancelchain sync` (`command.py:379`). Both treat `fill_chain`'s return value as a boolean for retry logic. Neither holds a savepoint open before calling — confirmed by grep. The savepoint added inside `fill_chain` is therefore a top-level savepoint (one level deep), not a nested-nested case.
+Only two: `Miller.poll_latest_blocks` (`miller.py:108`, called when polling peers for a longer chain) and `cancelchain sync` (`command.py:379`). Both treat `fill_chain`'s return value as a boolean for retry logic. Neither passes `commit=False` to anything — they use the default `commit=True` behavior in their other DB operations. No caller-side changes needed.
+
+### Other callers of `Block.to_db()` / `Chain.to_db()` / `Chain.add_block()` / `Node.add_block()`
+
+All existing callers omit the new parameter, getting the default `commit=True` behavior. The parameter is keyword-only (`*, commit: bool = True`) to prevent accidental positional misuse. No call site outside `fill_chain` needs to change.
+
+Confirmed by grep:
+
+- `Block.to_db()` callers: `Chain.add_block` (chain.py:155, the only caller — `fill_chain` reaches it transitively via `Node.add_block`).
+- `Chain.to_db()` callers: `Node.add_block` (node.py:188, the only caller — same path).
+- `Chain.add_block()` callers: `Chain.create_chain` (chain.py — via Node.create_chain), `Node.add_block` (chain.add_block call), tests/test_chain.py (regression coverage).
+- `Node.add_block()` callers: `Node.receive_block` (node.py:176, single-block path — uses default commit=True), `Node.fill_chain` (node.py:349, this PR's case — switches to commit=False).
 
 ## Changes
 
 ### Files (in scope)
 
-- **Modify:** `src/cancelchain/node.py` — wrap apply loop in `with db.session.begin_nested():`; collect applied blocks into a list; defer `new_block_signal.send` calls to after the savepoint. ~10 lines changed.
-- **Modify:** `src/cancelchain/signals.py` — add a one-line docstring comment to `new_block` documenting its new "fires after fill_chain savepoint commit, in apply order" semantics. (Receive-path single-block emission unchanged.)
+- **Modify:** `src/cancelchain/models.py` — `BlockDAO.commit()` gains a keyword-only `commit: bool = True` parameter. When `False`, replaces `db.session.commit()` with `db.session.flush()`. ~5 lines changed.
+- **Modify:** `src/cancelchain/block.py` — `Block.to_db()` gains a keyword-only `commit: bool = True` parameter; forwards to `BlockDAO.commit()`. ~3 lines changed.
+- **Modify:** `src/cancelchain/chain.py` — `Chain.to_db()` gains a keyword-only `commit: bool = True` parameter; the inline `db.session.commit()` at line 570 becomes conditional. `Chain.add_block()` gains the same parameter; forwards to `Block.to_db()`. ~6 lines changed.
+- **Modify:** `src/cancelchain/node.py` — `Node.add_block()` gains a keyword-only `commit: bool = True` parameter; forwards to `chain.add_block()` and `chain.to_db()`. `Node.fill_chain` apply loop refactored to call `self.add_block(block, commit=False)`, accumulate `applied` list, commit once at the end / rollback on exception, defer `new_block_signal.send` calls to after the commit. ~18 lines changed.
+- **Modify:** `src/cancelchain/signals.py` — add a multi-line `#` comment above the `new_block` definition documenting its new "fires after fill_chain commits, in apply order" semantics. (Receive-path single-block emission unchanged.) ~4 lines added.
 - **Modify:** `tests/test_verification_audit.py` — remove the `@pytest.mark.xfail(strict=True)` decorator on `test_a2_e_partial_chain_adoption_via_invalid_tip`. The test body is unchanged; it becomes a real pass.
 - **Modify:** `docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md` —
   - Remove the A2.e row from the Findings table.
@@ -93,9 +124,9 @@ Only two: `Miller.poll_latest_blocks` (`miller.py:108`, called when polling peer
 
 ### Files (read but not modified)
 
-- `src/cancelchain/block.py`, `src/cancelchain/chain.py` — the `to_db()` definitions; reviewed to confirm `db.session.commit()` placement is compatible with savepoint nesting.
-- `src/cancelchain/models.py` — `rollback_session()` definition; reviewed to confirm `db.session.rollback()` inside a savepoint rolls back to the savepoint.
 - `src/cancelchain/database.py` — `db` instance; no changes.
+- `src/cancelchain/miller.py` — `Miller.poll_latest_blocks` calls `fill_chain` but doesn't pass any `commit` parameter (gets default behavior on its own DB ops); no changes.
+- `src/cancelchain/command.py` — `cancelchain sync` calls `fill_chain` similarly; no changes.
 - `tests/conftest.py` — existing fixtures used by the A2.e demonstration test.
 
 ## Test plan
@@ -103,12 +134,12 @@ Only two: `Miller.poll_latest_blocks` (`miller.py:108`, called when polling peer
 - **A2.e demonstration test** (`test_a2_e_partial_chain_adoption_via_invalid_tip`) goes from xfail to real pass after decorator removal. CI's `pytest` step verifies.
 - **`pytest --runxfail tests/test_verification_audit.py`** still shows the remaining 5 xfails fail (sanity: no other findings were accidentally caught).
 - **`uv run pytest` total**: was `236 passed, 6 xfailed, 1 skipped`; becomes `237 passed, 5 xfailed, 1 skipped`.
-- **Regression coverage for `fill_chain` happy path**: existing test suite includes `fill_chain` exercises (notably the multi-node sync paths in `tests/test_node.py` / `tests/test_chain.py`). All must remain passing. The savepoint is transparent for happy-path: each block's commit becomes a savepoint release within the outer savepoint, then the outer savepoint commits at `__exit__`.
-- **Manual smoke**: build the docker image and run `cancelchain init` inside it to confirm the SQLAlchemy savepoint code paths import cleanly under the production Python config.
+- **Regression coverage for `fill_chain` happy path**: existing test suite includes `fill_chain` exercises (notably the multi-node sync paths in `tests/test_node.py` / `tests/test_chain.py`). All must remain passing. The deferred-commits approach is transparent for happy-path: every block flushes (instead of committing) per iteration, and the post-loop `db.session.commit()` persists them all atomically.
+- **Manual smoke**: build the docker image and run `cancelchain init` inside it to confirm the modified DAO/to_db signatures import cleanly under the production Python config.
 
 ## Acceptance
 
-- `src/cancelchain/node.py:344-352` (or equivalent line range after edit) wraps the apply loop in `with db.session.begin_nested():` and defers `new_block_signal.send` calls to after the savepoint.
+- `src/cancelchain/node.py:344-352` (or equivalent line range after edit) calls `self.add_block(block, commit=False)` per iteration, commits once after the loop via `db.session.commit()`, rolls back on exception via `db.session.rollback()`, and defers `new_block_signal.send` calls to after the commit.
 - `tests/test_verification_audit.py::test_a2_e_partial_chain_adoption_via_invalid_tip` has no `@pytest.mark.xfail` decorator and passes.
 - `uv run pytest 2>&1 | tail -3` shows `237 passed, 5 xfailed, 1 skipped`.
 - `uv run pytest --runxfail tests/test_verification_audit.py 2>&1 | tail -3` shows `5 failed` (the remaining audit findings still demonstrate gaps).
@@ -119,33 +150,38 @@ Only two: `Miller.poll_latest_blocks` (`miller.py:108`, called when polling peer
 
 ## Risks
 
-### Risk: hidden assumption about session state across `Block.to_db()` / `Chain.to_db()`
+### Risk: a `to_db()` caller relies on the implicit commit for crash-safety
 
-Both methods call `db.session.commit()` explicitly. Inside `begin_nested()`, those become SAVEPOINT releases. If either method also depends on `db.session.is_active` being False / a fresh transaction being autobegun afterward (e.g., a follow-on flush that relies on a clean session state), behavior could differ inside vs outside a savepoint. **Mitigation:** the implementation plan includes a targeted re-read of `to_db()` and immediate callers to confirm no post-commit session-state probe; the full test suite run on the impl branch will catch any regression.
+Today `Block.to_db()` and `Chain.to_db()` commit immediately, so callers can rely on "after this returns, the block is durable on disk." With the new `commit` parameter defaulting to `True`, that contract is preserved for all existing callers. The only `commit=False` call site is `Node.fill_chain`'s apply loop, which explicitly commits at the end. **Mitigation:** the implementation plan includes a grep step confirming no other callers pass `commit=False`; the keyword-only `*,` separator on the parameter prevents accidental positional misuse. The full test suite catches any caller that broke a flush-vs-commit assumption.
 
-### Risk: SAVEPOINT performance under deep-reorg fallback
+### Risk: `Chain.to_db()`'s `sync_longest_chain_blocks()` call assumes a committed state
 
-A savepoint per `fill_chain` call adds bookkeeping to SQLite's transaction log. For typical fill_chain calls (small N, peer-catchup), overhead is negligible. For catastrophic deep-reorg fallback (rare), the savepoint contains the entire reorg's writes — possibly millions of bytes. **Mitigation:** the alternative is the A2.e bug. SQLite's SAVEPOINT implementation is well-optimized for journal-based transactions; the same operations that today are flushed per-block will be flushed per-block under the savepoint with negligible extra cost. No new bench gate needed.
+`Chain.to_db()` runs `dao.sync_longest_chain_blocks()` after the existing `db.session.flush()` (chain.py:567) and before the (now-conditional) commit. If `sync_longest_chain_blocks` reads from the session and the read assumes the chain row is committed (not just flushed), behavior could differ when called with `commit=False`. **Mitigation:** flushed rows are visible to the same session's subsequent queries (that's the point of `flush()`); only cross-session reads need a commit. The impl plan includes a targeted re-read of `sync_longest_chain_blocks` to confirm it only touches the local session.
+
+### Risk: `Node.add_block`'s `except SQLAlchemyError` path under `commit=False`
+
+Today the handler runs `rollback_session()` (which is `db.session.rollback()`) and conditionally swallows the error if the block ended up persisted by another worker. With `commit=False`, `db.session.rollback()` discards all flushed-but-uncommitted blocks in the current `fill_chain` batch — including blocks that already passed validation in earlier iterations. The exception then re-raises (or is swallowed) per existing logic. **Mitigation:** this is the desired behavior — a SQLAlchemyError on block N means the whole batch should abort. The fill_chain outer `except Exception` handler's explicit `db.session.rollback()` at the end is a no-op when the transaction is already rolled back; harmless. The swallow path at lines 191-193 (race-loss case) still fires correctly for the single-block path with `commit=True`; for the batch path with `commit=False`, the in-flight block is gone but so is the whole batch — appropriate semantics for a multi-block rollback.
 
 ### Risk: future consumer of `new_block_signal` regresses on the deferred-emission contract
 
-Today the signal has no listeners; future consumers might assume immediate emission. **Mitigation:** the one-line docstring on `signals.new_block` makes the deferred-batch semantic explicit. Any future listener reads the docstring before connecting. The impl PR's commit message also documents this.
-
-### Risk: savepoint nesting if a caller already holds an outer savepoint
-
-None today (confirmed by grep: only `Miller.poll_latest_blocks` and `cancelchain sync` call `fill_chain`; neither uses savepoints). **Mitigation:** if a future caller wraps `fill_chain` in its own savepoint, this code becomes a nested-nested savepoint — SQLAlchemy + SQLite both support this, but the semantics are subtler (outer rollback discards inner work; inner commit doesn't propagate). The risk is theoretical until someone introduces a wrapping savepoint. Document the assumption in a code comment alongside `with db.session.begin_nested():` so a future caller is forewarned.
+Today the signal has no listeners; future consumers might assume immediate emission. **Mitigation:** the multi-line `#` comment above `signals.new_block` makes the deferred-batch semantic explicit. Any future listener reads the comment before connecting. The impl PR's commit message also documents this.
 
 ### Risk: the demonstration test is testing the wrong thing
 
-The xfail test's assertions check `result is False` AND no hostile block in `BlockDAO` AND `longest_chain.length` unchanged. After the fix, all three should hold. **Mitigation:** the impl plan includes a step to manually run the test in non-xfail mode against the fix and inspect output. If `result is False` doesn't hold despite the savepoint rollback, the test's structure may need adjustment (currently it expects the existing outer `try/except Exception` + `return False` fallback to still trigger, which it does — the savepoint exception re-propagates).
+The xfail test's assertions check `result is False` AND no hostile block in `BlockDAO` AND `longest_chain.length` unchanged. After the fix, all three should hold: the explicit `db.session.rollback()` in `fill_chain`'s new `except` clause undoes all flushed blocks, the outer `try/except Exception` + `return False` fallback still triggers (the rollback re-raises into it). **Mitigation:** the impl plan includes a step to run the test in non-xfail mode (`pytest --runxfail`) against the fix; if the test passes, the gap is closed.
+
+### Risk: single-block receive path regresses
+
+`Node.receive_block` → `Node.add_block(block)` uses the default `commit=True`. Behavior is unchanged. **Mitigation:** the impl plan includes a regression-coverage step running the existing `tests/test_chain.py` and `tests/test_models.py` tests that exercise the single-block receive path.
 
 ## Open decisions
 
-None at design time. Brainstorming resolved:
+None at design time. Brainstorming + Copilot review resolved:
 
-- Savepoint wrap over deferred-commits / validate-then-persist (chosen).
-- Defer `new_block_signal` emission to post-savepoint (chosen — defense-in-depth).
-- No changes to `Node.add_block`'s `SQLAlchemyError` handler (correct under savepoint as-is).
+- **Initial brainstorm pick (savepoint wrap) was incorrect** based on a wrong assumption about SQLAlchemy 2.0's `Session.commit()` behavior inside `begin_nested()`. PR #86 round-2 review surfaced the bug. Switched to deferred-commits (Option B from brainstorm).
+- Defer `new_block_signal` emission to post-commit (chosen — defense-in-depth).
+- Keyword-only `commit` parameter on all modified methods (chosen — prevents accidental positional misuse).
+- `Node.add_block`'s `except SQLAlchemyError` handler propagates `commit` through unchanged.
 - Single-PR spec + impl-plan; second-PR implementation (mirrors audit precedent).
 
 ## What comes next

@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Wrap `Node.fill_chain`'s apply loop in a SQLAlchemy SAVEPOINT (`db.session.begin_nested()`) so a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Closes audit finding A2.e; the demonstration test transitions from `@pytest.mark.xfail(strict=True)` to a real pass.
+**Goal:** Make `Node.fill_chain`'s apply loop atomic — a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Closes audit finding A2.e; the demonstration test transitions from `@pytest.mark.xfail(strict=True)` to a real pass.
 
-**Architecture:** Single change site (`src/cancelchain/node.py`, ~10 lines). The savepoint wraps the apply loop; the existing outer `try/except Exception` + `finally` keeps its role. `new_block_signal.send` is deferred to a second loop after the savepoint commits so signals fire only for confirmed-persisted blocks. No changes to `Block.to_db()`, `Chain.to_db()`, or `Node.add_block` are needed — SQLAlchemy 2.0's savepoint semantics make the per-block `db.session.commit()` calls inside `to_db()` into SAVEPOINT releases that the outer savepoint can roll back as a unit.
+**Architecture:** Deferred-commits approach. Add a keyword-only `commit: bool = True` parameter to `BlockDAO.commit()`, `Block.to_db()`, `Chain.to_db()`, `Chain.add_block()`, and `Node.add_block()`. When `commit=False`, the session is flushed (not committed) so flushed rows stay in the autobegun root transaction. `Node.fill_chain` passes `commit=False` per block, then issues a single `db.session.commit()` after the loop succeeds (or `db.session.rollback()` on exception). `new_block_signal.send` is deferred to a second loop after the explicit commit so signals fire only for confirmed-persisted blocks.
 
-**Tech Stack:** Python 3.12 + SQLAlchemy 2.0 + Flask-SQLAlchemy 3.1 + SQLite (test) / production-DB (the savepoint is portable across both). The demonstration test uses `pytest` + `time_machine` + existing `tests/conftest.py` fixtures.
+**Note on initial design:** The brainstorm originally picked a SAVEPOINT wrap (`db.session.begin_nested()`), but PR #86 round-2 Copilot review correctly surfaced that SQLAlchemy 2.0's `Session.commit()` "commits the outermost database transaction unconditionally, automatically releasing any SAVEPOINTs in effect" (per the docstring; verified in source as `trans.commit(_to_root=True)`). So the per-block `db.session.commit()` inside `Block.to_db()` / `Chain.to_db()` would commit the root and release the savepoint on the first iteration, defeating atomicity. The deferred-commits approach avoids the issue by making `commit()` calls conditional.
+
+**Tech Stack:** Python 3.12 + SQLAlchemy 2.0.50 + Flask-SQLAlchemy 3.1 + SQLite (test) / production-DB. The demonstration test uses `pytest` + `time_machine` + existing `tests/conftest.py` fixtures.
 
 The companion design spec is `docs/superpowers/specs/2026-05-29-a2e-fill-chain-atomicity-design.md`.
 
@@ -33,9 +35,12 @@ The companion design spec is `docs/superpowers/specs/2026-05-29-a2e-fill-chain-a
 | Task | PR | Files |
 |---|---|---|
 | 1 | docs PR | `docs/superpowers/plans/2026-05-29-a2e-fill-chain-atomicity.md` (this file) + spec already on branch |
-| 2 | impl PR | branch off main; verify baseline |
-| 3 | impl PR | `src/cancelchain/node.py` — savepoint wrap |
-| 4 | impl PR | `src/cancelchain/signals.py` — one-line semantic comment |
+| 2 | impl PR | branch off main; verify baseline; targeted re-read |
+| 3 | impl PR | `src/cancelchain/models.py` — `BlockDAO.commit(*, commit: bool = True)` |
+| 3 | impl PR | `src/cancelchain/block.py` — `Block.to_db(*, commit: bool = True)` |
+| 3 | impl PR | `src/cancelchain/chain.py` — `Chain.to_db(*, commit: bool = True)` and `Chain.add_block(*, commit: bool = True)` |
+| 3 | impl PR | `src/cancelchain/node.py` — `Node.add_block(*, commit: bool = True)` and `Node.fill_chain` apply-loop refactor |
+| 4 | impl PR | `src/cancelchain/signals.py` — multi-line `#` comment documenting deferred-batch semantics |
 | 5 | impl PR | `tests/test_verification_audit.py` — remove xfail decorator |
 | 6 | impl PR | `docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md` — close A2.e in 3 spots |
 | 7 | impl PR | `docs/superpowers/ROADMAP.md` — move A2.e to closed |
@@ -78,8 +83,8 @@ docs(a2e): add fill_chain atomicity remediation implementation plan
 
 Plan executes the A2.e remediation design from
 2026-05-29-a2e-fill-chain-atomicity-design.md. Single impl PR
-wrapping Node.fill_chain's apply loop in db.session.begin_nested(),
-deferring new_block_signal emission to post-savepoint, removing the
+making Node.fill_chain's apply loop atomic via deferred commits,
+deferring new_block_signal emission to post-commit, removing the
 xfail decorator on the demonstration test, and updating the audit
 doc + ROADMAP to reflect A2.e closure.
 
@@ -103,7 +108,7 @@ gh pr create --base main --head docs/a2e-fill-chain-atomicity --title "docs(a2e)
 - Adds the A2.e remediation implementation plan (\`docs/superpowers/plans/2026-05-29-a2e-fill-chain-atomicity.md\`).
 - No code changes.
 
-Remediates audit finding A2.e (Medium): wrap \`Node.fill_chain\`'s apply loop in a SQLAlchemy SAVEPOINT (\`db.session.begin_nested()\`) so a validation failure on any block rolls back every earlier block's persistence within the same \`fill_chain\` call. The hostile-peer partial-fork-prefix adoption attack documented in the audit's per-adversary Section 5.2 (Adversary 2, Attack e) is closed by atomic apply.
+Remediates audit finding A2.e (Medium): make \`Node.fill_chain\`'s apply loop atomic via deferred commits (each per-block persistence flushes instead of committing; a single \`db.session.commit()\` after the loop persists all blocks atomically). The hostile-peer partial-fork-prefix adoption attack documented in the audit's per-adversary Section 5.2 (Adversary 2, Attack e) is closed by atomic apply.
 
 ## Test plan
 - [x] Spec self-review passed.
@@ -160,50 +165,183 @@ uv run pytest --runxfail tests/test_verification_audit.py::test_a2_e_partial_cha
 
 Expected: `1 failed` — the test genuinely demonstrates the gap today.
 
-### Step 3: Targeted re-read of `to_db()` callers + Node.add_block
+### Step 3: Targeted re-read of `to_db()` / DAO commit / `Node.add_block`
 
-Read these three files end-to-end with the savepoint-compatibility lens. The spec's Risks section flagged one hidden-assumption risk; this step closes it.
+Read these files with the deferred-commits-compatibility lens.
 
 ```bash
-grep -n -A 5 'def to_db' src/cancelchain/block.py src/cancelchain/chain.py
-grep -n -B 2 -A 15 'def add_block' src/cancelchain/node.py
-grep -n -B 2 -A 5 'def commit\|def rollback_session' src/cancelchain/models.py | head -40
+grep -n -B 2 -A 5 'def to_db' src/cancelchain/block.py src/cancelchain/chain.py
+grep -n -B 2 -A 5 'def add_block' src/cancelchain/chain.py src/cancelchain/node.py
+grep -n -B 2 -A 5 'def commit' src/cancelchain/models.py
+grep -n 'sync_longest_chain_blocks' src/cancelchain/models.py src/cancelchain/chain.py
 ```
 
 Confirm:
-- `Block.to_db()` calls `self.to_dao().commit()` which does `db.session.add(self); db.session.commit()` — single commit per block, no post-commit session-state probe.
-- `Chain.to_db()` does `db.session.add(dao); db.session.flush(); ...; db.session.commit()` — single commit per chain update, no post-commit session-state probe.
-- `Node.add_block` catches `SQLAlchemyError` and calls `rollback_session()` (`db.session.rollback()`). Inside a savepoint, `rollback()` rolls back to the savepoint, so the existing handler is correct without modification.
+- `Block.to_db()` calls `self.to_dao().commit()` → `BlockDAO.commit()` at `models.py:793` (or near) which does `db.session.add(self); db.session.commit()`. Will be modified to accept a keyword-only `commit: bool = True` parameter.
+- `Chain.to_db()` (chain.py:564) does `db.session.add(dao); db.session.flush(); self.cid = dao.id; dao.sync_longest_chain_blocks(); db.session.commit()`. The flush is required before `sync_longest_chain_blocks()` so the dao gets an ID. Will be modified to make the trailing `db.session.commit()` conditional.
+- `Chain.add_block()` (chain.py:153) does `self.validate_block(block); block.to_db(); self.block_hash = block.block_hash`. Will be modified to pass `commit` through to `block.to_db()`.
+- `Node.add_block()` (node.py:181-194) catches `SQLAlchemyError` and calls `rollback_session()`. Will be modified to pass `commit` through to `chain.add_block()` and `chain.to_db()`.
+- `dao.sync_longest_chain_blocks()` — confirm it only reads/writes session-local state (uses `db.session.execute(...)` queries that see uncommitted-but-flushed rows). If it makes a cross-session assumption, behavior could differ under `commit=False`. **This is the spec's Risk 2.**
 
-If any of these don't hold (e.g., a post-commit session check exists), STOP and report DONE_WITH_CONCERNS noting the discrepancy — the design's "no changes to to_db()/add_block needed" claim may need revision.
+If any of these don't hold (e.g., `sync_longest_chain_blocks` opens a fresh connection or reads from a different session), STOP and report DONE_WITH_CONCERNS noting the discrepancy — the design may need revision.
 
 ---
 
-## Task 3: Apply the savepoint wrap in node.py
+## Task 3: Apply the deferred-commits refactor
 
 **Files:**
-- Modify: `src/cancelchain/node.py` — `Node.fill_chain` apply loop (currently lines 344-352).
+- Modify: `src/cancelchain/models.py` — `BlockDAO.commit()`.
+- Modify: `src/cancelchain/block.py` — `Block.to_db()`.
+- Modify: `src/cancelchain/chain.py` — `Chain.to_db()` and `Chain.add_block()`.
+- Modify: `src/cancelchain/node.py` — `Node.add_block()` and `Node.fill_chain` apply loop.
 
-### Step 1: Verify the import surface
+All `commit` parameters are keyword-only (`*, commit: bool = True`) so existing callers are unchanged.
+
+### Step 1: Verify `db` is imported in `node.py`
 
 ```bash
-grep -n 'from cancelchain.database\|from cancelchain import\|^from \.' src/cancelchain/node.py | head -20
+grep -n 'from cancelchain.database\|import db' src/cancelchain/node.py | head -5
 ```
 
-`Node.fill_chain` already uses `db` indirectly via `ChainFill.commit()` etc. Verify `db` is imported in node.py (look for `from cancelchain.database import db` or equivalent):
-
-```bash
-grep -n 'database\|db =\|from cancelchain.database' src/cancelchain/node.py
-```
-
-If `db` is not imported at module level, add the import in Step 2 alongside the edit.
-
-### Step 2: Apply the edit
-
-Open `src/cancelchain/node.py` and locate the apply loop:
+The new `fill_chain` body calls `db.session.commit()` / `db.session.rollback()` directly. If `db` is not imported at module level, add it in Step 6:
 
 ```python
-# Lines ~344-352 (verify exact line range with `grep -n 'progress_switch' src/cancelchain/node.py`)
+from cancelchain.database import db
+```
+
+### Step 2: Modify `BlockDAO.commit()` in `models.py`
+
+Locate `BlockDAO.commit()` (around `models.py:793` — verify with `grep -n -B 1 'def commit' src/cancelchain/models.py | head -10` and confirm the right one is BlockDAO's, not another DAO's).
+
+Find:
+
+```python
+    def commit(self) -> None:
+        db.session.add(self)
+        db.session.commit()
+```
+
+Replace with:
+
+```python
+    def commit(self, *, commit: bool = True) -> None:
+        db.session.add(self)
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
+```
+
+Important: only modify the `BlockDAO.commit()`. Other DAOs in models.py have similar `commit()` methods (TransactionDAO, InflowDAO, OutflowDAO, etc.) — leave those alone. The deferred-commits path only flows through `BlockDAO.commit()` from fill_chain.
+
+### Step 3: Modify `Block.to_db()` in `block.py`
+
+Find (around `block.py:342`):
+
+```python
+    def to_db(self) -> None:
+        self.to_dao().commit()
+```
+
+Replace with:
+
+```python
+    def to_db(self, *, commit: bool = True) -> None:
+        self.to_dao().commit(commit=commit)
+```
+
+### Step 4: Modify `Chain.to_db()` and `Chain.add_block()` in `chain.py`
+
+Find `Chain.to_db()` (around `chain.py:564`):
+
+```python
+    def to_db(self) -> None:
+        dao = self.to_dao(create=True)
+        db.session.add(dao)
+        db.session.flush()
+        self.cid = dao.id
+        dao.sync_longest_chain_blocks()
+        db.session.commit()
+```
+
+Replace with:
+
+```python
+    def to_db(self, *, commit: bool = True) -> None:
+        dao = self.to_dao(create=True)
+        db.session.add(dao)
+        db.session.flush()
+        self.cid = dao.id
+        dao.sync_longest_chain_blocks()
+        if commit:
+            db.session.commit()
+```
+
+Then find `Chain.add_block()` (around `chain.py:153`):
+
+```python
+    def add_block(self, block: Block) -> None:
+        self.validate_block(block)
+        block.to_db()
+        self.block_hash = block.block_hash
+```
+
+Replace with:
+
+```python
+    def add_block(self, block: Block, *, commit: bool = True) -> None:
+        self.validate_block(block)
+        block.to_db(commit=commit)
+        self.block_hash = block.block_hash
+```
+
+### Step 5: Modify `Node.add_block()` in `node.py`
+
+Find (around `node.py:181-194`):
+
+```python
+    def add_block(self, block: Block) -> Block | None:
+        try:
+            chain = Chain.from_db(block_hash=block.prev_hash)
+            if chain:
+                chain.add_block(block)
+            else:
+                chain = self.create_chain(block=block)
+            chain.to_db()
+        except SQLAlchemyError:
+            rollback_session()
+            if not (block.block_hash and Block.from_db(block.block_hash)):
+                raise
+            block = None  # type: ignore[assignment]
+        return block
+```
+
+Replace with:
+
+```python
+    def add_block(self, block: Block, *, commit: bool = True) -> Block | None:
+        try:
+            chain = Chain.from_db(block_hash=block.prev_hash)
+            if chain:
+                chain.add_block(block, commit=commit)
+            else:
+                chain = self.create_chain(block=block)
+            chain.to_db(commit=commit)
+        except SQLAlchemyError:
+            rollback_session()
+            if not (block.block_hash and Block.from_db(block.block_hash)):
+                raise
+            block = None  # type: ignore[assignment]
+        return block
+```
+
+Note: `create_chain` calls `chain.add_block(block)` internally; that call keeps the default `commit=True`. That's fine for the single-block create-chain path, which fires only when no chain currently extends the block's prev_hash. With `commit=False`, this means create-chain's inner add_block commits, BUT the very next line `chain.to_db(commit=False)` flushes without commit, so the chain-row state is no longer durable until the outer batch commits — but the inner add_block's commit already committed the block row. This is a edge case worth tracing; if it surfaces during testing, route the create-chain case through fill_chain differently (e.g., inline). For now, the test suite catches any regression.
+
+### Step 6: Refactor `Node.fill_chain` apply loop
+
+Locate the apply loop (around `node.py:344-352` — verify with `grep -n 'progress_switch' src/cancelchain/node.py`):
+
+```python
             progress_switch()
             for chain_fill_block in chain_fill.blocks:
                 if chain_fill_block.block_json is None:
@@ -219,43 +357,49 @@ Replace with:
 
 ```python
             progress_switch()
-            # Atomic apply: wrap the per-block persistence loop in a SAVEPOINT
-            # so a validation failure on any block rolls back every earlier
-            # block's persistence within this fill_chain call. Closes audit
-            # finding A2.e (hostile-peer partial-fork-prefix adoption).
+            # Atomic apply: pass commit=False to each per-block add_block so
+            # rows are flushed (not committed) into the autobegun root
+            # transaction. A single db.session.commit() after the loop
+            # persists all blocks atomically; db.session.rollback() on
+            # exception undoes every flushed block. Closes audit finding
+            # A2.e (hostile-peer partial-fork-prefix adoption).
             applied: list[Block] = []
-            with db.session.begin_nested():
+            try:
                 for chain_fill_block in chain_fill.blocks:
                     if chain_fill_block.block_json is None:
                         continue
                     block = Block.from_json(chain_fill_block.block_json)
-                    self.add_block(block)
+                    self.add_block(block, commit=False)
                     applied.append(block)
                     progress_next()
-            # Savepoint committed — fire signals only for confirmed-persisted
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                raise
+            # Post-commit — fire signals only for confirmed-persisted
             # blocks, in apply order.
             for block in applied:
                 new_block_signal.send(self, block=block)
             return True
 ```
 
-If `db` is not imported at module level, add at the top of `src/cancelchain/node.py` (alphabetical order in the cancelchain imports block):
+If `db` is not imported at module level (per Step 1 check), add at the top of `src/cancelchain/node.py` in the cancelchain imports block:
 
 ```python
 from cancelchain.database import db
 ```
 
-### Step 3: Confirm syntax + types
+### Step 7: Confirm syntax + types
 
 ```bash
-uv run ruff check src/cancelchain/node.py
-uv run ruff format --check src/cancelchain/node.py
+uv run ruff check src/cancelchain/node.py src/cancelchain/chain.py src/cancelchain/block.py src/cancelchain/models.py
+uv run ruff format --check src/cancelchain/node.py src/cancelchain/chain.py src/cancelchain/block.py src/cancelchain/models.py
 uv run mypy 2>&1 | tail -5
 ```
 
-All three exit 0. If `ruff format --check` reports a diff, run `uv run ruff format src/cancelchain/node.py`.
+All three exit 0. If `ruff format --check` reports a diff, run `uv run ruff format` on the affected files.
 
-### Step 4: Run the A2.e demonstration test under `--runxfail` to verify the fix
+### Step 8: Run the A2.e demonstration test under `--runxfail` to verify the fix
 
 The test still carries `@pytest.mark.xfail(strict=True)`. Under `--runxfail`, xfail is ignored — so a passing test means the fix works.
 
@@ -265,9 +409,9 @@ uv run pytest --runxfail tests/test_verification_audit.py::test_a2_e_partial_cha
 
 Expected: `1 passed`. (Was `1 failed` in Task 2 Step 2.)
 
-If the test still fails, the fix didn't take. Re-inspect the savepoint context manager use; check `db.session.begin_nested()` was actually invoked (Python `with` statement intact); confirm the apply loop is inside the `with` block.
+If the test still fails, the fix didn't take. Re-check the `commit=False` propagation: each level (`Node.add_block` → `chain.add_block` → `block.to_db` → `BlockDAO.commit`) must forward the parameter. Also verify `Chain.to_db(commit=False)` correctly skips the `db.session.commit()` call.
 
-### Step 5: Run the test under the normal pytest invocation
+### Step 9: Run the test under the normal pytest invocation
 
 With the xfail decorator still in place but the fix applied, strict-mode kicks in:
 
@@ -276,6 +420,14 @@ uv run pytest tests/test_verification_audit.py::test_a2_e_partial_chain_adoption
 ```
 
 Expected: `1 failed — [XPASS(strict)]`. That's the signal that says "this xfail no longer demonstrates a gap; remove the decorator." Task 4 does the removal.
+
+### Step 10: Regression check — full test suite
+
+```bash
+uv run pytest 2>&1 | tail -3
+```
+
+Expected: still `236 passed, 6 xfailed, 1 skipped` (the xfail decorator on A2.e is still in place at this point; we'll remove it in Task 4). All single-block paths should continue passing since they use the default `commit=True`. If any test that exercises `Chain.add_block` / `Node.add_block` / `Block.to_db` regresses, the deferred-commits parameter wasn't propagated correctly — re-check Steps 2-5.
 
 ---
 
@@ -340,7 +492,7 @@ If any test other than A2.e unexpectedly passes under `--runxfail`, that's a fal
 ## Task 5: Document `new_block_signal`'s deferred-emission semantics
 
 **Files:**
-- Modify: `src/cancelchain/signals.py` — add a one-line comment above the `new_block` signal definition.
+- Modify: `src/cancelchain/signals.py` — add a multi-line `#` comment above the `new_block` signal definition.
 
 ### Step 1: Open the file
 
@@ -364,12 +516,12 @@ http_post = _signals.signal('http-post')
 
 ### Step 2: Add the comment
 
-Insert a single-line `#` comment above the `new_block` line:
+Insert a 4-line `#` comment above the `new_block` line:
 
 ```python
 # Fires for each newly-persisted block. From Node.receive_block: fires
 # immediately after the single-block commit. From Node.fill_chain: fires
-# only after the entire savepoint commits successfully, in apply order
+# only after the batch's db.session.commit() succeeds, in apply order
 # — never for blocks that were rolled back by a later validation failure.
 new_block = _signals.signal('new-block')
 ```
@@ -405,7 +557,7 @@ Delete this entire row. Adjust the count of findings noted in any surrounding te
 Find the line that reads `**Outcome:** ACCEPTED partially — ...` in the Adversary 2 section. Replace with:
 
 ```markdown
-**Outcome:** REJECTED — `Node.fill_chain`'s apply loop now wraps `self.add_block(block)` calls in `db.session.begin_nested()`, so a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Fixed by the impl PR following from `docs/superpowers/specs/2026-05-29-a2e-fill-chain-atomicity-design.md`.
+**Outcome:** REJECTED — `Node.fill_chain`'s apply loop now calls `self.add_block(block, commit=False)` per iteration and issues a single `db.session.commit()` after the loop (rollback on exception). A validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Fixed by the impl PR following from `docs/superpowers/specs/2026-05-29-a2e-fill-chain-atomicity-design.md`.
 
 **Result:** Validation correctly rejects (post-remediation). No finding.
 ```
@@ -453,7 +605,7 @@ Find the `## Audit remediation — verification pipeline findings (PR #84)` sect
 At the end of the existing `## Closed items (historical reference)` list, add (replace `#<N>` with the actual impl PR number once you know it; for now use `#<N>` as a placeholder and update post-PR-open):
 
 ```markdown
-- ✅ **Audit finding A2.e — `Node.fill_chain` partial fork-prefix adoption** — closed by docs PR [#<N_docs>](https://github.com/gumptionthomas/cancelchain/pull/<N_docs>) (spec + plan) and impl PR [#<N_impl>](https://github.com/gumptionthomas/cancelchain/pull/<N_impl>). Wrapped `Node.fill_chain`'s apply loop in `db.session.begin_nested()` so a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Test went from `@pytest.mark.xfail(strict=True)` to a real pass. Originated as finding A2.e (Medium) in the 2026-05-29 verification pipeline audit.
+- ✅ **Audit finding A2.e — `Node.fill_chain` partial fork-prefix adoption** — closed by docs PR [#<N_docs>](https://github.com/gumptionthomas/cancelchain/pull/<N_docs>) (spec + plan) and impl PR [#<N_impl>](https://github.com/gumptionthomas/cancelchain/pull/<N_impl>). Made `Node.fill_chain`'s apply loop atomic via deferred commits: added a keyword-only `commit: bool = True` parameter to `BlockDAO.commit()` / `Block.to_db()` / `Chain.to_db()` / `Chain.add_block()` / `Node.add_block()`; `fill_chain` passes `commit=False` per block and commits once at the end (rollback on exception). A validation failure on any block rolls back every earlier block's persistence within the same call. Test went from `@pytest.mark.xfail(strict=True)` to a real pass. Originated as finding A2.e (Medium) in the 2026-05-29 verification pipeline audit.
 ```
 
 Leave the `#<N_docs>` and `#<N_impl>` placeholders for now; Task 8 fills them in after the PR is opened.
@@ -471,7 +623,7 @@ Expected: `^## ` = 6 (Phase 6.7, Phase 7+ ×2, Audit remediation, Future audit, 
 
 ## Task 8: Pre-commit gates + commit + push + open impl PR
 
-**Files:** all 5 modified files from Tasks 3-7.
+**Files:** all 8 modified files from Tasks 3-7 (`models.py`, `block.py`, `chain.py`, `node.py`, `signals.py`, `test_verification_audit.py`, audit doc, ROADMAP).
 
 ### Step 1: Full gate sweep
 
@@ -506,28 +658,35 @@ rm -f "${TMPDB}"
 ### Step 4: Commit
 
 ```bash
-git add src/cancelchain/node.py src/cancelchain/signals.py tests/test_verification_audit.py docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md docs/superpowers/ROADMAP.md
+git add src/cancelchain/models.py src/cancelchain/block.py src/cancelchain/chain.py src/cancelchain/node.py src/cancelchain/signals.py tests/test_verification_audit.py docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md docs/superpowers/ROADMAP.md
 git commit -m "$(cat <<'EOF'
-fix(a2e): wrap Node.fill_chain apply loop in db.session.begin_nested()
+fix(a2e): make Node.fill_chain atomic via deferred-commits
 
-Closes audit finding A2.e (Medium): Node.fill_chain's apply loop now
-wraps the per-block self.add_block(block) calls in a SAVEPOINT so a
-validation failure on any block rolls back every earlier block's
-persistence within the same fill_chain call. A hostile peer can no
-longer force partial adoption of a fork prefix by serving a
-cheap-to-construct invalid tip.
+Closes audit finding A2.e (Medium): a validation failure on any block
+during fill_chain's apply loop now rolls back every earlier block's
+persistence within the same call. A hostile peer can no longer force
+partial adoption of a fork prefix by serving a cheap-to-construct
+invalid tip.
 
-SQLAlchemy 2.0 + SQLite both natively support SAVEPOINT; the per-block
-db.session.commit() calls inside Block.to_db() / Chain.to_db() are
-translated to SAVEPOINT releases that the outer savepoint can roll
-back as a unit. No changes to Block.to_db(), Chain.to_db(), or
-Node.add_block were needed.
+Adds a keyword-only `commit: bool = True` parameter to
+BlockDAO.commit(), Block.to_db(), Chain.to_db(), Chain.add_block(),
+and Node.add_block(). When commit=False, db.session.commit() is
+replaced with db.session.flush() so rows stay in the autobegun root
+transaction. Node.fill_chain passes commit=False per block and issues
+a single db.session.commit() after the loop succeeds (or
+db.session.rollback() on exception).
 
-new_block_signal.send is deferred to a second loop after the savepoint
-commits so signals fire only for confirmed-persisted blocks
-(defense-in-depth — no listeners exist today). signals.py adds a
-one-line comment documenting the deferred-batch semantic for any
-future consumer.
+Why not SAVEPOINT (db.session.begin_nested())? SQLAlchemy 2.0's
+Session.commit() commits the outermost transaction unconditionally,
+automatically releasing any SAVEPOINTs in effect (per its docstring;
+trans.commit(_to_root=True) in source). The per-block db.session.commit()
+inside Block.to_db() / Chain.to_db() would commit the root and release
+the savepoint on the first iteration, defeating atomicity.
+
+new_block_signal.send is deferred to a second loop after the explicit
+commit so signals fire only for confirmed-persisted blocks. signals.py
+adds a multi-line comment documenting the deferred-batch semantics for
+any future consumer.
 
 Test went from @pytest.mark.xfail(strict=True) on
 test_a2_e_partial_chain_adoption_via_invalid_tip to a real pass; full
@@ -552,18 +711,19 @@ git push -u origin fix/a2e-fill-chain-atomicity
 ### Step 6: Open the impl PR
 
 ```bash
-gh pr create --base main --title "fix(a2e): wrap Node.fill_chain apply loop in db.session.begin_nested()" --body "$(cat <<'EOF'
+gh pr create --base main --title "fix(a2e): make Node.fill_chain atomic via deferred-commits" --body "$(cat <<'EOF'
 ## Summary
 
-Closes audit finding A2.e (Medium). \`Node.fill_chain\`'s apply loop now wraps the per-block \`self.add_block(block)\` calls in a SQLAlchemy SAVEPOINT (\`db.session.begin_nested()\`), so a validation failure on any block rolls back every earlier block's persistence within the same \`fill_chain\` call.
+Closes audit finding A2.e (Medium). \`Node.fill_chain\`'s apply loop is now atomic: a validation failure on any block rolls back every earlier block's persistence within the same \`fill_chain\` call.
 
-A hostile peer can no longer force partial adoption of a fork prefix by serving a cheap-to-construct invalid tip — the apply loop is now atomic.
+A hostile peer can no longer force partial adoption of a fork prefix by serving a cheap-to-construct invalid tip.
 
 ## Implementation notes
 
-- **Single change site:** \`src/cancelchain/node.py\` (~10 line edit on the apply loop).
-- **No changes to \`Block.to_db()\` / \`Chain.to_db()\` / \`Node.add_block\`.** SQLAlchemy 2.0's nested-transaction semantics translate the per-block \`db.session.commit()\` calls inside \`to_db()\` into SAVEPOINT releases that the outer savepoint can roll back as a unit.
-- **\`new_block_signal\` emission deferred to post-savepoint.** Defense-in-depth: no listeners exist today, but the deferred-batch semantic is the correct default for any future consumer. \`signals.py\` gets a one-line comment documenting the contract.
+- **Deferred-commits approach.** Add a keyword-only \`commit: bool = True\` parameter to \`BlockDAO.commit()\`, \`Block.to_db()\`, \`Chain.to_db()\`, \`Chain.add_block()\`, and \`Node.add_block()\`. When \`commit=False\`, \`db.session.commit()\` is replaced with \`db.session.flush()\`. \`Node.fill_chain\` passes \`commit=False\` per block and issues a single \`db.session.commit()\` after the loop succeeds (or \`db.session.rollback()\` on exception).
+- **Why not SAVEPOINT?** SQLAlchemy 2.0's \`Session.commit()\` commits the outermost transaction unconditionally, automatically releasing any SAVEPOINTs in effect (per docstring; \`trans.commit(_to_root=True)\` in source). The per-block commits inside \`to_db()\` would commit the root and release the savepoint on the first iteration. Surfaced by Copilot review on the docs PR.
+- **Backward compatible.** All existing callers omit the new parameter and get the default \`commit=True\` behavior. The keyword-only \`*,\` separator prevents accidental positional misuse.
+- **\`new_block_signal\` emission deferred to post-commit.** Defense-in-depth: no listeners exist today, but the deferred-batch semantic is the correct default for any future consumer. \`signals.py\` gets a multi-line comment documenting the contract.
 - **Demonstration test transition:** \`tests/test_verification_audit.py::test_a2_e_partial_chain_adoption_via_invalid_tip\` was \`@pytest.mark.xfail(strict=True)\`; the decorator is removed and the test becomes a real pass.
 
 ## Documentation updates
@@ -637,11 +797,12 @@ Expected: top commits include the impl PR squash + the docs PR squash.
 - [ ] **Step 2: Source changes present**
 
 ```bash
-grep -n 'begin_nested' src/cancelchain/node.py
+grep -n 'commit=False' src/cancelchain/node.py
+grep -n 'commit: bool = True' src/cancelchain/models.py src/cancelchain/block.py src/cancelchain/chain.py src/cancelchain/node.py
 grep -n 'Fires for each newly-persisted block' src/cancelchain/signals.py
 ```
 
-Expected: one match in each.
+Expected: at least one `commit=False` match in node.py (the fill_chain apply loop); 5 `commit: bool = True` matches (one per modified method); one signal comment match.
 
 - [ ] **Step 3: xfail decorator removed**
 
@@ -717,11 +878,19 @@ If Copilot review requests substantive changes, push a new commit (do not amend 
 
 ### Risk: `db` import missing from `node.py`
 
-Task 3 Step 1 checks for `from cancelchain.database import db` in node.py's imports. If absent, Task 3 Step 2 adds it. If you forget the import, `with db.session.begin_nested():` raises `NameError` at runtime — but ruff/mypy should catch it before the test runs. Mitigation: Task 3 Step 3 (ruff + mypy) is the safety net.
+Task 3 Steps 1 + 6 ensure `from cancelchain.database import db` is present in node.py's imports. If absent, the explicit `db.session.commit()` / `db.session.rollback()` calls in fill_chain raise `NameError` at runtime. Mitigation: Task 3 Step 7 (ruff + mypy) catches missing imports before pytest runs.
 
-### Risk: `Block.to_db()` or `Chain.to_db()` has a post-commit session-state check
+### Risk: `commit` parameter not propagated through all 5 method signatures
 
-Task 2 Step 3's targeted re-read closes this. If discovered late (during Task 3 Step 4's pytest), the symptom is the test fails despite the savepoint being applied. Recovery: read the actual stack trace, identify the post-commit assumption, refactor the implementation (likely to add `db.session.flush()` instead of `db.session.commit()` inside `to_db()` when called from inside a savepoint — but this is unlikely to be necessary).
+Task 3 modifies 5 methods (BlockDAO.commit, Block.to_db, Chain.to_db, Chain.add_block, Node.add_block). Each must forward `commit=commit` to the next layer. If any layer drops the parameter, `fill_chain`'s `commit=False` reaches that layer as the default `commit=True`, defeating atomicity. Mitigation: Task 3 Step 8 (`pytest --runxfail tests/test_verification_audit.py::test_a2_e_partial_chain_adoption_via_invalid_tip`) verifies end-to-end; if the test still fails, trace which layer dropped the parameter.
+
+### Risk: `Chain.to_db()`'s `sync_longest_chain_blocks()` regresses under `commit=False`
+
+Task 2 Step 3's targeted re-read confirms whether `sync_longest_chain_blocks` only touches session-local state (visible after flush) or assumes a fully-committed state (would require a commit). If the latter, the deferred-commits approach breaks chain materialization. Recovery: either inline the relevant bits of `sync_longest_chain_blocks` into a flush-safe variant, or fall back to inlining persistence in `fill_chain` (bypass `Chain.to_db()` entirely). The xfail demonstration test exercises a 3-block hostile fork, so any materialization bug surfaces quickly.
+
+### Risk: `create_chain` edge case
+
+`Node.add_block` has a fallback: when no chain extends the block's prev_hash, it calls `self.create_chain(block=block)` which calls `chain.add_block(block)` with the default `commit=True`. Inside `fill_chain` with `commit=False`, this would commit the inner add_block but not the outer chain.to_db — a half-state scenario. Mitigation: the existing `Node.add_block` path actually only hits create_chain on the FIRST block of a brand-new chain (genesis or initial sync); fill_chain typically extends an existing chain so `Chain.from_db(prev_hash)` returns a chain on every iteration. If the demonstration test happens to exercise the create_chain fallback path, the implementer routes around it (e.g., by inlining or by ensuring `Chain.from_db` finds the chain via the just-flushed parent).
 
 ### Risk: the docs PR (Task 1) takes longer than expected to review/merge
 
@@ -729,8 +898,4 @@ The impl PR (Tasks 2-8) is blocked on the docs PR. If the docs PR sits unreviewe
 
 ### Risk: future consumer of `new_block_signal` regresses on the deferred-emission contract
 
-Today no listeners exist. The one-line docstring in `signals.py` is the contract. If a future PR connects a listener and assumes immediate emission, the deferred-batch semantic surprises them. Mitigation: the docstring exists; the commit message documents the contract change; reviewers of any future `.connect` PR will read both.
-
-### Risk: SAVEPOINT performance under catastrophic deep-reorg
-
-A savepoint per `fill_chain` call adds bookkeeping. For typical fill_chain calls (small N), overhead is negligible. For deep-reorg fallback (rare), the savepoint contains millions of bytes. Mitigation: the alternative is the A2.e bug. SQLite's SAVEPOINT is well-optimized; no extra bench gate needed for this PR. If a future profiling pass shows a problem, that's a separate optimization PR.
+Today no listeners exist. The multi-line comment in `signals.py` is the contract. If a future PR connects a listener and assumes immediate emission, the deferred-batch semantic surprises them. Mitigation: the comment exists; the commit message documents the contract; reviewers of any future `.connect` PR will read both.
