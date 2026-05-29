@@ -624,7 +624,113 @@ The chain-scoping invariant (per-block recursive CTE on `prev_id`) is what defen
 
 ### Adversary 5: Reorg attacker
 
-[Placeholder — filled in by Task 7.]
+**Capabilities:** Causes chain reorganizations either via hash power (controls or rents enough mining capacity) or via timing manipulation (gets blocks accepted before the network has propagated competing blocks).
+
+**Validation pipeline summary.** Reorgs surface across three subsystems in cancelchain:
+
+1. **Per-block validation.** Each block in a competing fork is validated on receive — schema, `block.validate()`, `Chain.validate_block` (chain-context checks against the candidate's lineage via the per-block recursive CTE `BlockDAO._block_chain`, not via the materialized `LongestChainBlockDAO` table). The candidate-lineage scoping is the structural invariant that lets two competing chains share a `BlockDAO` table without their per-block UTXO checks confusing each other (see Adversary 4 attack d's trace for the value-conservation walkthrough).
+2. **Canonical-chain selection.** `ChainDAO.longest()` (`src/cancelchain/models.py:830-832`) returns the row whose linked block has the highest `idx`, with `(timestamp, block_hash)` tiebreakers (`src/cancelchain/models.py:820-828`). Whichever fork's tip is at the highest idx becomes longest; reorg "happens" at the moment a competing fork's tip overtakes ours. There's no per-call mutation — it's whichever tip exists in the DB right now.
+3. **Materialization maintenance.** `ChainDAO.sync_longest_chain_blocks` (`src/cancelchain/models.py:656-743`) rebuilds the `LongestChainBlockDAO` flat table to reflect the new longest chain. Phase 6.6's smart-reorg algorithm walks the new tip back via `BlockDAO.prev` until it finds a common ancestor in the materialization, then truncates above the ancestor and inserts the diverging suffix — `O(reorg depth)` rather than `O(chain length)`. The catastrophic "no common ancestor before genesis" path deletes and rebuilds. Both bump `ChainDAO._chain_generation`, invalidating in-process `_is_longest` caches (Phase 6.5).
+
+Crucially for the attacks below, **the block-validation path does not consult the materialized `LongestChainBlockDAO` table or the `_is_longest` cache.** Validation walks the candidate block's own ancestry via `BlockDAO._block_chain` (`src/cancelchain/models.py:307-316`), which is always correct relative to any block (it's a recursive CTE on `prev_id` from the candidate's row). The materialized table and the cache feed only **read-side queries** (`wallet_balance`, `wallet_leaderboard`, `unspent_outflows`, etc.) — they're a Phase 6 perf optimization for these reads, not a validator component.
+
+#### Attack a: Invalidate previously-confirmed transactions via stale-branch displacement
+
+**Pre-state:** Chain X is longest; block_X1 (height h) contains regular transaction T spending an outflow O from a coinbase on the shared ancestor block_0. T's outflow pays a recipient address B. The adversary mines a competing chain Y also extending block_0; once `Y.length > X.length`, Y becomes longest.
+
+**Attack:** Same as Adversary 4's attack d (`A4.d`) at the consensus layer. The adversary's frame here is: once T is no longer in the active chain, is T's input outflow O available to re-spend on Y? And — distinct from A4.d — does anything in cancelchain attempt to "clean up" T's persisted state on the reorg (and if so, can that cleanup leave the DB inconsistent)?
+
+**Trace:**
+1. Y's blocks arrive via `BlockView.post` → `Node.receive_block` → `Chain.add_block` → `Chain.validate_block`. Each block's chain-context checks (`get_transaction`, `get_inflows_count`) are scoped to Y's own lineage via `BlockDAO._block_chain` (`src/cancelchain/chain.py:294-310, 312-333`). T's `InflowDAO` row exists in the DB but its owning transaction T is only m2m'd with chain X's blocks, so the lineage-scoped join produces zero matches — Y's blocks pass validation. (Same walkthrough as A4.d step 2.)
+2. Y's tip overtakes X. `ChainDAO.longest()` switches to Y on its next call; `sync_longest_chain_blocks` runs during `Chain.to_db()` (`src/cancelchain/chain.py:564-570, models.py:656-743`). The smart-reorg walk collects Y's tip-back chain, finds the common ancestor at block_0's materialized position, truncates X's lineage above that position, and inserts Y's diverging suffix. `_chain_generation` is bumped, invalidating any held `_is_longest` cache.
+3. **State left in the DB after reorg:**
+   - **`BlockDAO`:** block_X1 remains. There is no codepath anywhere that deletes a non-canonical block; once persisted, a block stays in `BlockDAO` regardless of which chain is currently longest.
+   - **`TransactionDAO`:** T remains. `TransactionDAO.txid` is `unique=True` (`src/cancelchain/models.py:59`); the row is shared across any block that m2m's it.
+   - **`block_transactions` m2m:** the (block_X1, T) row remains. m2m rows are only inserted, never deleted.
+   - **`InflowDAO` and `OutflowDAO`:** T's inflow row (consuming O) and outflow row (paying B) remain. No deletion path.
+   - **`ChainDAO`:** chain X's row still exists, still has `block_hash = block_X1.block_hash`. The reorg doesn't delete the loser's `ChainDAO` row — `Chain.to_db` creates new chain rows; `ChainDAO.longest()` just selects whichever tip is highest.
+   - **`LongestChainBlockDAO`:** rebuilt to reflect Y. block_X1 is no longer in this table.
+   - **`PendingTxnDAO`:** if T was originally pending on this node before being mined into block_X1, that pending row was deleted by the miller after sealing. The reorg does NOT re-inject T into pending (no Bitcoin-style mempool reorg recovery exists — see `Node` for the absence of any such codepath).
+4. **Can O be re-spent on Y?** Yes. The adversary (who owns O) constructs T' with `Inflow(outflow_txid=O.txid, outflow_idx=O.idx)` and any new outflow shape they choose. T' has a different txid than T (different outflow destinations). On Y's lineage, `get_inflows_count(block_Y_n, O.txid, O.idx)` walks Y's blocks; T's InflowDAO row exists in the DB but T is m2m'd only with block_X1, which isn't in Y's lineage. The lineage-scoped count returns 0. T' passes validation. (Identical mechanism to A4.d's T2.)
+
+**Outcome:** RELATED to A4.d. The "displacement" frame produces the same validation-pipeline result as A4.d's "different-txid double-spend" frame: the per-block recursive CTE correctly scopes the inflow uniqueness check to the candidate block's lineage, and the loser-fork's T-on-X is correctly invisible to Y's lineage walk. The DB-state inventory in step 3 confirms that nothing in cancelchain attempts post-reorg cleanup of stale-branch transaction state — and that's the right call, because (i) the stale block_X1 may rejoin the canonical chain via a later reorg back to X, and (ii) every per-chain query is lineage-scoped so the stale rows are inert relative to any "is this txn on the canonical chain?" question.
+
+**No new finding.** The validation-correctness analysis matches A4.d's note: the reorg double-spend is the canonical PoW property, not a validation gap. The mitigation (off-chain recipient confirmation-depth policy for B) is flagged in A4.d's note and will be carried forward to Task 10's Recommendations.
+
+#### Attack b: Double-spend across the reorg boundary
+
+**Pre-state:** Same as Attack a — chain X has T spending O to recipient B; adversary secretly mines chain Y with T' spending O to themselves. B observes T on chain X, ships off-chain goods, then watches the reorg switch the chain to Y.
+
+**Attack:** The attacker times the reveal of Y so B has already shipped goods based on T's appearance on chain X. Once Y overtakes X, T is on the stale branch, T' is canonical, and the adversary has both the goods and the funds.
+
+**Trace:** Identical to Attack a's trace through validation. The audit's question for Attack b is narrower: does the validation pipeline have any mechanism that could detect "the outflow this txn consumes was just consumed on a sibling branch within the last N blocks"? In other words: does any check look outside the candidate block's lineage to catch cross-fork double-spends at validation time?
+
+The relevant lineage-scoping reads are:
+- `Chain.get_transaction(txid, start_block=block)` at `src/cancelchain/chain.py:294-310` — walks `block.from_db(prev_hash)` backwards through the candidate's ancestry.
+- `Chain.get_inflows_count(start_block, outflow_txid, outflow_idx)` at `src/cancelchain/chain.py:312-333` — walks `block.from_db(prev_hash)` then defers to `BlockDAO.inflows_in_chain_count` (`src/cancelchain/models.py:362-371`), which uses the per-block recursive CTE `_block_chain` scoped to the start block.
+
+Both are scoped to the **candidate block's lineage**. By design, neither can see a sibling fork's inflow-consumption record. The chain-scoping invariant is what lets X and Y coexist independently in `BlockDAO`; relaxing it to a "global TransactionDAO-wide uniqueness" check would (i) break legitimate cross-fork same-txid replay (A4.b, which is structurally valid), and (ii) require defining "recent" in a network-agnostic way.
+
+**Outcome:** RELATED to A4.d. No validation-pipeline mechanism could catch the cross-fork double-spend without breaking the per-chain UTXO invariant that lets forks coexist. Detection is fundamentally a consensus-layer event (after the longest chain has been chosen, the loser's spends are no longer canonical), not a validation-time event.
+
+**No new finding.** The mitigation is the same as Attack a and A4.d: off-chain recipient confirmation-depth policy. This is the standard PoW reorg-double-spend property; Bitcoin and every UTXO chain inherit the same shape. Task 10's Recommendations section will collect the confirmation-depth guidance once across A4.d, A5.a, and A5.b.
+
+#### Attack c: Exploit the gap between `ChainFill` staging and apply
+
+**Pre-state:** Adversary is a peer in our `CC_PEERS` list. We're behind their advertised tip (`Block.from_db(tip.block_hash) is None`). `Node.fill_chain(tip)` runs.
+
+**Attack:** The reorg-attacker frame for `fill_chain` overlaps heavily with Adversary 2 attack e. A2.e established the primary gap: the apply loop at `src/cancelchain/node.py:345-351` commits each block individually, so an invalid tip leaves earlier blocks persisted and `ChainDAO`'s tip advanced. The reorg-attacker angle here asks three further questions:
+
+1. **What if the process dies between `ChainFill` row insert and `_apply_chain_fill_blocks`?** Are the staged rows resumable, or are they orphaned?
+2. **What if a second `fill_chain` call arrives while the first is mid-apply?** (Also Adversary 6 race territory; the consistency angle is the reorg-attacker's interest.)
+3. **What about the smart-reorg deep-fallback path inside `sync_longest_chain_blocks`** — when it falls back to the catastrophic "no common ancestor" branch, is that atomic?
+
+**Trace — question 1 (orphan `ChainFill` rows after crash):**
+1. `fill_chain` creates a `ChainFill` row and commits (`src/cancelchain/node.py:315-316`). The row is persistent immediately — SQLite commits per `.commit()` call.
+2. Each `ChainFillBlock(...).commit()` (lines 317-322, 338-343) writes one row + commit. Per-block-staged rows are persistent immediately.
+3. The `finally` block (lines 355-357) calls `chain_fill.delete()` — `cascade='delete, delete-orphan'` (`src/cancelchain/models.py:923`) cascades to `ChainFillBlock` rows.
+4. **The finally only fires on normal Python exception unwind.** If the process receives `SIGKILL`, `SIGTERM` without grace shutdown, or the host is power-cycled mid-sync, the finally never runs and the `ChainFill` + its `ChainFillBlock` rows persist forever.
+5. **No recovery on startup.** A grep over `src/cancelchain/` shows the only mentions of `ChainFill` are in `node.py:311-357` (the `fill_chain` creator/deleter) and `models.py:914-957` (the table definitions). There is no startup scan, periodic cleanup, or CLI command that finds and removes orphaned rows.
+
+**Trace — question 2 (concurrent `fill_chain` calls):** Each call creates its own `ChainFill` row (autoincrement PK), so they don't collide on the staging table. They WOULD race on `Node.add_block` for the chain head — covered by Adversary 6.
+
+**Trace — question 3 (smart-reorg catastrophic-fallback atomicity):**
+1. `sync_longest_chain_blocks` runs inside `Chain.to_db()` (`src/cancelchain/chain.py:564-570`), which calls `dao.sync_longest_chain_blocks()` then `db.session.commit()` line 570.
+2. The catastrophic branch (`src/cancelchain/models.py:714-727`) executes `db.session.execute(db.delete(LongestChainBlockDAO))` then bulk-inserts new rows. Both operations are within the same SQLAlchemy session/transaction; if the bulk insert fails partway, the outer `Chain.to_db` doesn't catch — the exception propagates up, the session is implicitly rolled back when the request unwinds (Flask-SQLAlchemy's `app.teardown_appcontext` calls `db.session.remove()`).
+3. Atomicity is determined by the session's transaction boundary. The DELETE-then-INSERT pair is atomic in the sense that nothing between them commits independently; either both apply at the `db.session.commit()` line 570 boundary, or neither does (on rollback). The risk would be a partial commit if the session was flushed before that final commit — but SQLAlchemy autoflushes on query, not on individual `db.session.add`, so the DELETE + INSERTs queue up and flush together.
+
+**Outcome:** Question 1 surfaces a distinct gap from A2.e (orphan staging rows, not partial chain adoption). Questions 2 and 3 do not surface validation-correctness gaps.
+
+For Question 1, the consequence severity is bounded:
+- **Chain correctness:** unaffected. `ChainFill` is staging-only — `BlockDAO`, `ChainDAO`, and `LongestChainBlockDAO` are written by `Node.add_block` / `Chain.to_db`, not by `ChainFill`. Orphaned `ChainFill` + `ChainFillBlock` rows have no read path that pulls them into validation or canonical chain selection.
+- **DB bloat:** unbounded over time if a hostile peer repeatedly triggers kills mid-sync. Each orphan ChainFill carries `O(reorg depth)` ChainFillBlock rows with `Text` `block_json` payloads — non-trivial bytes per stage. But triggering process kills externally requires more capability than this audit's adversary model assumes (auth/transport vectors out of scope; Adversary 5 only has hashpower + timing manipulation).
+- **No accidental re-apply:** the apply loop only iterates `chain_fill.blocks` of the actively-tracked instance (line 345); orphan rows from prior crashed runs are not discovered or applied.
+
+Severity: **Low** under the audit rubric — pure operational hygiene, no chain-correctness or value-conservation consequence, requires an external process-kill trigger to weaponize for DoS-via-disk-bloat.
+
+**No new finding — RELATED to A2.e.** The validation-pipeline gap in `fill_chain` is A2.e (partial chain adoption). The orphan-staging-row consequence of crash mid-sync is operational rather than validation, and the severity (Low, requires external kill capability) plus its tangential relationship to consensus correctness places it below the bar for a separate `A5.c` finding. Task 10's Recommendations will note it as an operational follow-up (a startup-time `DELETE FROM chain_fill` sweep is a one-liner remediation that doesn't need its own finding). Questions 2 and 3 produce no findings.
+
+#### Attack d: `_is_longest` cache misbehavior
+
+**Pre-state:** Multi-worker Gunicorn deployment (a target operational shape the project hasn't committed to — see CLAUDE.md "No 'production' yet" — but the audit's threat model includes it because the Phase 6.5 design spec explicitly flagged the cross-worker stale-cache risk). Worker A and Worker B each hold their own in-process `ChainDAO._chain_generation` counter and their own `ChainDAO` instances with cached `_is_longest` tuples. Both share the same DB.
+
+**Attack:** Worker A processes a reorg (gossip-received block, sync, or local mining): `sync_longest_chain_blocks` rebuilds `LongestChainBlockDAO` to reflect the new chain, bumps Worker A's `_chain_generation`. Worker B is mid-request, holding a `ChainDAO` instance for what WAS the longest chain pre-reorg, with `_is_longest_cache = (B_old_gen, True)`. B's `_chain_generation` was never bumped — the bump is process-local — so B's next `_is_longest()` call returns the cached `True` from a generation that B still considers current.
+
+**Trace:**
+1. **Single-worker (test fixture, single-process dev) case.** `ChainDAO._chain_generation` is a `ClassVar[int]` on the SQLAlchemy class. Any `sync_longest_chain_blocks` or `_rebuild_longest_chain_blocks` bumps it (`src/cancelchain/models.py:726, 743, 768`). All in-process `ChainDAO` instances re-check the class-level counter on `_is_longest()` calls (`src/cancelchain/models.py:646-653`), so the bump correctly invalidates every held cache. **Confirmed correct.** Regression-covered by `tests/test_models.py::test_is_longest_cache_invalidated_by_bump` (line 459) and `test_is_longest_cache_hit_avoids_query` (line 439).
+2. **Multi-worker Gunicorn case.** Worker A's bump never reaches Worker B's process. B's `_chain_generation` remains at its old value; B's `_is_longest_cache[0] == B._chain_generation` so the cache returns True. **Stale True is observable in Worker B for the lifetime of B's held `ChainDAO` instance** — typically a single Flask request, since Flask-SQLAlchemy's session scoping rebinds instances per-request.
+3. **What does Worker B see?** When B accesses `chain.blocks`, `chain.outflows`, etc. on the stale instance, the True branch routes through `BlockDAO.longest_chain_blocks_q()` (`src/cancelchain/models.py:399-413`), which queries `LongestChainBlockDAO`. **But that table is shared across workers via the DB** — it now contains Worker A's reorged chain. So B's stale-True chain instance reads from a materialization that reflects the new chain, NOT the chain B's instance represents.
+4. **Validation-layer consequence.** The block-validation path does NOT depend on `_is_longest` cache or `LongestChainBlockDAO`:
+   - `Chain.validate_block` (`src/cancelchain/chain.py:170`) uses `Block.from_db(prev_hash)` and `self.block_target(block=block)` — both go through `ChainDAO.get_block` → `BlockDAO.get_block_in_chain` (per-block recursive CTE on `prev_id`), not the materialized table.
+   - `Chain.validate_block_txn` (`src/cancelchain/chain.py:200`) uses `get_transaction(start_block=block)` and `get_inflows_count(start_block=block)` — both walk `Block.from_db(prev_hash)` then defer to `BlockDAO.inflows_in_chain_count` (per-block recursive CTE).
+   - `Chain.validate_block_coinbase` (`src/cancelchain/chain.py:278`) uses `block.validate_coinbase()` + the canonical reward computation — no chain-query reads.
+   None of these route through the `ChainDAO` properties that consult `_is_longest`.
+5. **Read-layer consequence (out of audit scope).** The stale True read DOES affect `wallet_balance`, `unspent_outflows`, `unforgiven_outflows`, `wallet_leaderboard`, `subject_balance`, `subject_support`. In Worker B, calling `chain.balance(addr)` on the stale instance returns the wrong wallet's balance (chain A's UTXO state under chain B's instance's logical view). **This is the Phase 6.5 documented risk.**
+6. **Transaction-construction edge.** `Chain.create_transfer` / `create_subject` / `create_forgive` / `create_support` (`src/cancelchain/chain.py:409, 430, 468, 489`) call `self.unspent_outflows` / `self.unforgiven_address_outflows`, which call `self.to_dao().unspent_outflows(address)` → `ChainDAO.unspent_outflows` → routes through `_is_longest`. A stale True in Worker B during txn construction could select UTXOs from a chain other than the one the caller logically intended. **But the resulting txn is then re-validated on receive (the canonical chain's per-block lineage check), so a "bad" txn from B's stale view is REJECTED at validation time — `SpentTransactionError` if the picked outflow has already been consumed on the canonical chain, `MissingInflowOutflowError` if it doesn't exist there. The sender wastes work, but the chain doesn't admit an invalid txn.**
+
+**Outcome:** No validation-layer consequence in the multi-worker case. The Phase 6.5 risk is real for read-layer correctness (`wallet_balance` returning the wrong number to a UI) and for transaction-construction efficiency (sender constructs a doomed txn), but the chain-correctness invariant is preserved because validation paths don't consult `_is_longest` or the materialized table; they walk per-block CTEs that are always correct relative to the candidate block.
+
+**No new finding.** Cross-worker stale-cache risk is exactly the one already documented in the Phase 6.5 design spec's Risks section (`docs/superpowers/specs/2026-05-27-phase-6_5-residual-cte-and-is-longest-cache-design.md` Risks). The validation-layer audit confirms the risk doesn't escalate beyond the read-layer/UX scope already documented there: **no Worker B can be tricked into accepting an invalid block** because block validation doesn't go through the cache; the worst the stale cache can do is return wrong reads or pick wrong UTXOs for a doomed-to-be-rejected outbound txn. No demonstration test is added — the multi-process scenario would require `@pytest.mark.multi` deselection-by-default and a process-spawning fixture, and the absence of validation-layer consequence means even a passing test would be demonstrating "reads stale data on a held instance" rather than a security gap.
 
 ### Adversary 6: Race / concurrency attacker
 
