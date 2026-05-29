@@ -199,7 +199,146 @@ This split means the pending pool is permissive: most chain-rule violations are 
 
 ### Adversary 2: Hostile peer over gossip
 
-[Placeholder — filled in by Task 4.]
+**Capabilities:** Configured in our `CC_PEERS` list (presumed trusted-ish) but adversarial. Can send arbitrary HTTP requests to our `/api/block` and `/api/transaction` endpoints with valid peer credentials. Can craft blocks/txns with malformed content. Sees our public chain state.
+
+**Validation pipeline summary.** Adversary 2 enters at two endpoints:
+
+1. **Inbound gossip** — `BlockView.post` (`src/cancelchain/api.py:308`, gated to MILLER role via `miller_block_view` at `src/cancelchain/api.py:342,352-362`) calls `Node.receive_block` (`src/cancelchain/node.py:140`). That path runs (in order): `Block.from_json` (schema via `BlockModel.model_validate_json` — `src/cancelchain/block.py:354`) → URL `block_hash` ↔ body `block_hash` check (line 153) → duplicate-suppression via `Block.from_db` (line 155) → `block.validate()` (full Block-layer validation — `src/cancelchain/block.py:289`) → `MissingBlockError` if parent unknown (line 159-164) → `Node.process_block` → `Node.add_block` → `Chain.add_block` → `Chain.validate_block` (which re-runs `block.validate()` AND adds chain-context checks — `src/cancelchain/chain.py:170`).
+2. **Backfill** — `Node.fill_chain` (`src/cancelchain/node.py:306`), invoked by `cancelchain sync` (`src/cancelchain/command.py:379`) and `Miller.poll_latest_blocks` (`src/cancelchain/miller.py:108`), walks backward from a peer's claimed tip via repeated `Node.request_block` (peer's `GET /api/block/<hash>`), stages each block as a `ChainFillBlock` row, then forward-applies them through `Node.add_block` in `ChainFillBlock.idx` order. `Block.validate()` is **not** run before staging — schema is run inside `request_block`→`Block.from_json`, but the full block validation runs only at apply time inside `Chain.validate_block`.
+
+Cross-layer: `Chain.validate_block` invokes `block.validate()` as its first step (`src/cancelchain/chain.py:171`), so every Block-layer check (`validate_block_hash`, `validate_merkle_root`, per-txn timestamp window, `validate_coinbase` shape) is enforced before chain-context checks (`FutureBlockError`, `InvalidPreviousHashError`, `OutOfOrderBlockError`, `InvalidBlockIndexError`, `InvalidTargetError`, UTXO checks via `validate_block_txn`, reward check via `validate_block_coinbase`) run.
+
+Block-layer `Block.validate_coinbase` (`src/cancelchain/block.py:274`) checks coinbase shape (presence, `validate_coinbase()`, schadenfreude/grace/mudita totals against extra outflows) but does **not** check that `cb.outflows[0].amount == REWARD` — that check lives in `Chain.validate_block_coinbase` (`src/cancelchain/chain.py:283-285`). Both run on the receive path, so the split is harmless; the trace for attack a confirms.
+
+#### Attack a: Submit a block that fails one of `Block.validate*` but `Chain.validate_block` doesn't catch
+
+**Pre-state:** Local chain at height ≥ 1. Adversary builds a block whose `merkle_root` is correct relative to its `txns` but whose `block_hash` doesn't match `mill_hash(header)` (mutated after milling), OR a block whose coinbase reward is inflated (e.g., `cb.outflows[0].amount = REWARD + 1`), OR similar Block-only invariants.
+
+**Attack:** POST the mutated block to `/api/block/<block_hash>` with MILLER-role peer credentials.
+
+**Trace:**
+1. `src/cancelchain/api.py:321` — `BlockView.post` calls `node.receive_block(request.data, block_hash=block_hash, ...)`.
+2. `src/cancelchain/node.py:150` — `Block.from_json(block_str)` runs `BlockModel.model_validate_json`. Schema enforces `idx ≥ 0`, `target/prev_hash/merkle_root` as `MillHashType`, `proof_of_work ≥ 0`, `1 ≤ len(txns) ≤ 100`, `version == '1'`, AND `validate_difficulty` (`src/cancelchain/block.py:88-92`) requires `int(block_hash, 16) < int(target, 16)`. Pass for our mutated block (block_hash itself is still a valid hex hash).
+3. `src/cancelchain/node.py:153-154` — URL `block_hash` ↔ body `block.block_hash` check. The adversary submits to the URL matching the body hash, so pass.
+4. `src/cancelchain/node.py:155` — `Block.from_db(block.block_hash)` returns None (this hash is new), so no short-circuit.
+5. `src/cancelchain/node.py:157` — `block.validate()` runs:
+   - `BlockModel.model_validate(self.to_dict())` re-runs the schema (pass).
+   - `self.validate_block_hash()` (`src/cancelchain/block.py:251-253`) — `block_hash != get_header_hash()` raises **`InvalidBlockHashError`** for the mutated-header variant.
+   - `self.validate_merkle_root()` (`src/cancelchain/block.py:255-257`) — `merkle_root != get_merkle_root()` raises **`InvalidMerkleRootError`** for a mutated-merkle variant.
+   - Per regular txn: `validate_transaction` raises **`FutureTransactionError`/`ExpiredTransactionError`/`OutOfOrderTransactionError`** (wrapped as `InvalidBlockError`).
+   - `validate_coinbase` (`src/cancelchain/block.py:274-287`) raises **`MissingCoinbaseError`** or **`InvalidCoinbaseError`** on coinbase-shape violations.
+6. If the block somehow survives step 5 (e.g., the only invariant violation is an inflated coinbase reward, which `Block.validate_coinbase` does **not** check), `Node.process_block` → `Chain.add_block` → `Chain.validate_block` runs at `src/cancelchain/chain.py:170`. It calls `block.validate()` AGAIN (line 171; same result for any cross-layer-shared check) then runs chain-context checks. `Chain.validate_block_coinbase` (`src/cancelchain/chain.py:283-285`) raises **`InvalidCoinbaseErrorRewardError`** when `cb.outflows[0].amount != reward`.
+
+**Outcome:** REJECTED at step 5 via `InvalidBlockHashError`/`InvalidMerkleRootError`/`InvalidBlockError`-wrapped txn errors, or at step 6 via `InvalidCoinbaseErrorRewardError` for the reward variant. Every Block-layer check that `Block.validate` aggregates is invoked in the receive path; the reward-amount check is the one structural Block-layer-vs-Chain-layer split, and `Chain.validate_block_coinbase` covers it.
+
+**Result:** Validation correctly rejects. No cross-layer gap; `Chain.validate_block`'s first action is `block.validate()`, and the one Block-layer-omitted check (coinbase reward amount) is covered by the chain-level coinbase validator. No finding.
+
+#### Attack b: Force expensive reorgs via alternate-chain blocks with adjusted timestamps
+
+**Pre-state:** Local chain at height h. Adversary maintains a competing fork of similar length whose tip they have legitimately mined (real PoW).
+
+**Attack:** Repeatedly POST blocks from the competing fork to `/api/block/<block_hash>`. Timestamps within each block are nudged to make the difficulty target retarget appear favorable — e.g., advance prev/start block timestamps to push `interval_delta` higher and lift `factor` toward 4.0 (lower difficulty) per `Chain.block_target` at `src/cancelchain/chain.py:121-136`.
+
+**Trace:**
+1. `Node.receive_block` runs (steps 1-5 of attack a). Each gossiped block must carry a real `block_hash < target` value AND `block_hash == mill_hash(header)`. If the adversary fakes either, step 5's `validate_block_hash` raises `InvalidBlockHashError`; the schema's `validate_difficulty` raises `MissedTarget`/`InvalidBlockError`.
+2. `Chain.validate_block` (`src/cancelchain/chain.py:170`) computes the canonical target via `self.block_target(block=block)` (`src/cancelchain/chain.py:109`). The retarget formula clamps `factor = min(max(interval_delta/TARGET_INTERVAL_SECONDS, 0.25), 4.0)` (`src/cancelchain/chain.py:131-132`) — at most ×4 easier per `TARGET_INTERVAL = 2016` blocks. The result is also clamped to ≤ `MAX_TARGET` (line 134). At line 194: `if block.target != self.block_target(block=block): raise InvalidTargetError()` — the adversary cannot present a fake-easy target that diverges from this computation; if they do, `InvalidTargetError`.
+3. `Chain.validate_block` also enforces `OutOfOrderBlockError` (`src/cancelchain/chain.py:181-183` — block.timestamp < prev.timestamp) and `FutureBlockError` (line 172-173 — block.timestamp > now()). Timestamp manipulation across the fork is bounded by these on a per-block basis.
+4. Any block that passes all checks is, by definition, a legitimately mined alternate-chain block — the adversary paid the full PoW cost the network requires. Persistence is correct: it becomes a fork in `BlockDAO`; `longest_chain` selection picks the longer tip via `ChainDAO.longest`.
+
+**Outcome:** REJECTED at step 1/2/3 for any block lacking real PoW or with a forged target. For legitimately-mined alternate-chain blocks: ACCEPTED, but this is consensus working as designed — adopting a longer competing fork is the chain's intended behavior, paid for in adversary PoW work.
+
+**Result:** Per-block validation enforces structural PoW-and-target invariants; the difficulty retarget is bounded ×4/÷4 and clamped to `MAX_TARGET`. The chain-correctness invariant holds. Forced reorgs from a peer with real PoW are intended behavior, not a finding. The asymmetry is the standard PoW economic cost: the adversary pays as much as the honest network does. **No finding.** A peer-bandwidth DoS via many short reorgs is a known limit; mitigations (rate-limiting at the API layer, peer reputation) are out of scope for this audit (auth/transport).
+
+#### Attack c: Inject malformed-but-deserializable JSON
+
+**Pre-state:** None required.
+
+**Attack:** POST a block JSON with deliberately malformed fields — variant attempts include: (i) negative `idx`, (ii) `prev_hash` claiming to be a legitimate ancestor (collision attempt), (iii) `target` set to a value above `MAX_TARGET` (or below the chain's expected target), (iv) `block_hash` not below `target`, (v) extra unknown top-level fields, (vi) zero-length `txns` list, (vii) `version != '1'`.
+
+**Trace:**
+1. `src/cancelchain/node.py:150` — `Block.from_json` calls `BlockModel.model_validate_json` (`src/cancelchain/block.py:354-361`). `BlockModel` (`src/cancelchain/block.py:72-92`) declares `model_config = ConfigDict(extra='forbid')` and typed fields:
+   - **Negative `idx`:** `Field(ge=0)` rejects → `InvalidBlockError`.
+   - **`prev_hash` collision:** SHA-256 collision-resistance — the adversary cannot fabricate a value that resolves to a legitimate ancestor's hash. If they pick an existing legitimate `prev_hash` to chain off, that's a normal extension; if it's bogus, `Block.from_db(prev_hash)` returns None at `src/cancelchain/node.py:160-164` → `MissingBlockError`.
+   - **`target` above `MAX_TARGET` or otherwise wrong:** `MillHashType` (`src/cancelchain/schema.py:124-128`) requires `validate_base64(s) and len(s) == 64` only — format check, not value check. Schema passes. But `Chain.validate_block` at line 194 (`if block.target != self.block_target(block=block)`) raises **`InvalidTargetError`** when the claimed target diverges from the chain's computed target. `Chain.block_target` clamps to `MAX_TARGET` at line 134-135.
+   - **`block_hash` not below `target`:** `BlockModel.validate_difficulty` (`src/cancelchain/block.py:88-92`) raises **`ValueError(MISSED_TARGET_MSG)`** (wrapped as `InvalidBlockError`).
+   - **Extra unknown fields:** `extra='forbid'` rejects → `InvalidBlockError`.
+   - **Zero-length `txns`:** `Field(min_length=1, max_length=MAX_TRANSACTIONS)` rejects → `InvalidBlockError`.
+   - **`version != '1'`:** `Literal['1']` rejects → `InvalidBlockError`.
+2. The `JSONDecodeError` branch (`src/cancelchain/block.py:359-360`) wraps malformed-JSON into `InvalidBlockError`.
+
+**Outcome:** REJECTED at step 1 via `InvalidBlockError` (Pydantic-formatted field messages) or `MissingBlockError` for the collision-attempt variant (when the fabricated prev_hash points nowhere).
+
+**Result:** Schema layer is comprehensive; structural PoW invariants (`block_hash < target`) are enforced at schema time; chain-context target-correctness is enforced at `Chain.validate_block`. No finding.
+
+#### Attack d: Manipulate the ChainFill staging table
+
+**Pre-state:** Adversary is in our peers list. We're behind their chain tip (`Block.from_db(last_block.block_hash) is None`).
+
+**Attack:** Adversary's `GET /api/block` (called by `Node.request_latest_blocks` at `src/cancelchain/node.py:228-229`) returns a chain tip whose parent walk eventually resolves invalid blocks. The attacker hopes that (i) blocks land in `chain_fill_block` rows unvalidated, (ii) a crash between staging and apply leaves poisoned staging rows that get later applied, or (iii) the staging table itself can be inflated for DB-bloat DoS.
+
+**Trace:**
+1. `Node.fill_chain` (`src/cancelchain/node.py:306`) creates a `ChainFill` row (line 315-316), then writes the adversary's claimed `last_block` to `ChainFillBlock` (line 317-322). **`Block.validate()` is not invoked here** — only the schema check inside `Block.from_json` from the `request_block` path (the `last_block` came from `request_latest_blocks` which calls `Block.from_json(r.text)` at line 230, running `BlockModel.model_validate_json`).
+2. The walk loop (line 325-343) repeatedly calls `Node.request_block(prev_hash)` (line 333), which itself iterates through all `self.peers` (line 204) and accepts a 200 from any of them. So a hostile peer can serve ancestor blocks; each one passes only schema validation in `Block.from_json` before being staged.
+3. After the walk, the apply loop (line 345-351) iterates `chain_fill.blocks` ordered by `ChainFillBlock.idx` ascending (per relationship `order_by='ChainFillBlock.idx'` at `src/cancelchain/models.py:922`). For each block: `Block.from_json(chain_fill_block.block_json)` → `self.add_block(block)` → `Chain.add_block` → `Chain.validate_block` (full validation). **Apply-time validation is comprehensive.**
+4. On any apply failure, the `except Exception as e` at line 353 logs the error. The `finally` block at line 355-357 deletes the `ChainFill` row; `cascade='delete, delete-orphan'` (`src/cancelchain/models.py:923`) cascades the deletion to all `ChainFillBlock` rows.
+5. **Staging-table inflation:** the `ChainFill` row is created in a single `fill_chain` call; the `finally` always cleans up. The only way to leave a stale `ChainFill` is a process crash between staging and finally — a true crash, not a normal exception. SQLite (the dev DB) commits per row, so partial staging can survive a kill. But the apply phase starts from `chain_fill.blocks` of an actively-tracked `ChainFill` instance; orphan `ChainFill` rows from prior crashed runs are never re-applied. They just consume disk until a manual cleanup.
+
+**Outcome:** REJECTED in the operational sense — staged blocks that fail apply-time validation never enter `BlockDAO`, and the staging row is cleaned up in `finally`. The "stage without validation" behavior is by design (Bitcoin's `headers-first` sync follows the same pattern), and apply-time validation catches everything `Chain.validate_block` covers.
+
+**Result:** Staging-table manipulation alone does not bypass any validation. The latent crash-bloat (orphan `ChainFill` rows from a killed sync) is an operational concern unrelated to consensus correctness. No finding for attack d in isolation — but the partial-adoption gap surfaced by attack e below is the real exploit pathway through `fill_chain`.
+
+#### Attack e: Chain whose tip is longer but whose intermediate blocks fail validation
+
+**Pre-state:** Local chain at height h. Adversary presents a chain tip claiming height h+N where N ≥ 2. The first N-1 blocks (when walked backward) are legitimately constructible (valid PoW, valid txns, valid targets) — for example, blocks the adversary mined on an isolated fork. The Nth block (the claimed tip) is invalid in a way that `Chain.validate_block` catches but `Block.validate()` does not — e.g., `block.idx` is wrong (skipped index), `block.target` is wrong, prev_hash mismatch with the chain context.
+
+**Attack:** Adversary's `GET /api/block` returns the invalid tip. We invoke `Node.fill_chain(invalid_tip)` (via `cancelchain sync` or miller poll). The walk-back stages all N blocks; the forward apply commits blocks 1..N-1 to `BlockDAO`, then fails at the tip.
+
+**Trace:**
+1. `Node.fill_chain` (`src/cancelchain/node.py:306`) walks backward via `request_block`, staging each ancestor to `ChainFillBlock`. The walk terminates at the first ancestor already in `BlockDAO` (line 330).
+2. The forward apply loop (line 345-351) iterates `chain_fill.blocks` ordered by `idx` ascending. For each block: `self.add_block(block)` (line 349) → `Chain.add_block` (`src/cancelchain/chain.py:153`):
+   ```
+   def add_block(self, block: Block) -> None:
+       self.validate_block(block)
+       block.to_db()
+       self.block_hash = block.block_hash
+   ```
+   Then `chain.to_db()` in `Node.add_block` (`src/cancelchain/node.py:188`) commits the `ChainDAO` row pointing at the new tip.
+3. Blocks 1..N-1 pass `Chain.validate_block` (they're legitimately constructed) and each gets persisted via `block.to_db()` and `chain.to_db()`. After block N-1 applies, `ChainDAO` has a row with tip = block N-1's hash, length = h + (N-1).
+4. Block N (the invalid tip) fails `Chain.validate_block` — e.g., raises **`InvalidBlockIndexError`** when its idx skips ahead, or **`InvalidTargetError`** when its target diverges from the canonical computation. The exception propagates from `chain.add_block` → `Node.add_block` (which only catches `SQLAlchemyError`, not `InvalidBlockError` at `src/cancelchain/node.py:189`) → `fill_chain`'s `except Exception` at line 353.
+5. `fill_chain` logs the exception and the `finally` at line 355-357 deletes the `ChainFill` row. **Blocks 1..N-1 are not rolled back** — they remain in `BlockDAO`, and the `ChainDAO` row advanced to N-1's hash remains.
+6. Subsequent `Node.longest_chain` reads return this adversary-prefix chain as the new longest chain (assuming h + N-1 > our prior tip's length).
+
+**Outcome:** ACCEPTED partially — blocks 1..N-1 enter `BlockDAO` and `ChainDAO` is advanced to the N-1 tip, even though the adversary's claimed tip N is rejected. The adversary can force partial adoption of a fork prefix by appending any cheap-to-construct invalid tip.
+
+**Finding A2.e — Severity Medium:** `Node.fill_chain`'s apply loop (`src/cancelchain/node.py:345-351`) is non-atomic with respect to per-block validation failures. When the last block of a staged chain fails `Chain.validate_block`, all earlier blocks that passed validation remain persisted in `BlockDAO` and advance `ChainDAO`'s tip. A hostile peer can therefore commit our node to a fork prefix it controls by serving a cheap-to-construct invalid tip — the prefix blocks themselves are legitimately mined (they pass PoW + chain validation), so chain-correctness invariants hold, but the node's operational chain head adopts the adversary's fork rather than waiting for confirmation that the full claimed chain is valid. Until a longer canonical-chain sync arrives from another peer, the node operates on an attacker-influenced chain head. This is not chain-correctness existential (each persisted block is valid in isolation) but is a real availability/consensus-gravity gap: it lowers the cost for an adversary to influence which fork the network majority adopts during transient peer connectivity.
+
+**Remediation sketch:** Wrap the apply loop at `src/cancelchain/node.py:345-351` in a savepoint / nested transaction. On any `InvalidBlockError` raised by `self.add_block(block)`, roll back every block-add performed in this `fill_chain` call (and the `ChainDAO` tip advances), then return False. Concretely: open a `db.session.begin_nested()` around the loop, commit on success, roll back inside the existing `except Exception` handler. An alternative (more compatible with SQLite's lock model) is a two-phase validate-then-persist: iterate `chain_fill.blocks` once in a read-only pass calling `Chain.validate_block` against an in-memory Chain (no `block.to_db()`), and only if all pass, run a second pass that persists each. The "validate everything before persisting anything" framing maps cleanly onto Bitcoin Core's `headers-first → blocks-batched` model and avoids the savepoint complexity at the cost of one extra validation walk.
+
+**Demonstration test:** `test_a2_e_partial_chain_adoption_via_invalid_tip` in `tests/test_verification_audit.py`.
+
+#### Attack f: Probe validation order — fail at a deep check to see if earlier persistence side-effects leak
+
+**Pre-state:** Local chain at height ≥ 1. Adversary constructs a block that passes every check up to some late stage (e.g., passes schema + `block.validate()` + `FutureBlockError` + `InvalidPreviousHashError` + `OutOfOrderBlockError` + `InvalidBlockIndexError` + `InvalidTargetError`) but fails in `validate_block_txn` (e.g., `SpentTransactionError` for a regular txn) or `validate_block_coinbase` (e.g., `InvalidCoinbaseErrorRewardError`).
+
+**Attack:** POST the crafted block to `/api/block/<block_hash>`. The adversary hopes that some earlier per-txn check or coinbase preparation step has written state to the DB before the deep-check exception fires.
+
+**Trace:**
+1. `Node.receive_block` (`src/cancelchain/node.py:140`) runs `Block.from_json` (schema), then `block.validate()` (pure — no DB writes; all hash recomputation and per-txn shape checks are in-memory).
+2. `Node.process_block` → `Node.add_block` (`src/cancelchain/node.py:181-194`) → `Chain.add_block`:
+   ```
+   def add_block(self, block: Block) -> None:
+       self.validate_block(block)
+       block.to_db()
+       self.block_hash = block.block_hash
+   ```
+3. `Chain.validate_block` (`src/cancelchain/chain.py:170-198`) runs entirely before `block.to_db()` at line 155. Every check inside `validate_block` — including the per-txn `validate_block_txn` loop (line 196-197) and the coinbase reward check at line 198 — is read-only against `BlockDAO`/`TransactionDAO` (`get_transaction`, `get_inflows_count`, `block_target`). No writes occur during validation.
+4. `block.to_db()` (`src/cancelchain/block.py:342-343`) only runs after `validate_block` returns successfully — `self.to_dao().commit()` writes a `BlockDAO` + all `TransactionDAO`/`InflowDAO`/`OutflowDAO` rows in one commit. If `commit()` itself raises (e.g., a SQLAlchemy integrity error), `Node.add_block` catches `SQLAlchemyError` at line 189 and calls `rollback_session()` (line 190).
+5. `chain.to_db()` (`src/cancelchain/chain.py:564-570`) similarly runs after `chain.add_block` succeeds; it commits the updated `ChainDAO` tip in one transaction.
+6. Receive-block-path side effects — `Block.from_db(block.block_hash)` lookup at `src/cancelchain/node.py:155` is a read; no write side effect from receive-time. Even the duplicate-suppression short-circuit (line 156) returns `None` without touching state.
+
+**Outcome:** REJECTED with no persistence leak. Every chain-context check inside `Chain.validate_block` is read-only; persistence only begins after `validate_block` returns. The only persistence ordering risk is between `block.to_db()` and `chain.to_db()` (the block commits before the chain tip is updated), but this is per-block-atomic via the catch-and-rollback at `src/cancelchain/node.py:189-193`. (The cross-block partial-adoption issue from attack e is the multi-block version of this concern; the single-block path is clean.)
+
+**Result:** Validation order is correct — validate-then-persist, no early writes. No finding for single-block receive.
 
 ### Adversary 3: Malicious miller (MILLER role)
 
