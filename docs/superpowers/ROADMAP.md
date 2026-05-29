@@ -1,4 +1,4 @@
-# Roadmap — post-Phase-7
+# Roadmap — post-Phase-8
 
 Consolidated list of forward-looking items deferred from prior phase specs. Each entry links to the originating spec for the full rationale. Items are not strictly ordered — pick by current priority.
 
@@ -40,15 +40,6 @@ Originating spec:
 
 ---
 
-## Phase 7+ — Alembic migration framework
-
-Introduce Alembic for schema migrations. Greenfield posture means we don't have an installed-base problem yet, but adding the framework before going to prod prevents pain later (e.g., column adds, index changes, table renames).
-
-Originating spec:
-- [Phase 3 spec — What comes next](specs/2026-05-24-phase-3-lint-typing-ci-gating-design.md) "Phase 7 — Alembic"
-
----
-
 ## Closed items (historical reference)
 
 Each removed from this file when the closing PR landed. Keep here for now so future Claude sessions can see what was on the list.
@@ -59,3 +50,4 @@ Each removed from this file when the closing PR landed. Keep here for now so fut
 - ✅ **`_is_longest()` per-call query cost** — closed by [PR #68](https://github.com/gumptionthomas/cancelchain/pull/68) (Phase 6.5). Was originally raised by Copilot on PR #65.
 - ✅ **Smart-reorg rebuild (Phase 6.6)** — closed by [PR #72](https://github.com/gumptionthomas/cancelchain/pull/72). Shallow reorgs are now O(reorg depth) instead of O(chain length); the full-rebuild path remains as the bootstrap + catastrophic-deep-reorg fallback. Originated as the algorithmic-cliff concern surfaced during the Phase 6.5 back-of-envelope analysis (1-block reorg on a 5-year chain previously took 4–22 min).
 - ✅ **Phase 7 — SQLAlchemy 2.0 modernization** — closed by docs PRs [#75](https://github.com/gumptionthomas/cancelchain/pull/75) + [#77](https://github.com/gumptionthomas/cancelchain/pull/77) and impl PRs [#76](https://github.com/gumptionthomas/cancelchain/pull/76) (Phase 7a: translated all 94 legacy `Model.query` / `db.session.query(...)` call sites to the SA 2.0 idiom across `models.py`, `api.py`, `browser.py`, `chain.py`, `tests/test_models.py`, `tests/test_chain.py`; migrated 21 `Query[X]` return + 3 param annotations to `Select[tuple[X]]`; added `tests/_sa_helpers.py` with `_count`/`_count_select` helpers) and [#78](https://github.com/gumptionthomas/cancelchain/pull/78) (Phase 7b: switched to `db = SQLAlchemy(model_class=Base)` with `class Base(DeclarativeBase): pass`, moved all 11 `db.Model` subclasses to direct `(Base):` subclassing, removed the `# mypy: disable-error-code="no-untyped-call,no-any-return,name-defined,misc"` block, added 12 narrowly-scoped `# type: ignore[no-any-return]` ignores at chain-factory returns documenting FSA's facade typing limitation with a documented retirement path). Test count stayed 236 across both impl PRs; bench harness (~0.25 ms/step on local SQLite) unchanged. Originally planned as Phase 6 before that slot was repurposed for the recursive-CTE bottleneck fix; carried Phase 3's explicit sunset commitment for the per-file mypy override.
+- ✅ **Phase 8 — Flask-Migrate (Alembic) integration** — closed by docs PR [#80](https://github.com/gumptionthomas/cancelchain/pull/80) and impl PR [#81](https://github.com/gumptionthomas/cancelchain/pull/81). Introduced Flask-Migrate as the schema-migration framework: added `Flask-Migrate>=4` dependency, wired `Migrate(app, db, directory=_MIGRATIONS_DIR)` into `create_app()` with a package-relative path (`src/cancelchain/migrations/`) so the CLI works from any CWD, set `MetaData(naming_convention=...)` on `Base.metadata` per Alembic's recommended `ix_`/`uq_`/`ck_`/`fk_`/`pk_` prefixes, changed `cancelchain init` from `db.create_all()` to `flask_migrate.upgrade()`, generated and hand-reviewed the initial migration (`0ca0de5fb211_initial_schema.py` — 12 `op.create_table` calls covering all 11 ORM models + the `block_transaction` association table), and added a fifth CI gate (`cancelchain db upgrade` + `cancelchain db check` against an absolute-URI throwaway SQLite) that catches model edits without a matching migration. Test count stayed 236; bench harness (~0.25 ms/step) unchanged. Verified CWD-independent install via real `uv build --wheel` + `uv pip install` + `cd /tmp && cancelchain init` cycle, plus full `docker build` + `cancelchain init` inside the container. Originated as Phase 3's "Phase 7 — Alembic" deferral.
