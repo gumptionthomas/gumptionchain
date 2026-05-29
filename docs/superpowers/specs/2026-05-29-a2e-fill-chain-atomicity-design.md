@@ -76,7 +76,7 @@ Today `new_block_signal` has no registered listeners (the only `.send` callsites
 
 ### Callers of `fill_chain` (unchanged)
 
-Only two: `Miller.mill` (`miller.py:108`) and `cancelchain sync` (`command.py:379`). Both treat `fill_chain`'s return value as a boolean for retry logic. Neither holds a savepoint open before calling — confirmed by grep. The savepoint added inside `fill_chain` is therefore a top-level savepoint (one level deep), not a nested-nested case.
+Only two: `Miller.poll_latest_blocks` (`miller.py:108`, called when polling peers for a longer chain) and `cancelchain sync` (`command.py:379`). Both treat `fill_chain`'s return value as a boolean for retry logic. Neither holds a savepoint open before calling — confirmed by grep. The savepoint added inside `fill_chain` is therefore a top-level savepoint (one level deep), not a nested-nested case.
 
 ## Changes
 
@@ -133,7 +133,7 @@ Today the signal has no listeners; future consumers might assume immediate emiss
 
 ### Risk: savepoint nesting if a caller already holds an outer savepoint
 
-None today (confirmed by grep: only `Miller.mill` and `cancelchain sync` call `fill_chain`; neither uses savepoints). **Mitigation:** if a future caller wraps `fill_chain` in its own savepoint, this code becomes a nested-nested savepoint — SQLAlchemy + SQLite both support this, but the semantics are subtler (outer rollback discards inner work; inner commit doesn't propagate). The risk is theoretical until someone introduces a wrapping savepoint. Document the assumption in a code comment alongside `with db.session.begin_nested():` so a future caller is forewarned.
+None today (confirmed by grep: only `Miller.poll_latest_blocks` and `cancelchain sync` call `fill_chain`; neither uses savepoints). **Mitigation:** if a future caller wraps `fill_chain` in its own savepoint, this code becomes a nested-nested savepoint — SQLAlchemy + SQLite both support this, but the semantics are subtler (outer rollback discards inner work; inner commit doesn't propagate). The risk is theoretical until someone introduces a wrapping savepoint. Document the assumption in a code comment alongside `with db.session.begin_nested():` so a future caller is forewarned.
 
 ### Risk: the demonstration test is testing the wrong thing
 
