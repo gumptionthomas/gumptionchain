@@ -1,8 +1,8 @@
-# A2.e — `Node.fill_chain` atomicity remediation Implementation Plan
+# A2.e — `Node.fill_chain` atomicity remediation implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `Node.fill_chain`'s apply loop atomic — a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Closes audit finding A2.e; the demonstration test transitions from `@pytest.mark.xfail(strict=True)` to a real pass.
+**Goal:** Make `Node.fill_chain`'s apply loop atomic — a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. **Note:** this plan ships in a docs-only PR alongside the design spec; the actual code changes ride a separate follow-up impl PR (`fix/a2e-fill-chain-atomicity`). When that impl PR lands it closes audit finding A2.e and the demonstration test transitions from `@pytest.mark.xfail(strict=True)` to a real pass.
 
 **Architecture:** Deferred-commits approach. Add a keyword-only `commit: bool = True` parameter to `BlockDAO.commit()`, `Block.to_db()`, `Chain.to_db()`, `Chain.add_block()`, `Node.add_block()`, and `Node.create_chain()`. (`Node.create_chain` must be in the chain because `Node.add_block` falls back to it whenever the block's prev_hash exists as a Block row but isn't currently a Chain tip — without threading `commit` through, the fallback path would commit inside `fill_chain`'s loop and defeat atomicity.) When `commit=False`, the session is flushed (not committed) so flushed rows stay in the autobegun root transaction. `Node.fill_chain` passes `commit=False` per block, then issues a single `db.session.commit()` after the loop succeeds (or `db.session.rollback()` on exception). `new_block_signal.send` is deferred to a second loop after the explicit commit so signals fire only for confirmed-persisted blocks.
 

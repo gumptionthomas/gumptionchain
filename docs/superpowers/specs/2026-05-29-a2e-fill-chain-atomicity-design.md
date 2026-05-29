@@ -2,11 +2,11 @@
 
 **Status:** Draft for review
 **Date:** 2026-05-29
-**Scope:** Remediate audit finding A2.e (Medium) by making `Node.fill_chain`'s apply loop atomic via deferred commits — a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Closes A2.e; removes its xfail demonstration test (which becomes a real pass under `strict=True`); updates the audit doc + ROADMAP to reflect closure.
+**Scope:** Specifies a remediation for audit finding A2.e (Medium): make `Node.fill_chain`'s apply loop atomic via deferred commits — a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. **This spec ships in a docs-only PR with its implementation plan;** the actual code changes ride a separate follow-up impl PR. When that impl PR lands it closes A2.e, removes the xfail demonstration test (which becomes a real pass under `strict=True`), and updates the audit doc + ROADMAP to reflect closure.
 
 ## Goal
 
-Eliminate the partial-fork-prefix-adoption gap surfaced by audit finding A2.e: a hostile peer can no longer commit our node to an attacker-influenced chain head by serving a multi-block fork that ends in an intentionally-invalid tip. After this PR, `Node.fill_chain` either applies the full staged chain or applies none of it.
+Eliminate the partial-fork-prefix-adoption gap surfaced by audit finding A2.e: a hostile peer can no longer commit our node to an attacker-influenced chain head by serving a multi-block fork that ends in an intentionally-invalid tip. After the follow-up impl PR lands, `Node.fill_chain` either applies the full staged chain or applies none of it.
 
 ## Non-goals
 
