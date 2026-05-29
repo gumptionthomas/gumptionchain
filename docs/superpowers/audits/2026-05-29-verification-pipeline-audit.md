@@ -831,7 +831,260 @@ Crucially, the InflowDAO `UniqueConstraint('txid', 'idx')` (`src/cancelchain/mod
 
 ### Adversary 7: Genesis / edge-case attacker
 
-[Placeholder — filled in by Task 9.]
+**Capabilities:** Anything legitimate. Targets the special-case code paths that are likely under-tested.
+
+**Validation pipeline summary.** Adversary 7's attacks probe boundary conditions and special-case branches scattered across the schema layer, `Block.validate` (`src/cancelchain/block.py:289`), and `Chain.validate_block` (`src/cancelchain/chain.py:170`). Three concrete code paths concentrate the boundary surface:
+
+1. **Schema-layer length bounds.** `BlockModel.txns` is `Field(min_length=1, max_length=MAX_TRANSACTIONS=100)` (`src/cancelchain/block.py:82-85`). `RegularTransactionModel.inflows`/`outflows` are `min_length=1, max_length=MAX_FLOWS=50` (`src/cancelchain/transaction.py:101-104, 89-91`). `CoinbaseTransactionModel.inflows` is `min_length=0, max_length=0` (must be exactly empty); `outflows` is `min_length=1, max_length=4` (`src/cancelchain/transaction.py:107-109`). Subject content lives behind a `Subject = Annotated[str, AfterValidator(_check_subject)]` (`src/cancelchain/payload.py:65`) which delegates to `validate_subject` (`src/cancelchain/payload.py:39-46`) — `1 <= len(decode_subject(s)) <= 79`. Pydantic comparisons are inclusive on both ends.
+2. **Genesis-specific code paths.** `is_genesis_block(block)` returns `block.prev_hash == GENESIS_HASH` (`src/cancelchain/chain.py:48-49`), where `GENESIS_HASH = mill_hash_str('GENESIS')` is a fixed sentinel hash (no `BlockDAO` row resolves to it). Eight call sites condition on this: `Chain.block_chain` (lines 89, 91), `Chain.link_block` (line 146-148), `Chain.validate_block` (lines 175, 185), `Node.receive_block` (line 162), `Node.fill_peer` (line 262), `Node.fill_chain` (line 327). Each treats genesis as the "no parent expected" case — the parent-presence check at `Chain.validate_block` line 175-176 explicitly tolerates `prev_block is None` when `is_genesis_block(block)`. No code checks "is this *the* canonical genesis"; any block carrying `prev_hash=GENESIS_HASH` qualifies.
+3. **Timestamp boundaries.** Three call sites apply `TXN_TIMEOUT = timedelta(hours=4)` (`src/cancelchain/block.py:50`) with **inconsistent comparison operators**: `Block.validate_transaction` (line 269) uses strict `<` (`txn_ts < block_ts - TXN_TIMEOUT` → Expired), `Miller.pending_chain_txns` (`src/cancelchain/miller.py:74-76`) uses strict `>` (`txn_ts > now - TXN_TIMEOUT` → include), `Node.discard_expired_pending_txns` (`src/cancelchain/node.py:105`) uses `<=` (`txn_ts <= now - TXN_TIMEOUT` → discard). A txn whose timestamp is *exactly* `TXN_TIMEOUT` old is non-expired per Block but excluded from miller selection and discarded from pending.
+
+`validate_hash_diff` (`src/cancelchain/block.py:54-55`) uses strict `int(block_hash, 16) < int(target, 16)`; equality is rejected, matching Bitcoin's PoW semantics. `BlockModel.validate_difficulty` (`src/cancelchain/block.py:88-92`) wraps the same check.
+
+The traces below test each boundary and special-case path against the attack list.
+
+#### Attack a: Empty block (no transactions)
+
+**Pre-state:** Local chain at height ≥ 0. Adversary constructs a Block with `txns=[]` (no coinbase, no regular txns) and mills until PoW.
+
+**Attack:** POST the empty block to `/api/block/<block_hash>`.
+
+**Trace:**
+1. `src/cancelchain/node.py:150` — `Block.from_json` calls `BlockModel.model_validate_json` (`src/cancelchain/block.py:354-361`). `BlockModel.txns` is `Field(min_length=1, max_length=MAX_TRANSACTIONS)` (`src/cancelchain/block.py:82-85`). Zero-length `txns` → **`InvalidBlockError`** (Pydantic: `List should have at least 1 item`).
+2. Even if the adversary somehow constructs a Block in-memory and tries to use `block.seal(wallet, reward)`, that path calls `add_coinbase` which appends the coinbase to `self.txns` — so a sealed block always carries at least the coinbase. `block.txns == []` is only reachable by bypassing the seal API entirely, and the schema layer rejects it on submit.
+3. `build_merkle_tree` (`src/cancelchain/block.py:173-178`) on empty `txns` produces an `InmemoryTree()` with no entries. `tree.root` is None (pymerkle convention for empty trees); `get_merkle_root` returns None (line 180-182). `validate_merkle_root` (line 255-257) compares `self.merkle_root != self.get_merkle_root()`. If the adversary set `merkle_root=None` AND somehow bypassed schema with `txns=[]`, the equality would hold — but `merkle_root` itself is `MillHashType` (`src/cancelchain/block.py:81`), required non-None at the schema layer, so any submitted block has a non-None `merkle_root` and the comparison against None fails.
+
+**Outcome:** REJECTED at step 1 via `InvalidBlockError` (schema `min_length=1` on `txns`). The empty-merkle-tree behavior at `get_merkle_root` is also defensive (returns None instead of crashing), so the validation chain stays well-defined even on a bypass.
+
+**Result:** Validation correctly rejects. The "coinbase-only" block (one txn — the coinbase) is the structural minimum; this is enforced at the schema layer and is what Adversary 3's censor-attack relies on as the lower bound. No finding.
+
+#### Attack b: First block of the chain (genesis)
+
+**Pre-state:** Empty `BlockDAO` (no blocks persisted yet). Adversary intends to submit the chain's first-ever block, which by definition has no parent.
+
+**Attack:** POST a block with `prev_hash = GENESIS_HASH`, `idx = 0`, a single coinbase txn, `target = MAX_TARGET`. Sub-attack b.ii: a *second* legitimate-looking genesis block (different timestamp / different miller wallet) is also submitted to fragment the chain registry.
+
+**Trace:**
+1. `Node.receive_block` (`src/cancelchain/node.py:140`) → `Block.from_json` schema pass. `Block.from_db(block.block_hash)` returns None — short-circuit doesn't fire.
+2. `block.validate()` (`src/cancelchain/block.py:289`) runs `BlockModel.model_validate` (schema), `validate_block_hash`, `validate_merkle_root`, per-txn `validate_transaction` (no regulars; `regular_txns == []`), `validate_coinbase`. All pass for a well-formed genesis.
+3. `src/cancelchain/node.py:158-164` — parent-presence check: `prev_hash = GENESIS_HASH`, `Block.from_db(GENESIS_HASH)` returns None (no row at that hash), but `is_genesis_block(block)` is True, so the `MissingBlockError` branch is skipped.
+4. `Node.process_block` → `Node.add_block` (`src/cancelchain/node.py:181-194`): `Chain.from_db(block_hash=block.prev_hash=GENESIS_HASH)` returns None (no `ChainDAO` row at `GENESIS_HASH`). Falls through to `self.create_chain(block=block)` (line 187) which builds a fresh `Chain(block_hash=GENESIS_HASH)` and calls `chain.add_block(block)`.
+5. `Chain.add_block` → `Chain.validate_block` (`src/cancelchain/chain.py:170`):
+   - Line 174: `prev_block = Block.from_db(GENESIS_HASH) = None`.
+   - Line 175-176: `is_genesis_block(block)` True → no `InvalidPreviousHashError`.
+   - Line 177-183: `prev_block is None`, the `OutOfOrderBlockError` check requires `prev_block.timestamp_dt`, so the AND condition is False — skipped.
+   - Line 185-186: `block.prev_hash != prev_hash` where `prev_hash = None` (since `prev_block is None`), so `GENESIS_HASH != None` is True, but `is_genesis_block(block)` is True → skipped.
+   - Line 187-191: `prev_index = -1` (prev_block None / idx None branch); line 192 requires `block.idx == 0`. Pass.
+   - Line 194-195: `block.target == self.block_target(block=block)`. `Chain.block_target` (`src/cancelchain/chain.py:109-138`) with `index == 0` returns `MAX_TARGET` (line 114-115). Pass.
+   - Per-txn loop (line 196-197): empty `regular_txns`; skipped.
+   - `validate_block_coinbase` (line 198): coinbase pays `REWARD`, S/G/M comps empty match. Pass.
+6. `block.to_db()` writes the BlockDAO + coinbase TransactionDAO/OutflowDAO. `chain.to_db()` writes a `ChainDAO(block_hash=block_genesis.block_hash)`. Genesis is now persisted.
+
+**Sub-attack b.ii — alternate genesis fragmenting the chain registry:** The adversary mills a *second* block with `prev_hash = GENESIS_HASH`, `idx = 0`, different timestamp / coinbase address. Trace:
+- All of steps 1-5 pass identically — the schema and `Chain.validate_block` paths only require `prev_hash == GENESIS_HASH` and `idx == 0` and `target == MAX_TARGET`. There is no global "is the canonical genesis already taken?" check anywhere; the closest is the duplicate-hash short-circuit at `Node.receive_block` line 155, which only fires for *byte-identical* blocks.
+- Step 4: `Chain.from_db(block_hash=GENESIS_HASH)` still returns None (no `ChainDAO` was ever bound to `GENESIS_HASH` — the original genesis's `ChainDAO` row binds to `block_genesis.block_hash`, not the sentinel `GENESIS_HASH`). So `create_chain(block=block_genesis_2)` builds a fresh `Chain` instance and calls `chain.add_block(block_genesis_2)`.
+- A second `ChainDAO` row is committed at `chain.to_db()` (`src/cancelchain/chain.py:564-570`): `ChainDAO.get(block_hash=block_genesis_2.block_hash)` returns None, `ChainDAO.get(id=self.cid)` returns None (cid is None for a fresh Chain), `dao = ChainDAO(block_hash=block_genesis_2.block_hash)`. Two `ChainDAO` rows now exist, each pointing at one of the two genesis blocks.
+- `ChainDAO.longest()` picks one via `ORDER BY BlockDAO.idx DESC, BlockDAO.timestamp ASC, BlockDAO.block_hash ASC` (`src/cancelchain/models.py:820-828`). Both have `idx=0`; the canonical winner is the earlier-timestamped one, with hash as tiebreaker. The other becomes a stale 1-block chain that consumes DB rows indefinitely.
+
+**Outcome:** ACCEPTED — the chain registry permits unlimited genesis-tagged blocks; each creates a new sibling chain. The validation pipeline accepts arbitrarily many "genesis" blocks because `is_genesis_block(block)` is just a `prev_hash == GENESIS_HASH` flag, not an "is the canonical genesis" predicate.
+
+**Finding A7.b — Severity Low:** `Chain.validate_block` (`src/cancelchain/chain.py:170-198`) accepts any block whose `prev_hash == GENESIS_HASH`, `idx == 0`, and `target == MAX_TARGET`, regardless of whether a different genesis block is already persisted. Each accepted alternate-genesis creates a fresh `ChainDAO` row (via `Node.add_block`'s `create_chain` fallback at `src/cancelchain/node.py:187`), fragmenting the chain registry into N parallel single-block chains. `ChainDAO.longest()` still picks the canonical genesis via deterministic tiebreaker, so chain-correctness is preserved — but the DB accumulates one unrooted `ChainDAO` (and one `BlockDAO`/`TransactionDAO`/`OutflowDAO`) row per submission. A MILLER-role adversary can therefore inflate the chain registry with cheap-to-mill alternate genesis blocks (production `MAX_TARGET = 6 leading hex zeros` is still tractable for any modest hashrate). The attack does not break value conservation (each genesis pays `REWARD` to its own miller, and only the canonical genesis's `LongestChainBlockDAO` rows feed into `wallet_balance` reads), but it is a DB-bloat / inventory-pollution gap with no operational recovery path.
+
+**Remediation sketch:** In `Chain.validate_block` (`src/cancelchain/chain.py:170`), after the `is_genesis_block(block)` branch passes the parent / idx / target checks, look up whether a genesis block is already persisted: `existing_genesis = db.session.execute(db.select(BlockDAO).where(BlockDAO.idx == 0, BlockDAO.prev_hash == GENESIS_HASH)).scalar_one_or_none()`. If `existing_genesis is not None` and `existing_genesis.block_hash != block.block_hash`, raise a new `DuplicateGenesisError(InvalidBlockError)` exception. This enforces canonical-genesis uniqueness at the validation layer without changing the `is_genesis_block` predicate or breaking the legitimate first-genesis flow. An equally good alternative is to make `GENESIS_HASH` resolve to a hardcoded canonical block (committed as part of `db.create_all()` / migrations); but that requires migration work and changes the bootstrap flow, so the validate-time uniqueness check is the more conservative fix.
+
+**Demonstration test:** `test_a7_b_alternate_genesis_fragments_chain_registry` in `tests/test_verification_audit.py`.
+
+#### Attack c: Block transaction-count boundaries (0, 100, 101)
+
+**Pre-state:** Local chain at height ≥ 0. Adversary intends to test the exact boundaries of `BlockModel.txns: Field(min_length=1, max_length=MAX_TRANSACTIONS=100)` (`src/cancelchain/block.py:82-85`).
+
+**Attack inputs:**
+- **c.i (0 txns):** Reduces to Attack a — empty block, REJECTED at schema.
+- **c.ii (exactly 100 txns: 99 regulars + 1 coinbase):** The upper-inclusive boundary. `Miller.create_block`'s `if i >= MAX_TRANSACTIONS - 1: break` (`src/cancelchain/miller.py:94`) caps `i` at 99 regular txns; the subsequent `chain.seal_block(block, ...)` appends one coinbase via `Block.add_coinbase` (`src/cancelchain/block.py:213-214`), making `len(block.txns) == 100`.
+- **c.iii (exactly 101 txns: 100 regulars + 1 coinbase):** Schema upper bound + 1. Only constructible by bypassing `Miller.create_block` (hand-built Block + manual `add_txn` calls).
+
+**Trace:**
+1. **c.i:** schema rejects (see Attack a).
+2. **c.ii:** `BlockModel.model_validate` accepts `len(txns) == 100` (the bound is `max_length=100`, inclusive). `validate_merkle_root` recomputes over all 100 entries via `build_merkle_tree` (pymerkle handles N=100 without special-case branches). `for txn in self.regular_txns` iterates the first 99 (`self.txns[0:-1]`). `validate_coinbase` operates on `self.txns[-1]`. Pass. Block persists.
+3. **c.iii:** schema rejects with `List should have at most 100 items` (regression-covered by `tests/test_block.py::test_too_many_txns`).
+
+**Outcome:** REJECTED at step 1/3 for c.i/c.iii; ACCEPTED at step 2 for c.ii. The boundaries are **inclusive on both ends** (1 ≤ N ≤ 100). The off-by-one risk would be a `max_length=MAX_TRANSACTIONS - 1` typo elsewhere, but the schema is consistent with the miller's `MAX_TRANSACTIONS - 1` regular-txn cap (which leaves one slot for the coinbase, yielding `MAX_TRANSACTIONS` total).
+
+**Result:** Boundaries are correct and the documentation comment in `src/cancelchain/miller.py:94` matches the schema. No finding.
+
+#### Attack d: Subject-length boundaries (0, 1, 79, 80 chars)
+
+**Pre-state:** Adversary constructs an outflow with `subject = encode_subject(raw)` where `raw` is each boundary length.
+
+**Attack inputs:**
+- **d.i (0 chars):** `raw = ''`, `encode_subject('') = ''`. Tests the lower boundary.
+- **d.ii (1 char):** `raw = 'a'`. Tests the inclusive lower bound.
+- **d.iii (79 chars):** `raw = 'a' * 79`. Tests the inclusive upper bound.
+- **d.iv (80 chars):** `raw = 'a' * 80`. Tests the off-by-one upper.
+
+**Trace:** `validate_subject` (`src/cancelchain/payload.py:39-46`) decodes via `decode_subject` then asserts `MIN_SUBJECT_LENGTH (=1) <= len(raw_subject) <= MAX_SUBJECT_LENGTH (=79)` and round-trips through `encode_subject` to confirm canonical-form. Live probe results:
+- 0 chars: `False` (rejected — len < 1).
+- 1 char: `True` (accepted — inclusive lower).
+- 79 chars: `True` (accepted — inclusive upper).
+- 80 chars: `False` (rejected — len > 79).
+
+The Pydantic-level enforcement runs via `Subject = Annotated[str, AfterValidator(_check_subject)]` (`src/cancelchain/payload.py:65`) wherever subject/forgive/support fields appear on `OutflowModel`. Out-of-bounds values raise `ValueError(f'Invalid subject: ...')` → wrapped as `InvalidTransactionError` at the schema layer.
+
+**Outcome:** REJECTED at the schema layer for 0-char and 80-char inputs; ACCEPTED for 1- and 79-char. **Boundaries are inclusive on both ends, matching the documented intent "1-79 chars".** No off-by-one.
+
+**Result:** Subject-length boundaries are correctly enforced via `MIN_SUBJECT_LENGTH <= len <= MAX_SUBJECT_LENGTH`. Regression-covered by `tests/test_payload.py::test_validate_subject` (positive case) and the boundary check is naturally enforced through Pydantic's `_check_subject` AfterValidator. No finding.
+
+#### Attack e: Just-expired transaction at exact TXN_TIMEOUT boundary
+
+**Pre-state:** Local chain at height ≥ 1. Adversary constructs a transaction T with `timestamp = now - TXN_TIMEOUT` (i.e., *exactly* 4 hours old per `src/cancelchain/block.py:50`). T is otherwise valid.
+
+**Attack:** POST T to `/api/transaction/<T.txid>`, then attempt to mine it into a block whose timestamp is exactly `T.timestamp + TXN_TIMEOUT`.
+
+**Trace:** Three call sites apply `TXN_TIMEOUT` with **different comparison operators**:
+
+1. **`Block.validate_transaction` (`src/cancelchain/block.py:266-270`):**
+   ```
+   if txn_ts_dt < self.timestamp_dt - TXN_TIMEOUT:
+       raise ExpiredTransactionError()
+   ```
+   Strict `<`. At `txn_ts == block_ts - TXN_TIMEOUT` exactly: condition is False → **NOT expired** → block accepts the txn.
+2. **`Miller.pending_chain_txns` (`src/cancelchain/miller.py:71-76`):**
+   ```
+   expired_dt = now() - TXN_TIMEOUT
+   if (txn.timestamp_dt is not None
+       and txn.timestamp_dt > expired_dt
+       and not chain.get_transaction(txn.txid)):
+       yield txn
+   ```
+   Strict `>`. At `txn_ts == expired_dt` exactly: condition is False → **NOT yielded** → miller skips the txn.
+3. **`Node.discard_expired_pending_txns` (`src/cancelchain/node.py:102-106`):**
+   ```
+   expired_dt = now() - TXN_TIMEOUT
+   if txn.timestamp_dt <= expired_dt:
+       self.pending_txns.discard(txn)
+   ```
+   `<=`. At `txn_ts == expired_dt` exactly: condition is True → **discarded**.
+
+So an at-the-boundary txn:
+- Is accepted into pending via `Node.receive_transaction` (no timestamp check there — schema only verifies `iso_2_dt` parses).
+- Is discarded by the next `discard_expired_pending_txns` sweep.
+- Is excluded from `Miller.create_block`'s pending-pool walk if it survives the sweep.
+- Would be accepted by `Block.validate_transaction` if a miller hand-built a block including it.
+
+The asymmetry means the adversary cannot mine a just-expired txn through the standard miller path (steps 2-3 conspire to remove it), but a hand-crafted block submitted to `/api/block` would have the just-expired txn accepted by the block-layer validation.
+
+**Outcome:** REJECTED operationally (the txn gets discarded from pending before any miller picks it up) but ACCEPTED structurally (block-layer validation considers it non-expired). The boundary inconsistency is observable: the same txn-timestamp is "alive" per Block layer and "dead" per Node/Miller layers.
+
+**Finding A7.e — Severity Low:** Three call sites apply `TXN_TIMEOUT` with three different comparison operators around the boundary value: `Block.validate_transaction` uses strict `<` (`src/cancelchain/block.py:269`), `Miller.pending_chain_txns` uses strict `>` (`src/cancelchain/miller.py:74`), and `Node.discard_expired_pending_txns` uses `<=` (`src/cancelchain/node.py:105`). A txn whose `timestamp` is *exactly* `now - TXN_TIMEOUT` is therefore "non-expired" per the block validator but "expired" per pending-pool maintenance and miller selection. No chain-correctness invariant is violated (the txn would be REJECTED via the miller's exclusion before reaching a block), but the inconsistency is a latent foot-gun: a future refactor that swaps the miller's `>` for `>=` (or removes `discard_expired_pending_txns`'s `<=` branch) would let the txn drift to a state where the block layer accepts what the miller silently rejected, complicating debugging of "why didn't this txn get mined." The spec intent ("`TXN_TIMEOUT` window") is ambiguous about whether the boundary is open or closed; pick one and apply consistently.
+
+**Remediation sketch:** Pick a canonical comparison and apply across all three sites. Recommended: `<` (open boundary; "strictly older than `TXN_TIMEOUT`" = expired). Concretely, change `Node.discard_expired_pending_txns` line 105 from `<=` to `<`, and change `Miller.pending_chain_txns` line 74 from `>` to `>=`. After the change, all three sites agree that `txn_ts == now - TXN_TIMEOUT` is "alive". Add a docstring on `TXN_TIMEOUT` clarifying the semantics. The fix has no observable behavior change for txns that aren't exactly at the boundary (~negligible in practice but defensive against the refactor risk).
+
+**Demonstration test:** `test_a7_e_txn_timeout_boundary_inconsistency` in `tests/test_verification_audit.py`.
+
+#### Attack f: Transaction with empty inflow list
+
+**Pre-state:** Adversary constructs a transaction with `inflows=[]` and tests both the regular-txn path (`Node.receive_transaction`) and the coinbase path (`Block.add_txn(is_coinbase=True)`).
+
+**Attack:**
+- **f.i (regular path):** POST a txn with `inflows=[]` to `/api/transaction/<txid>`.
+- **f.ii (smuggle as coinbase):** Hand-build a Block and call `add_txn(empty_inflow_txn, is_coinbase=True)`.
+
+**Trace:**
+1. **f.i:** `Node.receive_transaction` → `Transaction.from_json` uses base `TransactionModel` (`src/cancelchain/transaction.py:78`), which allows `inflows: min_length=0, max_length=50` (`src/cancelchain/transaction.py:86-88`). Parses successfully. Then `Node.receive_transaction` line 89 calls `txn.validate()` which routes to `RegularTransactionModel.model_validate` (line 215-216 + 218-221). `RegularTransactionModel.inflows: min_length=1, max_length=50` (`src/cancelchain/transaction.py:102-104`). Empty inflows → Pydantic error → **`InvalidTransactionError`** (`inflows: List should have at least 1 item`).
+2. **f.ii:** `Block.add_txn(txn, is_coinbase=True)` (`src/cancelchain/block.py:199-206`) calls `txn.validate_coinbase()` which routes to `CoinbaseTransactionModel.model_validate`. `CoinbaseTransactionModel.inflows: min_length=0, max_length=0` (`src/cancelchain/transaction.py:108`). Empty inflows are *required* for a coinbase, so pass — but the schema also enforces `outflows: min_length=1, max_length=4`, `txid`/`signature` shape, etc. The Block-level `validate_coinbase` (`src/cancelchain/block.py:274-287`) additionally checks the S/G/M shape matches. So coinbase shape is structurally enforced via the dedicated schema split.
+
+**Outcome:** REJECTED at step 1 for f.i (`InvalidTransactionError`). f.ii is the *correct* coinbase shape; the dual-schema (`RegularTransactionModel` / `CoinbaseTransactionModel`) is the structural defense — a txn with empty inflows is *only* valid as a coinbase, and the coinbase enters the block exclusively via the `is_coinbase=True` path on `Block.add_txn`.
+
+**Result:** Validation correctly rejects empty-inflow regular txns at the schema layer and structurally rejects empty-inflow non-coinbase entry. The schema split is the right mechanism. Regression-covered indirectly by `tests/test_transaction.py` (regular vs coinbase schema separation). No finding.
+
+#### Attack g: proof_of_work boundary (0, target-1, target, target+1)
+
+**Pre-state:** Adversary constructs a block with various `proof_of_work` values and measures whether validation accepts each.
+
+**Attack inputs:**
+- **g.i (`proof_of_work=0`):** The schema `Field(ge=0)` lower bound. Whether this lands a valid hash is probabilistic — production `MAX_TARGET = 6 leading hex zeros` makes pow=0 essentially never satisfy `mill_hash(header) < target`; the easy-mill `MAX_TARGET = F * 64` makes any pow satisfy.
+- **g.ii (hash exactly equal to target):** `validate_hash_diff` (`src/cancelchain/block.py:54-55`) uses strict `int(hash, 16) < int(target, 16)`. Adversary tries to force `hash == target`.
+- **g.iii (hash 1 below target):** The just-accepted upper-edge case.
+
+**Trace:**
+1. `BlockModel.proof_of_work: Field(ge=0)` (`src/cancelchain/block.py:80`) — the lower bound is `0`, inclusive. `proof_of_work = 0` is accepted at the schema layer.
+2. `BlockModel.validate_difficulty` (`src/cancelchain/block.py:88-92`) raises `ValueError('Missed target')` when `int(block_hash, 16) >= int(target, 16)`. Equality is rejected (strict `<` semantics). The check operates on the submitted `block_hash` value, which the schema enforces is a valid `MillHashType` (64-char base64).
+3. `Block.validate_block_hash` (`src/cancelchain/block.py:251-253`) recomputes `mill_hash(header)` and checks `block_hash != get_header_hash()`. The header includes `proof_of_work` (`src/cancelchain/block.py:146-157, 167`), so a mismatched pow that's still below target wouldn't yield the submitted hash → `InvalidBlockHashError`.
+4. `Block.validate_proof_of_work(pow)` (`src/cancelchain/block.py:169-171`): returns `validate_hash_diff(mill_hash_str(potential_header), self.target)`. This is what `Block.solve` consults; if pow doesn't produce hash < target, `solve` raises `InvalidProofError`.
+
+So the boundary semantics are:
+- `pow = 0`: structurally legal; whether it produces a valid PoW depends on `mill_hash(...)` output for the specific header. Production MAX_TARGET makes it cryptographically infeasible; test MAX_TARGET makes it trivially feasible.
+- `hash == target`: REJECTED (strict `<`).
+- `hash < target` (any amount): ACCEPTED.
+
+**Outcome:** REJECTED at step 2 for any submitted `block_hash >= target` (including equality). The boundary is **exclusive at the upper end** (`hash < target`), matching Bitcoin's PoW semantics. `pow = 0` itself is not directly an attack — what matters is whether the resulting hash is below target, which the schema enforces against the submitted values.
+
+**Result:** PoW boundary is correctly enforced. The strict `<` matches Bitcoin convention; equality would let an adversary submit a "trivially-accepted" hash without doing the work. No finding.
+
+#### Attack h: Non-printable / control-char subject
+
+**Pre-state:** Adversary constructs an outflow with `subject = encode_subject(raw)` where `raw` is a 1-79-char string of non-printable bytes: null bytes (`\x00`), control characters (`\x07` BEL, `\x1b` ESC, `\x0a` LF, `\x7f` DEL), RTL override (`‮`), zero-width joiners (`‍`).
+
+**Attack:** POST a transaction whose `outflows` includes `Outflow(amount=N, subject=encode_subject('\x00'))` (or similar). The adversary's goal is not direct value theft but downstream rendering exploits: terminal control-char injection in CLI tools that print subjects, RTL spoofing in web UIs, log-injection via newlines / null bytes.
+
+**Trace:**
+1. `Node.receive_transaction` → `Transaction.from_json` → `TransactionModel.model_validate_json`. `OutflowModel.subject` is `Subject | None` where `Subject = Annotated[str, AfterValidator(_check_subject)]` (`src/cancelchain/payload.py:65`).
+2. `_check_subject(s)` (`src/cancelchain/payload.py:58-62`) calls `validate_subject(s)` (line 39-46). `validate_subject` does `decode_subject(s)` and checks **only the length** (`MIN_SUBJECT_LENGTH <= len(raw) <= MAX_SUBJECT_LENGTH`) plus the round-trip canonical-form invariant (`encode_subject(raw_subject) == subject`).
+3. **No content validation.** Live probe (run during this audit):
+   - `validate_raw_subject('\x00')` → `True` (null byte 1-char raw accepted).
+   - `validate_raw_subject('\x07')` (BEL), `'\x1b'` (ESC), `'\x0a'` (LF), `'\x7f'` (DEL) → all `True`.
+   - `validate_raw_subject('‮')` (RTL override) → `True`.
+   - `validate_raw_subject('‍')` (zero-width joiner) → `True`.
+   - `validate_raw_subject('😀')` (emoji) → `True`.
+   - Their `encode_subject` round-trips all pass `validate_subject`.
+4. The transaction enters pending, mines into a block, and persists with the non-printable subject intact in `OutflowDAO.subject` (`src/cancelchain/models.py`).
+
+**Outcome:** ACCEPTED. The validation pipeline enforces length but not character-class restrictions on subjects.
+
+**Finding A7.h — Severity Low:** `validate_subject` (`src/cancelchain/payload.py:39-46`) and `validate_raw_subject` (line 49-55) enforce only length bounds (`1 <= len <= 79`) and canonical base64-url encoding round-trip; they accept any UTF-8 codepoint including null bytes (`\x00`), C0/C1 control characters (`\x07` BEL, `\x1b` ESC, `\x0a` LF, `\x7f` DEL), bidirectional override (`‮` RLO), zero-width joiners (`‍`), and zero-width spaces. Subjects flow through `OutflowDAO.subject` into multiple read paths: `BalanceView` rendering (`src/cancelchain/api.py`), CLI `subject` commands (`src/cancelchain/command.py`), `wallet_leaderboard` JSON responses. A subject like `f'spoofed{chr(0x1b)}[31mRED'` or `'‮redips'` would render correctly per byte but display deceptively in any terminal/HTML consumer that doesn't strip control characters. No value-conservation invariant is violated (the malicious subject is still distinct from the spoofed one at the byte level), but the chain commits to a string the application layer is unlikely to handle safely.
+
+**Remediation sketch:** Add a content-class check in `validate_raw_subject` (`src/cancelchain/payload.py:49-55`) after the length check: e.g., `if not all(_is_safe_codepoint(c) for c in raw_subject): return False`. The safe-codepoint predicate should reject Unicode general categories `Cc` (control), `Cf` (format — includes bidi overrides and zero-width chars), `Cn` (unassigned), and `Cs` (surrogates). The `unicodedata` stdlib gives `unicodedata.category(c)` for this. The check needs to be applied symmetrically in both `validate_raw_subject` (raw form, used by CLI input) and inside `validate_subject` after `decode_subject` (encoded form, used by API/JSON input). Adding the check tightens the surface without breaking any reasonable real-world subject (which would be human-readable text); existing tests use ASCII strings like `'failing tests'` / `'bugs'` / `'vogons'`, all of which pass the category check.
+
+**Demonstration test:** `test_a7_h_non_printable_subject_accepted` in `tests/test_verification_audit.py`.
+
+#### Attack i: Chain with one block (no parent to validate)
+
+**Pre-state:** Local chain has exactly one block — the genesis. Adversary's interest: does `Chain.validate()` handle the no-parent-walk case correctly?
+
+**Attack:** Invoke `chain.validate()` on a 1-block chain to probe the walk's edge case.
+
+**Trace:**
+1. `Chain.validate` (`src/cancelchain/chain.py:158-168`): `for block in self.blocks: validate_block(block)`. `self.blocks` is `Chain.block_chain(block_hash=self.block_hash)` (`src/cancelchain/chain.py:59-60`).
+2. `Chain.block_chain` (`src/cancelchain/chain.py:77-93`): yields the tip block, then walks `prev_block = Block.from_db(block.prev_hash) if block.prev_hash else None`. For the genesis, `prev_hash = GENESIS_HASH`, `Block.from_db(GENESIS_HASH)` returns None (sentinel doesn't resolve).
+3. Line 89: `if prev_block is None and not is_genesis_block(block): raise MissingPreviousBlockError()`. For genesis, `is_genesis_block(block)` is True, so the raise is skipped. Pass.
+4. Line 91: `if is_genesis_block(block) and prev_block is not None: raise InvalidBlockError()`. `prev_block is None`, so the raise is skipped. Pass.
+5. Line 93: `block = prev_block = None`. Loop exits cleanly.
+6. `validate_block(genesis)` runs once (covered by Attack b's trace). Pass.
+
+**Outcome:** REJECTED nothing — single-block chain validates correctly. The `is_genesis_block` check in `block_chain` is exactly the special-case path that lets the walk terminate without raising `MissingPreviousBlockError`.
+
+**Result:** The walk's genesis-termination logic is correct. No finding. (The related risk — that an alternate-genesis block could spawn a parallel chain — is captured under A7.b.)
+
+#### Attack j: Reorg with zero common ancestor (disjoint chains)
+
+**Pre-state:** Local chain X exists with N blocks rooted at genesis G_x. Adversary delivers chain Y of N+1 blocks rooted at a *different* genesis G_y (constructed via the alternate-genesis path from A7.b, plus N additional blocks chaining off G_y honestly milled by the adversary).
+
+**Attack:** Submit Y's blocks via `/api/block/<...>` to the node holding X. The hope: Y becomes longer than X and triggers a reorg to a chain whose entire ancestry is disjoint from X.
+
+**Trace:**
+1. Y's G_y arrives: validated as Attack b — accepted via the `is_genesis_block` path; a new `ChainDAO` row is committed at G_y's `block_hash`.
+2. Y's subsequent blocks Y_1, Y_2, ..., Y_N arrive: each is validated via `Chain.validate_block`. Their `prev_hash` chain walks through G_y (in `BlockDAO`), so the parent-presence check passes. Per-block UTXO checks (`validate_block_txn`) walk Y's lineage via the per-block recursive CTE `BlockDAO._block_chain` (`src/cancelchain/models.py:307-316`) — which is scoped to Y's `prev_id` ancestry. The CTE never traverses X. Pass.
+3. After Y_N applies, `ChainDAO.longest()` selects Y (idx=N for Y vs N-1 for X). `ChainDAO.sync_longest_chain_blocks` (`src/cancelchain/models.py:656-743`) runs to materialize Y into `LongestChainBlockDAO`. The smart-reorg walk attempts to find a common ancestor of Y_N in the materialization: walks `Y_N.prev → Y_N-1.prev → ... → G_y.prev_id`. None of these resolve to a `BlockDAO` row that's also in the current `LongestChainBlockDAO` (which still holds X's lineage from G_x).
+4. The smart-reorg falls through to the **catastrophic rebuild branch** (`src/cancelchain/models.py:714-727`): `db.session.execute(db.delete(LongestChainBlockDAO))` then bulk-inserts Y's lineage. Both ops run in the same session/transaction; atomicity is preserved at the commit boundary (covered by A5.c).
+5. Post-reorg, `LongestChainBlockDAO` reflects Y. `wallet_balance` reads against Y's lineage. X's chain remains in `BlockDAO` + `ChainDAO` (no codepath deletes non-canonical blocks; A5.a's DB-state inventory). The disjoint chains coexist; Y is canonical.
+
+**Outcome:** ACCEPTED — disjoint-ancestor reorg works correctly via the catastrophic-rebuild branch. Y becomes canonical; X is preserved as a stale chain.
+
+**Result:** The smart-reorg's catastrophic branch is designed for exactly this case (rebuild on no-common-ancestor). The chain-correctness invariant holds: each chain's per-block CTE walks ITS OWN lineage, so the UTXO checks on Y's blocks never confuse X's spends with Y's. Value conservation on Y is independent of X's state.
+
+**The interesting cross-link is with A7.b.** Attack j cannot be mounted *without* first succeeding at Attack b's alternate-genesis admission. The catastrophic-rebuild branch is the validation pipeline's correct response to a successful A7.b attack: once a hostile fork rooted at an alternate genesis grows longer than the canonical chain, the materialization correctly switches to it. The chain-correctness consequence — Y becomes canonical — is by design under PoW longest-chain selection; the *gap* is the alternate-genesis admission itself (A7.b), not the reorg behavior here.
+
+**No new finding for j.** The catastrophic-rebuild branch behaves correctly. The attack is **RELATED to A7.b**: closing A7.b (rejecting alternate genesis blocks) closes A7.j's only entry path, because a chain Y can only diverge from X all the way back to genesis if Y has a genesis block of its own, which A7.b's remediation would reject.
 
 ## Cross-cutting observations
 
