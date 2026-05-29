@@ -146,19 +146,6 @@ def _hostile_block(
     return b
 
 
-@pytest.mark.xfail(
-    reason=(
-        'Audit finding A2.e — severity Medium — Node.fill_chain applies '
-        'staged blocks in a non-atomic loop. When the last block of a '
-        'staged chain fails Chain.validate_block, earlier blocks that '
-        'passed validation remain persisted in BlockDAO and advance '
-        "ChainDAO's tip — a hostile peer can force partial adoption of "
-        'a fork prefix by appending a cheap-to-construct invalid tip. '
-        'See '
-        'docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md'
-    ),
-    strict=True,
-)
 def test_a2_e_partial_chain_adoption_via_invalid_tip(
     app, time_machine, wallet
 ) -> None:

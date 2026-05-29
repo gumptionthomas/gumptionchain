@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from cancelchain.block import TXN_TIMEOUT, Block
 from cancelchain.chain import Chain, is_genesis_block
+from cancelchain.database import db
 from cancelchain.exceptions import (
     InvalidBlockError,
     InvalidBlockHashError,
@@ -178,14 +179,14 @@ class Node:
             self.send_block(block, visited_hosts=visited_hosts)
         return block
 
-    def add_block(self, block: Block) -> Block | None:
+    def add_block(self, block: Block, *, commit: bool = True) -> Block | None:
         try:
             chain = Chain.from_db(block_hash=block.prev_hash)
             if chain:
-                chain.add_block(block)
+                chain.add_block(block, commit=commit)
             else:
-                chain = self.create_chain(block=block)
-            chain.to_db()
+                chain = self.create_chain(block=block, commit=commit)
+            chain.to_db(commit=commit)
         except SQLAlchemyError:
             rollback_session()
             if not (block.block_hash and Block.from_db(block.block_hash)):
@@ -193,11 +194,13 @@ class Node:
             block = None  # type: ignore[assignment]
         return block
 
-    def create_chain(self, block: Block | None = None) -> Chain:
+    def create_chain(
+        self, block: Block | None = None, *, commit: bool = True
+    ) -> Chain:
         block_hash = block.prev_hash if block is not None else None
         chain = Chain(block_hash=block_hash)
         if block is not None:
-            chain.add_block(block)
+            chain.add_block(block, commit=commit)
         return chain
 
     def request_block(self, block_hash: str) -> Block | None:
@@ -342,13 +345,29 @@ class Node:
                     chain_fill=chain_fill,
                 ).commit()
             progress_switch()
-            for chain_fill_block in chain_fill.blocks:
-                if chain_fill_block.block_json is None:
-                    continue
-                block = Block.from_json(chain_fill_block.block_json)
-                self.add_block(block)
+            # Atomic apply: pass commit=False to each per-block add_block so
+            # rows are flushed (not committed) into the autobegun root
+            # transaction. A single db.session.commit() after the loop
+            # persists all blocks atomically; db.session.rollback() on
+            # exception undoes every flushed block. Closes audit finding
+            # A2.e (hostile-peer partial-fork-prefix adoption).
+            applied: list[Block] = []
+            try:
+                for chain_fill_block in chain_fill.blocks:
+                    if chain_fill_block.block_json is None:
+                        continue
+                    block = Block.from_json(chain_fill_block.block_json)
+                    self.add_block(block, commit=False)
+                    applied.append(block)
+                    progress_next()
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                raise
+            # Post-commit — fire signals only for confirmed-persisted
+            # blocks, in apply order.
+            for block in applied:
                 new_block_signal.send(self, block=block)
-                progress_next()
             return True
         except Exception as e:
             self.logger.exception(e)

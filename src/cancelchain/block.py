@@ -339,8 +339,8 @@ class Block:
             transaction_daos=[txn.to_dao() for txn in self.txns],
         )
 
-    def to_db(self) -> None:
-        self.to_dao().commit()
+    def to_db(self, *, commit: bool = True) -> None:
+        self.to_dao().commit(commit=commit)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:

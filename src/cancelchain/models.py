@@ -332,9 +332,12 @@ class BlockDAO(Base):
     def inflows_chain(self) -> Select[tuple[InflowDAO]]:
         return InflowDAO.inflows_chain(self.transactions_chain)
 
-    def commit(self) -> None:
+    def commit(self, *, commit: bool = True) -> None:
         db.session.add(self)
-        db.session.commit()
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
 
     def get_transaction_in_chain(self, txid: str) -> TransactionDAO | None:
         return db.session.execute(

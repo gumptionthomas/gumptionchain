@@ -150,9 +150,9 @@ class Chain:
     def seal_block(self, block: Block, wallet: Wallet) -> None:
         block.seal(wallet, self.block_reward(block))
 
-    def add_block(self, block: Block) -> None:
+    def add_block(self, block: Block, *, commit: bool = True) -> None:
         self.validate_block(block)
-        block.to_db()
+        block.to_db(commit=commit)
         self.block_hash = block.block_hash
 
     def validate(self, progress: Any = None) -> bool:
@@ -561,13 +561,14 @@ class Chain:
             dao = ChainDAO(block_hash)
         return dao
 
-    def to_db(self) -> None:
+    def to_db(self, *, commit: bool = True) -> None:
         dao = self.to_dao(create=True)
         db.session.add(dao)
         db.session.flush()
         self.cid = dao.id
         dao.sync_longest_chain_blocks()
-        db.session.commit()
+        if commit:
+            db.session.commit()
 
     def __lt__(self, other: Chain) -> bool:
         return self.length < other.length
