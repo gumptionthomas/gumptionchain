@@ -19,3 +19,8 @@ jobs:
       - run: uv run ruff format --check src tests
       - run: uv run pytest
       - run: uv run mypy
+      - env:
+          FLASK_SQLALCHEMY_DATABASE_URI: sqlite:///cc_check.db
+        run: |
+          uv run cancelchain db upgrade
+          uv run cancelchain db check

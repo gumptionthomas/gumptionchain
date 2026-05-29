@@ -23,6 +23,7 @@ from typing import Any
 import click
 from flask import Flask
 from flask.cli import FlaskGroup
+from flask_migrate import Migrate
 
 __version__ = _pkg_version('cancelchain')
 
@@ -63,6 +64,7 @@ def create_app(
 
     try:
         db.init_app(app)
+        Migrate(app, db)
     except RuntimeError as e:
         app.logger.error(e)
 

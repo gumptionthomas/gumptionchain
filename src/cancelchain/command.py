@@ -10,6 +10,7 @@ import click
 import httpx
 from flask import current_app
 from flask.cli import AppGroup, with_appcontext
+from flask_migrate import upgrade as flask_migrate_upgrade
 from humanfriendly import format_timespan
 from millify import millify
 from rich.live import Live
@@ -353,7 +354,7 @@ class MillingProgress:
 @with_appcontext
 def init_db_command() -> None:
     try:
-        db.create_all()
+        flask_migrate_upgrade()
         console.print('Initialized the database.', style='success')
     except Exception as e:
         console.print(f'Initialization failed: {e}', style='error')

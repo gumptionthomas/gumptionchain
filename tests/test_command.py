@@ -2,6 +2,7 @@ import os
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from cancelchain.chain import CURMUDGEON_PER_GRUMBLE, REWARD
+from cancelchain.database import db
 from cancelchain.wallet import Wallet
 
 REWARD_CCG = int(REWARD / CURMUDGEON_PER_GRUMBLE)
@@ -18,7 +19,11 @@ def get_wallet_file(address, walletdir=None, app=None):
 
 
 def test_init(app, runner):
+    # The `app` fixture pre-creates tables via db.create_all(); drop them
+    # first so the `init` command (now backed by flask_migrate.upgrade())
+    # runs against an empty DB, matching the prod-shape contract.
     with app.app_context():
+        db.drop_all()
         result = runner.invoke(args=['init'])
         assert 'Initialized the database.' in result.output
 
