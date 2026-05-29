@@ -4,7 +4,7 @@
 
 **Goal:** Make `Node.fill_chain`'s apply loop atomic — a validation failure on any block rolls back every earlier block's persistence within the same `fill_chain` call. Closes audit finding A2.e; the demonstration test transitions from `@pytest.mark.xfail(strict=True)` to a real pass.
 
-**Architecture:** Deferred-commits approach. Add a keyword-only `commit: bool = True` parameter to `BlockDAO.commit()`, `Block.to_db()`, `Chain.to_db()`, `Chain.add_block()`, and `Node.add_block()`. When `commit=False`, the session is flushed (not committed) so flushed rows stay in the autobegun root transaction. `Node.fill_chain` passes `commit=False` per block, then issues a single `db.session.commit()` after the loop succeeds (or `db.session.rollback()` on exception). `new_block_signal.send` is deferred to a second loop after the explicit commit so signals fire only for confirmed-persisted blocks.
+**Architecture:** Deferred-commits approach. Add a keyword-only `commit: bool = True` parameter to `BlockDAO.commit()`, `Block.to_db()`, `Chain.to_db()`, `Chain.add_block()`, `Node.add_block()`, and `Node.create_chain()`. (`Node.create_chain` must be in the chain because `Node.add_block` falls back to it whenever the block's prev_hash exists as a Block row but isn't currently a Chain tip — without threading `commit` through, the fallback path would commit inside `fill_chain`'s loop and defeat atomicity.) When `commit=False`, the session is flushed (not committed) so flushed rows stay in the autobegun root transaction. `Node.fill_chain` passes `commit=False` per block, then issues a single `db.session.commit()` after the loop succeeds (or `db.session.rollback()` on exception). `new_block_signal.send` is deferred to a second loop after the explicit commit so signals fire only for confirmed-persisted blocks.
 
 **Note on initial design:** The brainstorm originally picked a SAVEPOINT wrap (`db.session.begin_nested()`), but PR #86 round-2 Copilot review correctly surfaced that SQLAlchemy 2.0's `Session.commit()` "commits the outermost database transaction unconditionally, automatically releasing any SAVEPOINTs in effect" (per the docstring; verified in source as `trans.commit(_to_root=True)`). So the per-block `db.session.commit()` inside `Block.to_db()` / `Chain.to_db()` would commit the root and release the savepoint on the first iteration, defeating atomicity. The deferred-commits approach avoids the issue by making `commit()` calls conditional.
 
@@ -683,7 +683,7 @@ Expected: `1 passed, 5 failed`. The 5 failures correspond to the remaining audit
 ### Step 3: Cancelchain DB check gate
 
 ```bash
-TMPDB=$(mktemp -u --suffix=.db)
+TMPDB=$(mktemp --suffix=.db)
 FLASK_SQLALCHEMY_DATABASE_URI="sqlite:///${TMPDB}" uv run cancelchain db upgrade
 FLASK_SQLALCHEMY_DATABASE_URI="sqlite:///${TMPDB}" uv run cancelchain db check
 rm -f "${TMPDB}"
