@@ -22,6 +22,7 @@ WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app src ./src
 COPY --chown=app:app app.py ./
+COPY --chown=app:app migrations ./migrations
 
 USER app
 CMD ["gunicorn", "--bind", ":8080", "--workers", "1", "--threads", "8", "--timeout", "0", "app:app"]
