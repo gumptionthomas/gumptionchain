@@ -172,7 +172,7 @@ module = ["celery", "celery.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["flask_migrate"]
+module = ["flask_migrate", "flask_migrate.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

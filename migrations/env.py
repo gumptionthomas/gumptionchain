@@ -99,9 +99,12 @@ def run_migrations_online():
     conf_args = dict(current_app.extensions['migrate'].configure_args)
     if conf_args.get('process_revision_directives') is None:
         conf_args['process_revision_directives'] = process_revision_directives
-    # Flask-Migrate's Migrate(...) ctor already sets compare_type=True in
-    # configure_args; pop it so we can set compare_type and
-    # compare_server_default explicitly below without a duplicate-kwarg error.
+    # Flask-Migrate 4.x's Migrate.__init__ unconditionally writes compare_type
+    # to alembic_ctx_kwargs (default True), so it lands in conf_args here. We
+    # pop it to avoid a duplicate-kwarg TypeError when we splat **conf_args
+    # alongside our explicit compare_type=True below. compare_server_default
+    # is popped defensively (Flask-Migrate doesn't inject it today, but pop
+    # makes the behavior robust to a future ctor change).
     conf_args.pop('compare_type', None)
     conf_args.pop('compare_server_default', None)
 
