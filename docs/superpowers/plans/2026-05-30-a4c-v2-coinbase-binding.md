@@ -785,7 +785,7 @@ All clean.
 uv run pytest 2>&1 | tail -3
 ```
 
-Expected: `237 passed, 5 xfailed, 1 skipped` EXCEPT the A4.c test is now XPASS(strict) — so you'll see `1 failed` (the XPASS) + `236 passed, 4 xfailed, 1 skipped`. The XPASS is expected (the fix works; Task 9 removes the decorator). Crucially: NO other failures — the legitimate-consecutive-block tests (`test_chain`, `test_models`, `test_miller`, `test_command`) all pass because coinbases are now unique per block.
+At this point Task 7b has already added `test_regular_txn_data_csv_excludes_prev_hash` (a passing test), so the passed count is baseline 237 **+1 = 238**. The A4.c demonstration test is still decorated but the fix makes it XPASS(strict) — counted as `1 failed`. So a plain run shows `238 passed, 4 xfailed, 1 failed (A4.c XPASS), 1 skipped`. The XPASS is expected (the fix works; Task 9 removes the decorator). Crucially: NO OTHER failures — the legitimate-consecutive-block tests (`test_chain`, `test_models`, `test_miller`, `test_command`) all pass because coinbases are now unique per block.
 
 To confirm cleanly, deselect the not-yet-un-xfailed A4.c test:
 
@@ -793,7 +793,7 @@ To confirm cleanly, deselect the not-yet-un-xfailed A4.c test:
 uv run pytest --deselect 'tests/test_verification_audit.py::test_a4_c_ii_coinbase_replay_inflates_balance' 2>&1 | tail -3
 ```
 
-Expected: `237 passed, 4 xfailed, 1 skipped`, no failures.
+Expected: `238 passed, 4 xfailed, 1 skipped`, no failures.
 
 ---
 
@@ -844,7 +844,7 @@ The v1 cross-fork test (`test_a4_c_cross_fork_coinbase_replay_accepted`) was nev
 grep -n 'cross_fork' tests/test_verification_audit.py
 ```
 
-Expected: no matches (the v1 cross-fork test was never implemented). If it somehow exists, delete it — v2 makes cross-fork coinbase replay invalid (binding mismatch), so an "accepted" assertion would be wrong.
+Expected: no matches (the v1 cross-fork test was never implemented). If it somehow exists, delete it — v2 rejects coinbase replay onto a *different-parent* block (binding mismatch), so a test asserting cross-fork replay is "accepted" would target the wrong invariant. (A same-parent sibling does still pass the binding check, harmlessly — but no test should assert acceptance of different-parent replay.)
 
 Then add a v2 binding test that asserts the block-bound semantics directly. Append to `tests/test_verification_audit.py`. The test body uses `m.longest_chain` (a `Chain` instance) via its methods but does NOT reference the `Chain` class name, so do NOT import `Chain` (it would be an unused import → ruff `F401`). The only new import needed is `MismatchedCoinbaseError` from `cancelchain.exceptions` (add it to the existing `from cancelchain.exceptions import (...)` block); `Block`, `Miller`, `Transaction`, `now`, `now_iso`, and `datetime` are already imported:
 
@@ -883,8 +883,11 @@ def test_a4_c_coinbase_block_binding(app, time_machine, wallet) -> None:
         # Part 2: a coinbase whose binding mismatches its block is rejected.
         chain = m.longest_chain
         assert chain is not None
-        # cb0 is bound to b0.prev_hash (genesis hash), but we validate it
-        # as if it were the coinbase of b1 (whose prev_hash is b0.hash).
+        # b_mismatch is a NEW block linked off the current tip (b1), so
+        # chain.link_block sets b_mismatch.prev_hash = b1.block_hash. We
+        # place cb0 (bound to b0.prev_hash, i.e. GENESIS_HASH) as its
+        # coinbase. cb0.prev_hash (GENESIS_HASH) != b_mismatch.prev_hash
+        # (b1.block_hash) → binding mismatch → MismatchedCoinbaseError.
         b_mismatch = Block()
         chain.link_block(b_mismatch)
         cb0_replay = Transaction.from_json(cb0.to_json())
@@ -1037,8 +1040,9 @@ blocks).
 - TransactionDAO gains a nullable prev_hash column; the single initial
   migration is regenerated to include it (pre-1.0, no legacy installs).
 - Block.create_coinbase threads self.prev_hash into Transaction.coinbase.
-- Coinbases are now block-specific: cross-fork coinbase replay is
-  correctly rejected (inverting v1's mistaken "legitimate" premise).
+- Coinbases are now block-bound: replay onto a different-parent block
+  is rejected by the binding mismatch (a same-parent sibling still
+  passes, harmlessly) — inverting v1's blanket "legitimate" premise.
 
 Test went from xfail to a real pass; a new test_a4_c_coinbase_block_
 binding asserts consecutive blocks have distinct coinbase txids and
@@ -1074,7 +1078,7 @@ The v1 lineage-uniqueness check (PR #88, docs-only) proved unimplementable: a co
 - \`Transaction.prev_hash\` (optional), conditionally appended to \`data_csv\` so regular-txn txids are byte-unchanged; \`CoinbaseTransactionModel\` requires it, \`RegularTransactionModel\` forbids it.
 - Nullable \`TransactionDAO.prev_hash\` column; the single initial migration is **regenerated** to include it (pre-1.0, no legacy installs — append-only Alembic begins at the first tagged release).
 - \`Block.create_coinbase\` threads \`self.prev_hash\` into \`Transaction.coinbase\`.
-- Coinbases are now block-specific; cross-fork coinbase replay is correctly rejected (inverting v1's mistaken premise).
+- Coinbases are now block-bound; replay onto a different-parent block is rejected by the binding mismatch (a same-parent sibling still passes, harmlessly) — inverting v1's blanket "cross-fork replay is legitimate" premise.
 
 ## Documentation
 

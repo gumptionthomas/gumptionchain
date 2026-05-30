@@ -107,7 +107,7 @@ Two competing *sibling* blocks (same parent P, hence same `prev_hash`) built by 
 - **Modify:** `src/cancelchain/models.py` — `TransactionDAO` gains a nullable `prev_hash` column so the coinbase's binding persists and its txid is recomputable on load. The domain↔DAO round-trip (`to_dao` / `from_dao`) carries it.
 - **Modify:** `src/cancelchain/schema.py` if needed — ensure `prev_hash` is serialized for coinbases and `asdict_sans_none` strips it for regular txns (it already strips `None`, so likely no change beyond confirming the field flows through).
 - **Regenerate:** `src/cancelchain/migrations/versions/0ca0de5fb211_initial_schema.py` — delete and regenerate the single initial migration so the `transaction` table's `create_table` includes the nullable `prev_hash` column. Hand-review per Phase 8 convention. (Pre-1.0 convention — no delta migration; fold into the single base migration.)
-- **Modify:** `tests/test_verification_audit.py` — remove the `@pytest.mark.xfail` decorator on `test_a4_c_ii_coinbase_replay_inflates_balance` (it now passes — the replay is rejected by the binding mismatch); update its docstring to the v2 behavior; **remove** the cross-fork-acceptance test premise (v2 correctly rejects cross-fork coinbase replay) — replace it with a binding test asserting a mismatched-prev_hash coinbase is rejected and a correctly-bound one accepted; update the module docstring (already due per the merged plan).
+- **Modify:** `tests/test_verification_audit.py` — remove the `@pytest.mark.xfail` decorator on `test_a4_c_ii_coinbase_replay_inflates_balance` (it now passes — the replay onto a different-parent block is rejected by the binding mismatch); update its docstring to the v2 behavior; **do not add** a cross-fork-acceptance test (v2 rejects replay onto a *different-parent* block; a same-parent sibling still passes the binding, harmlessly) — instead add a binding test asserting a mismatched-`prev_hash` coinbase is rejected and that two consecutive blocks have distinct coinbase txids; update the module docstring (already due per the merged plan).
 - **Modify:** `docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md` — close A4.c (Findings table, Attack c.ii trace, Executive summary, Recommendations §2) describing the v2 binding fix instead of the v1 lineage check.
 - **Modify:** `docs/superpowers/ROADMAP.md` — move A4.c from open to closed, referencing the v2 design + impl PRs.
 - **Modify (supersession banners):** prepend a "**Superseded by v2 — see `2026-05-30-a4c-v2-coinbase-binding-design.md`**" note to the top of the merged v1 spec and plan, so the historical docs point forward.
@@ -167,7 +167,7 @@ None at design time. Brainstorming resolved:
 
 - Bind `prev_hash` (over random nonce / `idx`).
 - Bind into the txid AND validate the binding (both required).
-- Coinbases are block-specific; cross-fork coinbase replay is rejected (v1's "legitimate" premise inverted).
+- Coinbases are block-bound; replay onto a *different-parent* block is rejected (same-parent siblings still pass, harmlessly) — v1's blanket "cross-fork replay is legitimate" premise inverted.
 - New `MismatchedCoinbaseError(InvalidCoinbaseError)`.
 - Conditional-append in `data_csv` (regular txids unchanged).
 - Regenerate the base migration (no delta, pre-1.0).
