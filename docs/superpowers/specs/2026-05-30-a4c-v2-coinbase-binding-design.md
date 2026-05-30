@@ -108,6 +108,9 @@ Two competing *sibling* blocks (same parent P, hence same `prev_hash`) built by 
 - **Modify:** `src/cancelchain/schema.py` if needed — ensure `prev_hash` is serialized for coinbases and `asdict_sans_none` strips it for regular txns (it already strips `None`, so likely no change beyond confirming the field flows through).
 - **Regenerate:** `src/cancelchain/migrations/versions/0ca0de5fb211_initial_schema.py` — delete and regenerate the single initial migration so the `transaction` table's `create_table` includes the nullable `prev_hash` column. Hand-review per Phase 8 convention. (Pre-1.0 convention — no delta migration; fold into the single base migration.)
 - **Modify:** `tests/test_verification_audit.py` — remove the `@pytest.mark.xfail` decorator on `test_a4_c_ii_coinbase_replay_inflates_balance` (it now passes — the replay onto a different-parent block is rejected by the binding mismatch); update its docstring to the v2 behavior; **do not add** a cross-fork-acceptance test (v2 rejects replay onto a *different-parent* block; a same-parent sibling still passes the binding, harmlessly) — instead add a binding test asserting a mismatched-`prev_hash` coinbase is rejected and that two consecutive blocks have distinct coinbase txids; update the module docstring (already due per the merged plan).
+- **Modify:** `tests/conftest.py` — the `valid_coinbase_txn` fixture calls `Transaction.coinbase(...)` directly and must pass the new required `prev_hash` (use `GENESIS_HASH`). (The `add_chain_block` / `valid_chain` fixtures in the same file go through `Block.seal` → `create_coinbase` and pass unchanged.)
+- **Modify:** `tests/test_transaction.py` — update the two direct `Transaction.coinbase(...)` callers (`test_db`, `test_pending_txns`) to pass `prev_hash`; add an explicit `from_dao` `prev_hash` round-trip assertion to `test_db`; add `test_regular_txn_data_csv_excludes_prev_hash` pinning that a regular txn's `data_csv` (hence txid) is unchanged by the binding.
+- **Modify:** `tests/test_chain.py` — `test_validate_block_coinbase` builds two coinbases via bare `Transaction()` + `block.add_txn(is_coinbase=True)` (NOT via `Transaction.coinbase()`); set each coinbase's `prev_hash` to its (already-linked) block's `prev_hash` so the post-fix `CoinbaseTransactionModel` required-`prev_hash` validation passes and the test still reaches its intended `InvalidCoinbaseError` assertion. (Caught by the A4.c-v2 adversarial review workflow — a `grep '.coinbase('` misses these bare constructions.)
 - **Modify:** `docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md` — close A4.c (Findings table, Attack c.ii trace, Executive summary, Recommendations §2) describing the v2 binding fix instead of the v1 lineage check.
 - **Modify:** `docs/superpowers/ROADMAP.md` — move A4.c from open to closed, referencing the v2 design + impl PRs.
 - **Modify (supersession banners):** prepend a "**Superseded by v2 — see `2026-05-30-a4c-v2-coinbase-binding-design.md`**" note to the top of the merged v1 spec and plan, so the historical docs point forward.
@@ -116,7 +119,6 @@ Two competing *sibling* blocks (same parent P, hence same `prev_hash`) built by 
 
 - `src/cancelchain/util.py` — `now()` second-resolution (the collision root cause; left unchanged).
 - `src/cancelchain/milling.py` — `mill_hash` / `data_csv` hashing (the txid computation; consumed, not changed).
-- `tests/conftest.py` — the `add_chain_block` / `valid_chain` fixtures that surfaced the v1 collision; they pass unchanged under v2.
 
 ## Test plan
 
@@ -127,6 +129,8 @@ Two competing *sibling* blocks (same parent P, hence same `prev_hash`) built by 
 - **`cancelchain db check`** passes — the regenerated initial migration matches the `prev_hash`-bearing model.
 - **`cancelchain db upgrade`** against a fresh SQLite builds the `transaction` table with `prev_hash`.
 - **Round-trip:** a coinbase serializes (`to_json`) with `prev_hash`, deserializes (`from_json`), and recomputes the same txid; a regular txn serializes without a `prev_hash` key and its txid is unchanged from today (conditional-append form).
+- **`from_dao` round-trip is explicitly asserted** (not just via `==`, which ignores `prev_hash` since it is `compare=False`): `test_db` asserts a DB-reloaded coinbase has `prev_hash` restored AND passes `validate_coinbase()` (recomputed txid matches). Without this explicit assertion the `from_dao` wiring is only caught indirectly by `chain.validate()` tests.
+- **`test_regular_txn_data_csv_excludes_prev_hash`** pins that a regular txn's `data_csv` equals the exact 6-field join (no trailing `prev_hash`) — the direct guard for "the binding does not change regular-txn txids" (the existing tests only round-trip and do not pin a fixed txid).
 - **Docker builder build** succeeds (no Python-config surprises from the schema change).
 
 ## Acceptance

@@ -32,6 +32,7 @@
 | 5 | impl PR | `src/cancelchain/models.py` — `TransactionDAO.prev_hash` nullable column |
 | 6 | impl PR | regenerate `src/cancelchain/migrations/versions/` initial migration |
 | 7 | impl PR | `src/cancelchain/block.py` — thread `self.prev_hash` into `create_coinbase` |
+| 7b | impl PR | `tests/conftest.py`, `tests/test_transaction.py`, `tests/test_chain.py` — update direct + bare-`Transaction()` coinbase callers to pass `prev_hash`; add the regular-txn `data_csv` regression test |
 | 8 | impl PR | `src/cancelchain/chain.py` — binding check in `validate_block_coinbase` |
 | 9 | impl PR | `tests/test_verification_audit.py` — un-xfail A4.c, invert cross-fork test, module docstring |
 | 10 | impl PR | audit doc + ROADMAP + v1 supersession banners |
@@ -49,7 +50,7 @@ git rev-parse --abbrev-ref HEAD
 git rev-list --count main..HEAD
 ```
 
-Expected: branch `docs/a4c-v2-coinbase-binding`; count `1` (the spec commit).
+Expected: branch `docs/a4c-v2-coinbase-binding`; count `>= 2` (the spec commit, this plan commit, plus any review-revision commits — the docs PR went through review rounds before merging, so do not gate on an exact count). Both `docs/superpowers/specs/2026-05-30-a4c-v2-coinbase-binding-design.md` and `docs/superpowers/plans/2026-05-30-a4c-v2-coinbase-binding.md` are already git-tracked (Task 1 was completed when the docs PR opened). If the docs PR has already merged to main, this whole Task 1 is done — skip to Task 2.
 
 - [ ] **Step 2: Stage + commit this plan**
 
@@ -635,16 +636,31 @@ def valid_coinbase_txn(request, wallet):
 
 Ensure `GENESIS_HASH` is imported at the top of `test_transaction.py` (add `from cancelchain.chain import GENESIS_HASH` if absent — confirm any existing `from cancelchain.chain import ...` line and extend it).
 
-Find (around test_transaction.py:124):
+Find `test_db` (around test_transaction.py:122-127):
 
 ```python
+def test_db(app, wallet):
+    with app.app_context():
         cb = Transaction.coinbase(wallet, 20, 10, 9, 8)
+        cb.to_db()
+        cb_copy = Transaction.from_db(cb.txid)
+        assert cb_copy == cb
 ```
 
-Replace with:
+Replace with (thread `prev_hash`, AND add an explicit `prev_hash` round-trip assertion — **this is load-bearing**: `Transaction.__eq__` only compares `timestamp` + `txid` (`prev_hash` is declared `compare=False`), and `from_dao` copies `txid` verbatim without recomputing it, so `cb_copy == cb` passes even if `from_dao` drops `prev_hash`. Without the explicit assertion, the `to_dao`/`from_dao` `prev_hash` wiring (Task 4 Steps 6-7) is NOT covered by `test_db`; the only loud signal of an omission would be an unrelated-looking `chain.validate()` failure elsewhere):
 
 ```python
+def test_db(app, wallet):
+    with app.app_context():
         cb = Transaction.coinbase(wallet, 20, 10, 9, 8, prev_hash=GENESIS_HASH)
+        cb.to_db()
+        cb_copy = Transaction.from_db(cb.txid)
+        assert cb_copy == cb
+        # prev_hash is compare=False, so == ignores it; assert the
+        # DAO round-trip restored it explicitly, and that the reloaded
+        # coinbase's recomputed txid still matches (validate_txid).
+        assert cb_copy.prev_hash == cb.prev_hash == GENESIS_HASH
+        cb_copy.validate_coinbase()
 ```
 
 Find (around test_transaction.py:131):
@@ -659,25 +675,86 @@ Replace with:
     cb = Transaction.coinbase(wallet, 10, 0, 0, 0, prev_hash=GENESIS_HASH)
 ```
 
-- [ ] **Step 3: Confirm no other direct callers remain**
+- [ ] **Step 3: Update the bare-`Transaction()` coinbase constructions in `tests/test_chain.py`**
+
+**Critical (caught by the A4.c-v2 review workflow — a `grep '.coinbase('` does NOT find these):** `test_validate_block_coinbase` in `tests/test_chain.py` builds two coinbases *without* `Transaction.coinbase()` — it constructs a bare `Transaction()`, adds an outflow, then attaches it via `block.add_txn(cb, is_coinbase=True)`. Post-fix, `add_txn(is_coinbase=True)` calls `cb.validate_coinbase()` → `CoinbaseTransactionModel.model_validate(...)`, which now *requires* a non-None `prev_hash`. These bare coinbases have `prev_hash=None`, so `validate_coinbase` raises `InvalidTransactionError` AT the `add_txn` line — *before* the test's `with pytest.raises(InvalidBlockError, match='InvalidCoinbaseError'):` block — crashing `test_validate_block_coinbase`. Both blocks are already linked when their coinbase is built, so `blockN.prev_hash` is available; set it on the coinbase before sealing.
+
+Find (around test_chain.py:562, the `cb2` construction — `block2` was linked at the preceding `chain.link_block(block2)`):
+
+```python
+        cb2 = Transaction()
+        cb2.add_outflow(
+            Outflow(amount=chain.block_reward(), address=wallet.address)
+        )
+        cb2.set_wallet(wallet)
+        cb2.seal()
+        cb2.sign()
+        block2.add_txn(cb2, is_coinbase=True)
+```
+
+Replace the first line so the coinbase is bound to its block (the rest is unchanged):
+
+```python
+        cb2 = Transaction(prev_hash=block2.prev_hash)
+        cb2.add_outflow(
+            Outflow(amount=chain.block_reward(), address=wallet.address)
+        )
+        cb2.set_wallet(wallet)
+        cb2.seal()
+        cb2.sign()
+        block2.add_txn(cb2, is_coinbase=True)
+```
+
+Find (around test_chain.py:595, the `cb3` construction — `block3` was linked at the preceding `chain.link_block(block3)`):
+
+```python
+        cb3 = Transaction()
+        cb3.add_outflow(
+            Outflow(amount=chain.block_reward(), address=wallet.address)
+        )
+        cb3.set_wallet(wallet)
+        cb3.seal()
+        cb3.sign()
+        block3.add_txn(cb3, is_coinbase=True)
+```
+
+Replace the first line:
+
+```python
+        cb3 = Transaction(prev_hash=block3.prev_hash)
+        cb3.add_outflow(
+            Outflow(amount=chain.block_reward(), address=wallet.address)
+        )
+        cb3.set_wallet(wallet)
+        cb3.seal()
+        cb3.sign()
+        block3.add_txn(cb3, is_coinbase=True)
+```
+
+Both tests still exercise their intended assertion: with the binding now satisfied (`cb.prev_hash == blockN.prev_hash`), `validate_coinbase` passes the prev_hash check, `chain.add_block` proceeds, and the original S/G/M-mismatch `InvalidCoinbaseError` (the coinbase has no S/G/M outflows matching the block's regular txn) is raised as before — now inside the `pytest.raises` block.
+
+- [ ] **Step 4: Confirm every coinbase-construction site is covered**
+
+A `grep '.coinbase('` is insufficient (it misses bare `Transaction()` coinbases). Audit by where a coinbase is *attached to a block* instead:
 
 ```bash
+grep -rn 'is_coinbase=True' src tests
 grep -rn '\.coinbase(' src tests
 ```
 
-Expected matches: `src/cancelchain/block.py` (Task 7, passes `prev_hash=self.prev_hash`), `tests/conftest.py` (Step 1, `prev_hash=GENESIS_HASH`), `tests/test_transaction.py` ×2 (Step 2). Every call now passes `prev_hash`. No bare `Transaction.coinbase(wallet, ...)` without it.
+`is_coinbase=True` sites: `src/cancelchain/block.py` (`add_coinbase`, fed by `create_coinbase` — Task 7), `tests/test_chain.py` ×2 (Step 3, now `prev_hash=blockN.prev_hash`), `tests/test_verification_audit.py` (the A4.c demonstration test, which replays a *real* sealed coinbase that already carries `prev_hash` — Task 9 handles that area). `.coinbase(` classmethod sites: `block.py` (Task 7), `conftest.py` (Step 1), `test_transaction.py` ×2 (Step 2). Confirm each either threads `prev_hash` or replays a coinbase that already has one. No bare coinbase with `prev_hash=None` reaches `validate_coinbase`.
 
-- [ ] **Step 4: Verify these tests pass**
+- [ ] **Step 5: Verify these tests pass**
 
 ```bash
-uv run pytest tests/test_transaction.py 2>&1 | tail -5
-uv run ruff check tests/conftest.py tests/test_transaction.py
+uv run pytest tests/test_transaction.py tests/test_chain.py 2>&1 | tail -5
+uv run ruff check tests/conftest.py tests/test_transaction.py tests/test_chain.py
 uv run mypy 2>&1 | tail -2
 ```
 
-`test_transaction.py` green; ruff/mypy clean. (This also exercises the coinbase round-trip with `prev_hash` — `test_db` does `cb.to_db()` then `Transaction.from_db(cb.txid)` and asserts equality, which now round-trips `prev_hash` through the DAO. If `test_db`'s equality assertion fails, the `to_dao`/`from_dao` `prev_hash` wiring from Task 4 Steps 6-7 is incomplete.)
+`test_transaction.py` and `test_chain.py` green; ruff/mypy clean.
 
-- [ ] **Step 5: Add an explicit regression test that regular-txn `data_csv` (hence txid) is unchanged**
+- [ ] **Step 6: Add an explicit regression test that regular-txn `data_csv` (hence txid) is unchanged**
 
 The conditional-append in Task 4 Step 2 is load-bearing: regular txns must produce a `data_csv` byte-identical to the pre-binding 6-field format (so their txids do not change). The existing `test_transaction.py` tests only round-trip / equality-check transactions — they do NOT pin a fixed txid, so an accidental unconditional append would go uncaught. Add a direct structural assertion. Append to `tests/test_transaction.py` (it already imports `Transaction`; the `wallet` fixture is available):
 
@@ -1017,7 +1094,7 @@ rm -f "${TMPDB}"
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/cancelchain/exceptions.py src/cancelchain/transaction.py src/cancelchain/models.py src/cancelchain/block.py src/cancelchain/chain.py src/cancelchain/migrations/versions/ tests/conftest.py tests/test_transaction.py tests/test_verification_audit.py docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md docs/superpowers/ROADMAP.md docs/superpowers/specs/2026-05-30-a4c-coinbase-uniqueness-design.md docs/superpowers/plans/2026-05-30-a4c-coinbase-uniqueness.md
+git add src/cancelchain/exceptions.py src/cancelchain/transaction.py src/cancelchain/models.py src/cancelchain/block.py src/cancelchain/chain.py src/cancelchain/migrations/versions/ tests/conftest.py tests/test_transaction.py tests/test_chain.py tests/test_verification_audit.py docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md docs/superpowers/ROADMAP.md docs/superpowers/specs/2026-05-30-a4c-coinbase-uniqueness-design.md docs/superpowers/plans/2026-05-30-a4c-coinbase-uniqueness.md
 git commit -m "$(cat <<'EOF'
 fix(a4c-v2): bind coinbase to its block via prev_hash
 
