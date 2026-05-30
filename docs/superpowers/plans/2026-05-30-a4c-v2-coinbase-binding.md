@@ -65,8 +65,8 @@ check. Adds a prev_hash field to Transaction (conditional-append in
 data_csv so regular txids are unchanged), a nullable TransactionDAO
 column via a regenerated base migration, threads prev_hash through
 Block.create_coinbase, adds MismatchedCoinbaseError, un-xfails the A4.c
-demonstration test, and inverts the v1 cross-fork-acceptance test
-(coinbases are block-bound).
+demonstration test, and adds a v2 block-binding test (coinbases are
+block-bound; no v1 cross-fork test ever existed to invert).
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 EOF
@@ -731,7 +731,7 @@ Replace the first line:
         block3.add_txn(cb3, is_coinbase=True)
 ```
 
-Both tests still exercise their intended assertion: with the binding now satisfied (`cb.prev_hash == blockN.prev_hash`), `validate_coinbase` passes the prev_hash check, `chain.add_block` proceeds, and the original S/G/M-mismatch `InvalidCoinbaseError` (the coinbase has no S/G/M outflows matching the block's regular txn) is raised as before — now inside the `pytest.raises` block.
+Both tests still exercise their intended assertion. To be precise about *why* setting `prev_hash` is the right fix (the two checks are at different layers): `add_txn(is_coinbase=True)` → `cb.validate_coinbase()` runs `CoinbaseTransactionModel`, which only requires `prev_hash` to be a **non-None, well-formed `MillHashType`** (a FORMAT check) — it does NOT compare `prev_hash` to the block. With a bare `Transaction()` (`prev_hash=None`) that format check raises at the `add_txn` line, before the test's `pytest.raises` block — the crash this step fixes. Setting `cb.prev_hash = blockN.prev_hash` satisfies that format requirement (any valid `MillHashType` would, but the block's own `prev_hash` is the semantically correct value). The test then proceeds to `chain.add_block`, where `block.validate()` raises the original S/G/M-mismatch `InvalidCoinbaseError` (the coinbase has no S/G/M outflows matching the block's regular txn) — *inside* `block.validate()`, before `Chain.validate_block_coinbase`'s binding-equality check is even reached. So these two scenarios exercise the S/G/M check, not the binding-value check; the binding-equality check (`cb.prev_hash != block.prev_hash`) is covered separately by `test_a4_c_coinbase_block_binding` (Task 9). Either way the assertion (`InvalidCoinbaseError`) now fires inside the `pytest.raises` block as intended.
 
 - [ ] **Step 4: Confirm every coinbase-construction site is covered**
 
@@ -978,7 +978,7 @@ def test_a4_c_coinbase_block_binding(app, time_machine, wallet) -> None:
 
 - [ ] **Step 5: Update the module docstring**
 
-The module docstring claims every test is `@pytest.mark.xfail(strict=True)` — stale (A2.e already remediated; A4.c now too). Replace the module docstring (lines 1-21) with the version describing open-finding (xfail) vs remediated (plain pass) vs non-regression states — use the exact text from the merged v1 plan's Task 5 Step 8 (it was written for this purpose):
+The module docstring claims every test is `@pytest.mark.xfail(strict=True)` — stale (A2.e already remediated; A4.c now too). Replace the module docstring (lines 1-21) with this exact text, which describes the open-finding (xfail) vs remediated (plain pass) vs non-regression states and names `test_a4_c_coinbase_block_binding` (the v2 binding test) as the example invariant test:
 
 ```python
 """Demonstration and regression tests for the verification pipeline audit.
