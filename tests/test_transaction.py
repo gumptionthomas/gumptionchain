@@ -251,3 +251,22 @@ def test_regular_txn_data_csv_excludes_prev_hash(wallet):
     assert t.data_csv == expected
     # to_dict (asdict_sans_none) must not surface a prev_hash key.
     assert 'prev_hash' not in t.to_dict()
+
+
+def test_coinbase_txn_requires_prev_hash(wallet):
+    """A4.c v2: a coinbase with no prev_hash binding is rejected by
+    validate_coinbase().
+
+    CoinbaseTransactionModel declares `prev_hash: MillHashType` (required,
+    no default), so a coinbase built without a binding fails coinbase
+    validation. This pins the structural invariant the whole binding
+    scheme depends on — if the field were ever relaxed back to
+    `MillHashType | None = None`, this negative assertion fails.
+    """
+    cb = Transaction(outflows=[Outflow(amount=100, address=wallet.address)])
+    cb.set_wallet(wallet)
+    cb.seal()
+    cb.sign()
+    assert cb.prev_hash is None
+    with pytest.raises(InvalidTransactionError):
+        cb.validate_coinbase()
