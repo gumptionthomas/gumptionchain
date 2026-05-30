@@ -607,6 +607,120 @@ All clean.
 
 ---
 
+## Task 7b: Update direct `Transaction.coinbase(...)` callers in tests
+
+**Files:** Modify `tests/conftest.py`, `tests/test_transaction.py`.
+
+`Transaction.coinbase` now requires a `prev_hash` argument. Production has exactly one caller (`Block.create_coinbase`, updated in Task 7). Tests have three *direct* callers that build standalone coinbases (not via `Block.seal`), and they will fail with a missing-argument `TypeError` unless updated. Use `GENESIS_HASH` (`mill_hash_str('GENESIS')`, a valid `MillHashType`) as the binding for these standalone, block-less coinbases — they test serialization / DB round-trip / pending-pool behavior, not block binding, so any valid hash works and `GENESIS_HASH` reads as "no real parent block."
+
+- [ ] **Step 1: `tests/conftest.py` — the `valid_coinbase_txn` fixture**
+
+The fixture params (around conftest.py:273-280) are `(reward, S, G, M)` tuples spread into `Transaction.coinbase(wallet, *request.param)`. Add `GENESIS_HASH` as the `prev_hash` keyword. First ensure `GENESIS_HASH` is imported (check the top of conftest.py; if absent, add `from cancelchain.chain import GENESIS_HASH` — confirm the exact existing `from cancelchain.chain import ...` line and extend it).
+
+Find (around conftest.py:279-280):
+
+```python
+def valid_coinbase_txn(request, wallet):
+    return Transaction.coinbase(wallet, *request.param)
+```
+
+Replace with:
+
+```python
+def valid_coinbase_txn(request, wallet):
+    return Transaction.coinbase(wallet, *request.param, prev_hash=GENESIS_HASH)
+```
+
+- [ ] **Step 2: `tests/test_transaction.py` — `test_db` and `test_pending_txns`**
+
+Ensure `GENESIS_HASH` is imported at the top of `test_transaction.py` (add `from cancelchain.chain import GENESIS_HASH` if absent — confirm any existing `from cancelchain.chain import ...` line and extend it).
+
+Find (around test_transaction.py:124):
+
+```python
+        cb = Transaction.coinbase(wallet, 20, 10, 9, 8)
+```
+
+Replace with:
+
+```python
+        cb = Transaction.coinbase(wallet, 20, 10, 9, 8, prev_hash=GENESIS_HASH)
+```
+
+Find (around test_transaction.py:131):
+
+```python
+    cb = Transaction.coinbase(wallet, 10, 0, 0, 0)
+```
+
+Replace with:
+
+```python
+    cb = Transaction.coinbase(wallet, 10, 0, 0, 0, prev_hash=GENESIS_HASH)
+```
+
+- [ ] **Step 3: Confirm no other direct callers remain**
+
+```bash
+grep -rn '\.coinbase(' src tests
+```
+
+Expected matches: `src/cancelchain/block.py` (Task 7, passes `prev_hash=self.prev_hash`), `tests/conftest.py` (Step 1, `prev_hash=GENESIS_HASH`), `tests/test_transaction.py` ×2 (Step 2). Every call now passes `prev_hash`. No bare `Transaction.coinbase(wallet, ...)` without it.
+
+- [ ] **Step 4: Verify these tests pass**
+
+```bash
+uv run pytest tests/test_transaction.py 2>&1 | tail -5
+uv run ruff check tests/conftest.py tests/test_transaction.py
+uv run mypy 2>&1 | tail -2
+```
+
+`test_transaction.py` green; ruff/mypy clean. (This also exercises the coinbase round-trip with `prev_hash` — `test_db` does `cb.to_db()` then `Transaction.from_db(cb.txid)` and asserts equality, which now round-trips `prev_hash` through the DAO. If `test_db`'s equality assertion fails, the `to_dao`/`from_dao` `prev_hash` wiring from Task 4 Steps 6-7 is incomplete.)
+
+- [ ] **Step 5: Add an explicit regression test that regular-txn `data_csv` (hence txid) is unchanged**
+
+The conditional-append in Task 4 Step 2 is load-bearing: regular txns must produce a `data_csv` byte-identical to the pre-binding 6-field format (so their txids do not change). The existing `test_transaction.py` tests only round-trip / equality-check transactions — they do NOT pin a fixed txid, so an accidental unconditional append would go uncaught. Add a direct structural assertion. Append to `tests/test_transaction.py` (it already imports `Transaction`; the `wallet` fixture is available):
+
+```python
+def test_regular_txn_data_csv_excludes_prev_hash(wallet):
+    """A4.c v2 guard: a regular txn's data_csv (and therefore its txid)
+    is unchanged by the coinbase prev_hash binding.
+
+    The prev_hash field is conditionally appended to data_csv only when
+    set; regular txns leave it None, so their data_csv must be the exact
+    6-field join (timestamp, address, public_key, inflows, outflows,
+    version) with no trailing prev_hash field.
+    """
+    t = Transaction()
+    t.add_inflow(Inflow(outflow_txid='a' * 64, outflow_idx=0))
+    t.add_outflow(Outflow(amount=5, address=wallet.address))
+    t.set_wallet(wallet)
+    t.seal()
+    assert t.prev_hash is None
+    expected = ','.join([
+        str(t.timestamp),
+        str(t.address),
+        str(t.public_key),
+        ','.join(i.data_csv for i in t.inflows),
+        ','.join(o.data_csv for o in t.outflows),
+        str(t.version),
+    ])
+    assert t.data_csv == expected
+    # to_dict (asdict_sans_none) must not surface a prev_hash key.
+    assert 'prev_hash' not in t.to_dict()
+```
+
+Confirm the imports `Inflow`, `Outflow` are present in `test_transaction.py` (they are used by other tests there; if not, add `from cancelchain.payload import Inflow, Outflow`). Run:
+
+```bash
+uv run pytest tests/test_transaction.py::test_regular_txn_data_csv_excludes_prev_hash -v 2>&1 | tail -5
+uv run ruff check tests/test_transaction.py
+```
+
+Passes; ruff clean. This is the canary for T4's concern — if `data_csv` appended `prev_hash` unconditionally, `t.data_csv == expected` would fail (the actual would have a trailing empty field).
+
+---
+
 ## Task 8: Add the binding check in `validate_block_coinbase`
 
 **Files:** Modify `src/cancelchain/chain.py`.
@@ -732,7 +846,7 @@ grep -n 'cross_fork' tests/test_verification_audit.py
 
 Expected: no matches (the v1 cross-fork test was never implemented). If it somehow exists, delete it — v2 makes cross-fork coinbase replay invalid (binding mismatch), so an "accepted" assertion would be wrong.
 
-Then add a v2 binding test that asserts the block-bound semantics directly. Append to `tests/test_verification_audit.py` (the imports `Block`, `Miller`, `REWARD`, `Transaction`, `now`, `now_iso` are already present; add `Chain` from `cancelchain.chain` and `MismatchedCoinbaseError` from `cancelchain.exceptions` to the import block if not present):
+Then add a v2 binding test that asserts the block-bound semantics directly. Append to `tests/test_verification_audit.py`. The test body uses `m.longest_chain` (a `Chain` instance) via its methods but does NOT reference the `Chain` class name, so do NOT import `Chain` (it would be an unused import → ruff `F401`). The only new import needed is `MismatchedCoinbaseError` from `cancelchain.exceptions` (add it to the existing `from cancelchain.exceptions import (...)` block); `Block`, `Miller`, `Transaction`, `now`, `now_iso`, and `datetime` are already imported:
 
 ```python
 def test_a4_c_coinbase_block_binding(app, time_machine, wallet) -> None:
@@ -883,7 +997,7 @@ uv run mypy
 uv run pytest 2>&1 | tail -3
 ```
 
-All exit 0. Pytest shows `239 passed, 4 xfailed, 1 skipped` (was 237+5; A4.c un-xfailed +1, new binding test +1).
+All exit 0. Pytest shows `240 passed, 4 xfailed, 1 skipped` (was 237+5; A4.c un-xfailed +1, the audit binding test +1, the regular-txn data_csv regression test +1).
 
 - [ ] **Step 2: --runxfail + db check**
 
@@ -900,7 +1014,7 @@ rm -f "${TMPDB}"
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/cancelchain/exceptions.py src/cancelchain/transaction.py src/cancelchain/models.py src/cancelchain/block.py src/cancelchain/chain.py src/cancelchain/migrations/versions/ tests/test_verification_audit.py docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md docs/superpowers/ROADMAP.md docs/superpowers/specs/2026-05-30-a4c-coinbase-uniqueness-design.md docs/superpowers/plans/2026-05-30-a4c-coinbase-uniqueness.md
+git add src/cancelchain/exceptions.py src/cancelchain/transaction.py src/cancelchain/models.py src/cancelchain/block.py src/cancelchain/chain.py src/cancelchain/migrations/versions/ tests/conftest.py tests/test_transaction.py tests/test_verification_audit.py docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md docs/superpowers/ROADMAP.md docs/superpowers/specs/2026-05-30-a4c-coinbase-uniqueness-design.md docs/superpowers/plans/2026-05-30-a4c-coinbase-uniqueness.md
 git commit -m "$(cat <<'EOF'
 fix(a4c-v2): bind coinbase to its block via prev_hash
 
@@ -928,7 +1042,7 @@ blocks).
 
 Test went from xfail to a real pass; a new test_a4_c_coinbase_block_
 binding asserts consecutive blocks have distinct coinbase txids and
-that a mismatched binding is rejected. Full suite 239 passed, 4 xfailed,
+that a mismatched binding is rejected. Full suite 240 passed, 4 xfailed,
 1 skipped. Audit doc + ROADMAP record A4.c closed; v1 spec/plan carry
 supersession banners.
 
@@ -971,7 +1085,7 @@ The v1 lineage-uniqueness check (PR #88, docs-only) proved unimplementable: a co
 ## Test plan
 
 - [x] All 5 CI gates clean (ruff check + ruff format + pytest + mypy + db check).
-- [x] \`uv run pytest\` → \`239 passed, 4 xfailed, 1 skipped\`.
+- [x] \`uv run pytest\` → \`240 passed, 4 xfailed, 1 skipped\`.
 - [x] \`uv run pytest --runxfail tests/test_verification_audit.py\` → \`3 passed, 4 failed\`.
 - [x] The 17 v1-breaking legitimate-block tests pass (coinbases unique per block).
 - [ ] CI green on 3.12 and 3.13.
@@ -1004,7 +1118,7 @@ grep -n "prev_hash" src/cancelchain/models.py
 # Migration includes the column
 grep -rn "prev_hash" src/cancelchain/migrations/versions/
 # Tests
-uv run pytest 2>&1 | tail -3                              # 239 passed, 4 xfailed, 1 skipped
+uv run pytest 2>&1 | tail -3                              # 240 passed, 4 xfailed, 1 skipped
 uv run pytest --runxfail tests/test_verification_audit.py 2>&1 | tail -3   # 3 passed, 4 failed
 # Gates
 uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy
@@ -1036,4 +1150,4 @@ The regenerated initial migration must be identical to the old one EXCEPT for th
 
 ### Risk: regular-txn txids accidentally change
 
-The conditional-append in `data_csv` (Task 4 Step 2) is load-bearing: it must append `prev_hash` ONLY when non-None. A regression test in `test_a4_c_coinbase_block_binding` could be extended, but the existing regular-txn tests (`test_transaction.py`) already pin regular-txn txids — if the conditional were wrong (unconditional append), those tests fail. Run `uv run pytest tests/test_transaction.py` explicitly after Task 4.
+The conditional-append in `data_csv` (Task 4 Step 2) is load-bearing: it must append `prev_hash` ONLY when non-None. The existing `test_transaction.py` tests do NOT pin a fixed regular-txn txid (they only round-trip / equality-check), so they would NOT catch an unconditional append that silently churns every regular txid. Task 7b Step 5 adds an explicit `test_regular_txn_data_csv_excludes_prev_hash` that asserts a regular txn's `data_csv` equals the exact 6-field join (no trailing `prev_hash`) — the direct canary for this risk. Run it after Task 4.
