@@ -373,6 +373,14 @@ class Node:
             except Exception:
                 db.session.rollback()
                 raise
+            # Clean up the ChainFill staging row (its own commit) BEFORE
+            # firing signals, then null out the local handle so the outer
+            # finally doesn't run another commit. Otherwise any DB writes
+            # performed by synchronous new_block listeners would be
+            # bundled into the chain_fill cleanup transaction, undermining
+            # the "post-commit notification" contract.
+            chain_fill.delete()
+            chain_fill = None
             # Post-commit — fire signals only for confirmed-persisted
             # blocks, in apply order.
             for block in applied:
