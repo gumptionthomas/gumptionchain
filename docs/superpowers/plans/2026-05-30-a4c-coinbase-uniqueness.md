@@ -286,25 +286,27 @@ Replace with:
 
 ### Step 3: Add the import if needed
 
-If Step 1 showed `DuplicateCoinbaseError` was NOT in the existing import block, add it. The existing import line looks like:
+If Step 1 showed `DuplicateCoinbaseError` was NOT in the existing import block, add it — and ONLY it. `chain.py` currently imports `InvalidCoinbaseErrorRewardError` from this part of the exception hierarchy (used by the existing reward check) but NOT bare `InvalidCoinbaseError`. The new check raises `DuplicateCoinbaseError`, so that is the only symbol to add. Do NOT add `InvalidCoinbaseError` — it is unused in `chain.py` and would fail Ruff's `F401` unused-import check.
+
+The existing import block looks like:
 
 ```python
 from cancelchain.exceptions import (
     ...
-    InvalidCoinbaseError,
+    InvalidBlockError,
     InvalidCoinbaseErrorRewardError,
     ...
 )
 ```
 
-Add `DuplicateCoinbaseError,` to that block in alphabetical order. The result should include:
+Add `DuplicateCoinbaseError,` in alphabetical order (it sorts before `InvalidBlockError`). The result:
 
 ```python
 from cancelchain.exceptions import (
     ...
     DuplicateCoinbaseError,
     ...
-    InvalidCoinbaseError,
+    InvalidBlockError,
     InvalidCoinbaseErrorRewardError,
     ...
 )
@@ -350,7 +352,7 @@ The fix is applied but the A4.c xfail decorator is still in place, so the A4.c t
 uv run pytest --deselect 'tests/test_verification_audit.py::test_a4_c_ii_coinbase_replay_inflates_balance' 2>&1 | tail -3
 ```
 
-Expected: `236 passed, 5 xfailed, 1 skipped` (the full `237 passed` baseline minus the deselected A4.c test, which is no longer counted; the other 5 audit xfails and 1 skip are unchanged). No `failed`.
+Expected: `237 passed, 4 xfailed, 1 skipped`. A4.c is currently one of the 5 xfailed tests (not one of the 237 passed), so deselecting it leaves the passed count UNCHANGED at 237 and drops the xfail count from 5 to 4. The 1 skip is unchanged. No `failed`.
 
 If you run the full suite without the deselect, you will see `1 failed` on `test_a4_c_ii_coinbase_replay_inflates_balance` with `[XPASS(strict)]` — that is the expected signal, not a regression. Any OTHER failure means the new check is over-firing. Investigate before proceeding:
 - If `tests/test_chain.py` or `tests/test_miller.py` fails, the chain instance may be in an unexpected state when `validate_block_coinbase` runs. Trace the chain construction path used by that test.
