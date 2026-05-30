@@ -366,8 +366,21 @@ class Node:
                     if chain_fill_block.block_json is None:
                         continue
                     block = Block.from_json(chain_fill_block.block_json)
+                    # A concurrent receive between staging and apply may
+                    # have already persisted this block. add_block is still
+                    # called so the chain tip advances (Block.to_dao()
+                    # returns the existing row, so the inner flush is a
+                    # no-op for the block but updates chain state). Only
+                    # append to applied — and therefore only fire the
+                    # post-commit new_block signal — for blocks this batch
+                    # actually persisted, honoring signals.py's
+                    # "newly-persisted block" contract.
+                    already_persisted = bool(
+                        block.block_hash and Block.from_db(block.block_hash)
+                    )
                     self.add_block(block, commit=False)
-                    applied.append(block)
+                    if not already_persisted:
+                        applied.append(block)
                     progress_next()
                 db.session.commit()
             except Exception:
