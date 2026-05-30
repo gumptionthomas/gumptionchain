@@ -684,14 +684,31 @@ Update to:
 
 If there's a severity-breakdown line that says "0 Critical / 0 High / 1 Medium / 4 Low (post-A2.e)", update it to "0 Critical / 0 High / 0 Medium / 4 Low (post-A4.c)". (A4.c was the last Medium; after this PR no Mediums remain.)
 
-### Step 4: Verify structural counts
+### Step 4: Update the audit doc's Recommendations section
+
+The audit's **Recommendations** section has a forward-looking A4.c entry (search for `### 2. A4.c (Medium) — coinbase-uniqueness check`, around audit doc line 1164). It currently recommends:
+
+> Add a `self.get_transaction(cb.txid, start_block=block)` lookup; if non-None (and the matched txn isn't this candidate block's own coinbase — i.e., the matched txn's `block_transactions` m2m doesn't include `block`), raise a new `DuplicateCoinbaseError(InvalidCoinbaseError)` ...
+
+That `start_block=block` + m2m-self-exclusion sketch is the audit's original idea, NOT the implemented design. The implemented design starts from the parent (`start_block=parent`), which never includes the candidate, so no self-exclusion caveat is needed. Replace the body of that recommendation subsection with a closed/implemented note:
+
+```markdown
+### 2. A4.c (Medium) — coinbase-uniqueness check in `Chain.validate_block_coinbase` ✅ Implemented
+
+Closed by the A4.c remediation impl PR. The implemented fix computes the candidate block's parent (`parent = Block.from_db(block.prev_hash)`) and calls `self.get_transaction(cb.txid, start_block=parent)`; if the lookup returns non-None, it raises a new `DuplicateCoinbaseError(InvalidCoinbaseError)` (defined in `src/cancelchain/exceptions.py`). Starting the walk from the parent — rather than from `block` itself, as this audit's original sketch proposed — keeps the candidate out of the walk, so no m2m self-exclusion caveat is needed and `Chain.validate()` full-chain revalidation is unaffected. The lookup is lineage-scoped (per-block recursive CTE), so legitimate cross-fork coinbase replay (the A4.b case) is preserved. Acceptance signal: `test_a4_c_ii_coinbase_replay_inflates_balance` flips from xfail to pass; `test_a4_c_cross_fork_coinbase_replay_accepted` guards the cross-fork non-regression.
+```
+
+Also update the single forward-looking sketch sentence embedded in the §Adversary 4 → Attack c.ii **consequence paragraph** (search for `A \`Chain.get_transaction(cb.txid, start_block=block)\` check in \`validate_block_coinbase\``, around audit doc line 600). Change `start_block=block` to `start_block=Block.from_db(block.prev_hash)` so the historical trace's "would close the gap" note matches the shipped design. (The rest of that forensic paragraph — how the gap works — is historical record and stays as-is.)
+
+### Step 5: Verify structural counts
 
 ```bash
 grep -c '^| A[1-7]\.' docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md
 grep -c '^\*\*Finding A' docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md
+grep -c 'start_block=block)' docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md
 ```
 
-Expected: both = 4. (Was 5 post-A2.e; A4.c removal brings it to 4.)
+Expected: Findings table = 4; Finding entries = 4 (was 5 post-A2.e; A4.c removal brings it to 4). The `start_block=block)` count should be only the legitimate inflow-check references in the Adversary 4 trace (e.g. `get_transaction(i.outflow_txid, start_block=block)` for inflow validation, which is correct and unrelated to A4.c) — verify no remaining A4.c coinbase recommendation still says `start_block=block`.
 
 ---
 
