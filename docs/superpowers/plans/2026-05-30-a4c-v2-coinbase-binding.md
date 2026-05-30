@@ -123,20 +123,16 @@ Expected: `1 xfailed`.
 
 **Files:** Modify `src/cancelchain/exceptions.py`.
 
-- [ ] **Step 1:** Find (near line 101):
+- [ ] **Step 1:** Locate the existing `InvalidCoinbaseErrorRewardError` class (near line 101):
 
 ```python
 class InvalidCoinbaseErrorRewardError(InvalidCoinbaseError):
     pass
 ```
 
-Add immediately after:
+Append **only this new class** immediately after it (two blank lines, then the class — do NOT re-paste `InvalidCoinbaseErrorRewardError`):
 
 ```python
-class InvalidCoinbaseErrorRewardError(InvalidCoinbaseError):
-    pass
-
-
 class MismatchedCoinbaseError(InvalidCoinbaseError):
     pass
 ```
@@ -158,16 +154,15 @@ Both clean; one match.
 
 - [ ] **Step 1: Add the dataclass field**
 
-Find (around line 121):
+Find the existing `version` field on the `Transaction` dataclass (around line 121):
 
 ```python
     version: str = field(default=VERSION_1, compare=False, repr=False)
 ```
 
-Add immediately after it (a new field on the `Transaction` dataclass):
+Append **only this new field line** immediately after it (do NOT re-paste the `version` line):
 
 ```python
-    version: str = field(default=VERSION_1, compare=False, repr=False)
     prev_hash: str | None = field(default=None, compare=False, repr=False)
 ```
 
@@ -867,7 +862,7 @@ At this point Task 7b has already added `test_regular_txn_data_csv_excludes_prev
 To confirm cleanly, deselect the not-yet-un-xfailed A4.c test:
 
 ```bash
-uv run pytest --deselect 'tests/test_verification_audit.py::test_a4_c_ii_coinbase_replay_inflates_balance' 2>&1 | tail -3
+COLUMNS=200 uv run pytest --deselect 'tests/test_verification_audit.py::test_a4_c_ii_coinbase_replay_inflates_balance' 2>&1 | tail -3
 ```
 
 Expected: `238 passed, 4 xfailed, 1 skipped`, no failures.
@@ -1166,7 +1161,7 @@ The v1 lineage-uniqueness check (PR #88, docs-only) proved unimplementable: a co
 ## Test plan
 
 - [x] All 5 CI gates clean (ruff check + ruff format + pytest + mypy + db check).
-- [x] \`uv run pytest\` → \`240 passed, 4 xfailed, 1 skipped\`.
+- [x] \`COLUMNS=200 uv run pytest\` → \`240 passed, 4 xfailed, 1 skipped\` (COLUMNS guard avoids the pre-existing terminal-width-dependent test_create_wallet failure).
 - [x] \`uv run pytest --runxfail tests/test_verification_audit.py\` → \`3 passed, 4 failed\`.
 - [x] The 17 v1-breaking legitimate-block tests pass (coinbases unique per block).
 - [ ] CI green on 3.12 and 3.13.
