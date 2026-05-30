@@ -21,7 +21,7 @@ The companion design spec is `docs/superpowers/specs/2026-05-30-a4c-coinbase-uni
   - `29fd216 docs(a4c): add coinbase-txid uniqueness check design spec`
   This plan adds a second commit on that branch (the plan file itself) and ships both as the docs PR.
 - CI hard-gates (per `.github/workflows/tests.yml`): `ruff check`, `ruff format --check`, `pytest`, `mypy`, and `cancelchain db upgrade` + `cancelchain db check`.
-- Test baseline (post-A2.e): **237 passed, 5 xfailed, 1 skipped**. After the impl PR lands, expect **239 passed, 4 xfailed, 1 skipped** — A4.c moves from xfail to pass (+1), and a new cross-fork non-regression test (`test_a4_c_cross_fork_coinbase_replay_accepted`, plan Task 5 Step 8) adds another pass (+1).
+- Test baseline (post-A2.e): **237 passed, 5 xfailed, 1 skipped**. After the impl PR lands, expect **239 passed, 4 xfailed, 1 skipped** — A4.c moves from xfail to pass (+1), and a new cross-fork non-regression test (`test_a4_c_cross_fork_coinbase_replay_accepted`, plan Task 5 Step 9) adds another pass (+1).
 - Each PR ends with `wor` (Copilot review wait + reply) and `mwg` (merge when green); the controller handles those, not the implementer subagent. Auto-rereview on cancelchain is inconsistent in practice (per `project_copilot_auto_rereview`) — the controller asks the user to click "Re-request review" if the polling loop times out.
 - Never push directly to `main`.
 
@@ -486,11 +486,48 @@ uv run pytest tests/test_verification_audit.py::test_a4_c_ii_coinbase_replay_inf
 
 All exit 0; test still passes.
 
-### Step 8: Add the cross-fork non-regression test
+### Step 8: Update the module-level docstring
+
+The module docstring at the top of `tests/test_verification_audit.py` still claims *every* test is marked `@pytest.mark.xfail(strict=True)`. That stopped being true when A2.e was remediated (PR #87 removed its decorator) and becomes further stale here — A4.c's decorator is removed (Step 2) and a non-xfail cross-fork regression test is added (Step 9). Replace the module docstring (lines 1-21, from the opening `"""` through the closing `"""`) with:
+
+```python
+"""Demonstration and regression tests for the verification pipeline audit.
+
+Each finding in
+docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md
+has a corresponding test here, in one of two states:
+
+- **Open findings** carry `@pytest.mark.xfail(strict=True)`: the xfail
+  demonstrates the gap still exists; strict=True means that if the test
+  starts unexpectedly passing (because remediation landed), CI fails,
+  forcing the remediation PR to remove the marker.
+- **Remediated findings** have had the xfail decorator removed and now
+  pass as plain regression tests guarding the fix (e.g. A2.e, A4.c).
+
+The module may also hold non-regression tests that assert legitimate
+behavior is preserved by a fix — e.g.
+test_a4_c_cross_fork_coinbase_replay_accepted, which checks the A4.c
+coinbase-uniqueness check does NOT over-reject cross-fork replay.
+
+To verify a still-xfailed test genuinely demonstrates a gap (rather than
+failing for an unrelated reason), run:
+
+    uv run pytest --runxfail tests/test_verification_audit.py
+
+That runs the xfail tests as if unmarked, surfacing the actual failure
+mode; the already-remediated tests pass under it too.
+
+Finding IDs are referenced in each test's docstring (and, for still-open
+findings, the xfail reason string) in the form A<N>.<letter> matching the
+audit document's per-adversary sections.
+"""
+```
+
+### Step 9: Add the cross-fork non-regression test
 
 The new check's primary edge case is over-rejecting a coinbase that exists only on a competing fork (the structurally-legitimate cross-fork replay documented in audit Attack b). Add a non-regression test that builds a competing sibling fork, replays a canonical-fork coinbase onto it, and asserts `validate_block_coinbase` does NOT raise `DuplicateCoinbaseError`.
 
-First, extend the test module's imports. The current import block (around tests/test_verification_audit.py:28-40) imports `Block`, `GENESIS_HASH`, `REWARD`, `Miller`, `Transaction`, etc., but NOT `Chain` or `DuplicateCoinbaseError`. Add them:
+First, extend the test module's imports. The import block (immediately below the module docstring — locate it by the `from cancelchain.* import` lines, not a fixed line number, since the Step 8 docstring rewrite shifts line numbers) imports `Block`, `GENESIS_HASH`, `REWARD`, `Miller`, `Transaction`, etc., but NOT `Chain` or `DuplicateCoinbaseError`. Add them:
 
 - In the `from cancelchain.chain import (...)` line, add `Chain` (alphabetically: `Chain, GENESIS_HASH, REWARD`).
 - In the `from cancelchain.exceptions import (...)` block, add `DuplicateCoinbaseError` (alphabetically before `InvalidBlockError`).
@@ -613,7 +650,7 @@ def test_a4_c_cross_fork_coinbase_replay_accepted(
             )
 ```
 
-### Step 9: Verify the cross-fork test passes + the module counts update
+### Step 10: Verify the cross-fork test passes + the module counts update
 
 ```bash
 uv run pytest tests/test_verification_audit.py::test_a4_c_cross_fork_coinbase_replay_accepted -v 2>&1 | tail -10
