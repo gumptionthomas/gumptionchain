@@ -881,6 +881,9 @@ class PendingTxnDAO(Base):
         if earliest is not None:
             stmt = stmt.where(cls.received >= earliest)
         if expired is not None:
+            # Same open-boundary rule as block.txn_is_expired: a txn is
+            # expired iff its timestamp is strictly older than the cutoff,
+            # so keep timestamp >= cutoff (the boundary txn is alive).
             stmt = stmt.where(cls.timestamp >= expired)
         stmt = stmt.order_by(cls.timestamp, cls.txid)
         for (json_data,) in db.session.execute(stmt):

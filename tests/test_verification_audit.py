@@ -465,38 +465,22 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
         assert _chain_count() == 1
 
 
-@pytest.mark.xfail(
-    reason=(
-        'Audit finding A7.e — severity Low — three call sites apply '
-        'TXN_TIMEOUT with three different comparison operators around '
-        'the boundary value: Block.validate_transaction uses strict < '
-        '(block.py:269), Miller.pending_chain_txns uses strict > '
-        '(miller.py:74), and Node.discard_expired_pending_txns uses <= '
-        '(node.py:105). A txn timestamped exactly now-TXN_TIMEOUT is '
-        'non-expired per the block validator but expired per pending-pool '
-        'maintenance. See '
-        'docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md'
-    ),
-    strict=True,
-)
 def test_a7_e_txn_timeout_boundary_inconsistency(
     app, time_machine, wallet
 ) -> None:
-    """A7.e: same boundary value treated differently by three call sites.
+    """A7.e: the boundary value is treated consistently across call sites
+    (regression test).
 
     Pre-state: Local chain has a mined genesis paying `wallet` REWARD; a
     valid spending txn T exists in pending with timestamp exactly
     now - TXN_TIMEOUT.
-    Attack: Call Node.discard_expired_pending_txns at time `now`. Today
-    T is discarded (uses <=). Then construct an in-memory block with
-    timestamp `now` and call block.validate_transaction(T) — it does
-    NOT raise ExpiredTransactionError (Block uses strict <).
-    Expected after remediation: All three sites agree on the same
-    open/closed boundary semantics. Recommended: open (strict <),
-    meaning T is "alive" at the boundary instant. Concretely,
-    discard_expired_pending_txns should NOT discard T at the boundary.
-    Observed today: discard_expired_pending_txns evicts T even though
-    Block.validate_transaction would accept it.
+    Invariant under test (post-remediation): all sites share the open-
+    boundary `txn_is_expired` rule — a txn exactly TXN_TIMEOUT old is
+    "alive". So `Block.validate_transaction(T)` does NOT raise
+    ExpiredTransactionError at the boundary, AND
+    `Node.discard_expired_pending_txns` does NOT discard T at the boundary.
+    Pre-remediation, the block validator used strict `<` (alive) while
+    discard used `<=` (evicted), disagreeing at the boundary instant.
     """
     with app.app_context():
         # Mine a genesis paying `wallet` so we have a spendable outflow.
@@ -532,24 +516,25 @@ def test_a7_e_txn_timeout_boundary_inconsistency(
 
         # Cross-check that Block.validate_transaction at the boundary
         # accepts T (block timestamp = `when_dt`, txn timestamp =
-        # `when_dt - TXN_TIMEOUT`; block.py:269's strict-< means
-        # equality is non-expired).
+        # `when_dt - TXN_TIMEOUT`; the open-boundary `txn_is_expired`
+        # check treats equality as non-expired).
         boundary_block = Block(timestamp=dt_2_iso(when_dt))
         # Should NOT raise ExpiredTransactionError; the block validator
         # treats this txn as alive at the boundary.
         boundary_block.validate_transaction(t)
 
-        # Today: Node.discard_expired_pending_txns evicts T because it
-        # uses `<= now() - TXN_TIMEOUT` (node.py:105). After remediation
-        # (open-boundary semantics applied consistently), the eviction
-        # check should align with Block.validate_transaction's strict-<,
-        # leaving T in pending.
+        # Pre-remediation, Node.discard_expired_pending_txns evicted T
+        # because it used `<= now() - TXN_TIMEOUT`. After remediation
+        # (open-boundary semantics applied consistently via txn_is_expired),
+        # the eviction check aligns with Block.validate_transaction's
+        # strict `<`, leaving T in pending.
         m.discard_expired_pending_txns()
         assert len(m.pending_txns) == 1, (
-            'A7.e gap demonstrated: T was discarded by '
+            'A7.e regression: T was discarded by '
             'discard_expired_pending_txns at the boundary even though '
             'Block.validate_transaction treats T as non-expired at the '
-            'same instant.'
+            'same instant — the open-boundary txn_is_expired rule should '
+            'keep them consistent.'
         )
 
 

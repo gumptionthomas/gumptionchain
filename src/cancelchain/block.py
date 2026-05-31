@@ -51,6 +51,17 @@ TXN_TIMEOUT = timedelta(hours=4)
 MISSED_TARGET_MSG = 'Missed target'
 
 
+def txn_is_expired(txn_timestamp_dt: datetime, reference_dt: datetime) -> bool:
+    """A txn is expired iff its timestamp is strictly older than
+    TXN_TIMEOUT relative to reference_dt. Open boundary: a txn exactly
+    TXN_TIMEOUT old (txn_timestamp_dt == reference_dt - TXN_TIMEOUT) is
+    NOT expired. Single source of truth for the expiry boundary — every
+    other site (Node.discard_expired_pending_txns, Miller.pending_chain_txns,
+    and the PendingTxnDAO.json_datas SQL query) applies this same rule.
+    """
+    return txn_timestamp_dt < reference_dt - TXN_TIMEOUT
+
+
 def validate_hash_diff(block_hash: str, target: str) -> bool:
     return int(block_hash, 16) < int(target, 16)
 
@@ -273,7 +284,7 @@ class Block:
         if self.timestamp_dt and txn_ts_dt is not None:
             if txn_ts_dt > self.timestamp_dt:
                 raise FutureTransactionError()
-            if txn_ts_dt < self.timestamp_dt - TXN_TIMEOUT:
+            if txn_is_expired(txn_ts_dt, self.timestamp_dt):
                 raise ExpiredTransactionError()
         if prev_txn and txn < prev_txn:
             raise OutOfOrderTransactionError()

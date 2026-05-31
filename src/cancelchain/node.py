@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
 
-from cancelchain.block import TXN_TIMEOUT, Block
+from cancelchain.block import Block, txn_is_expired
 from cancelchain.chain import Chain, is_genesis_block
 from cancelchain.database import db
 from cancelchain.exceptions import (
@@ -101,9 +101,11 @@ class Node:
         return txn if added else None
 
     def discard_expired_pending_txns(self) -> None:
-        expired_dt = now() - TXN_TIMEOUT
+        reference_dt = now()
         for txn in self.pending_txns:
-            if txn.timestamp_dt is not None and txn.timestamp_dt <= expired_dt:
+            if txn.timestamp_dt is not None and txn_is_expired(
+                txn.timestamp_dt, reference_dt
+            ):
                 self.pending_txns.discard(txn)
 
     def send_block(

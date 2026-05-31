@@ -2,7 +2,12 @@ import datetime
 
 import pytest
 
-from cancelchain.block import MAX_TRANSACTIONS, TXN_TIMEOUT, Block
+from cancelchain.block import (
+    MAX_TRANSACTIONS,
+    TXN_TIMEOUT,
+    Block,
+    txn_is_expired,
+)
 from cancelchain.chain import GENESIS_HASH
 from cancelchain.exceptions import (
     ExpiredTransactionError,
@@ -195,3 +200,14 @@ def test_genesis_from_db(app, reward, wallet):
         assert genesis is not None
         assert genesis == block
         assert genesis.idx == 0
+
+
+def test_txn_is_expired_boundary():
+    ref = now()
+    one_sec = datetime.timedelta(seconds=1)
+    # Strictly older than TXN_TIMEOUT -> expired.
+    assert txn_is_expired(ref - TXN_TIMEOUT - one_sec, ref) is True
+    # Exactly TXN_TIMEOUT old -> alive (open boundary).
+    assert txn_is_expired(ref - TXN_TIMEOUT, ref) is False
+    # Younger than TXN_TIMEOUT -> alive.
+    assert txn_is_expired(ref - TXN_TIMEOUT + one_sec, ref) is False

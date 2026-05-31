@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from cancelchain.block import MAX_TRANSACTIONS, TXN_TIMEOUT, Block
+from cancelchain.block import MAX_TRANSACTIONS, Block, txn_is_expired
 from cancelchain.chain import Chain
 from cancelchain.milling import milling_generator
 from cancelchain.node import Node
@@ -68,11 +68,11 @@ class Miller(Node):
     def pending_chain_txns(
         self, chain: Chain
     ) -> Generator[Transaction, None, None]:
-        expired_dt = now() - TXN_TIMEOUT
+        reference_dt = now()
         for txn in self.pending_txns:
             if (
                 txn.timestamp_dt is not None
-                and txn.timestamp_dt > expired_dt
+                and not txn_is_expired(txn.timestamp_dt, reference_dt)
                 and not chain.get_transaction(
                     txn.txid  # type: ignore[arg-type]
                 )

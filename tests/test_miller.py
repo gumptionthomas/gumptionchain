@@ -239,3 +239,43 @@ def test_invalid_subject_forgive_txns(app, subject, time_machine, wallet):
         time_machine.move_to(when_dt)
         with pytest.raises(InsufficientFundsError):
             m.longest_chain.create_forgive(wallet, 1, subject)
+
+
+def test_pending_chain_txns_boundary_alive(app, time_machine, wallet):
+    """A7.e: a pending txn timestamped exactly now - TXN_TIMEOUT is
+    yielded by pending_chain_txns (alive at the open boundary)."""
+    with app.app_context():
+        m = Miller(milling_wallet=wallet)
+        b0 = m.create_block()
+        m.mill_block(b0)
+        now_dt = now()
+        time_machine.move_to(now_dt - TXN_TIMEOUT)
+        t = m.longest_chain.create_transfer(
+            wallet, m.longest_chain.balance(wallet.address), wallet.address
+        )
+        t.sign()
+        time_machine.move_to(now_dt)
+        m.pending_txns.add(t)
+        yielded = list(m.pending_chain_txns(m.longest_chain))
+        assert t in yielded
+
+
+def test_pending_chain_txns_expired_excluded(app, time_machine, wallet):
+    """A7.e: a pending txn one second older than the boundary (strictly
+    older than TXN_TIMEOUT) is NOT yielded by pending_chain_txns."""
+    with app.app_context():
+        m = Miller(milling_wallet=wallet)
+        b0 = m.create_block()
+        m.mill_block(b0)
+        now_dt = now()
+        time_machine.move_to(
+            now_dt - TXN_TIMEOUT - datetime.timedelta(seconds=1)
+        )
+        t = m.longest_chain.create_transfer(
+            wallet, m.longest_chain.balance(wallet.address), wallet.address
+        )
+        t.sign()
+        time_machine.move_to(now_dt)
+        m.pending_txns.add(t)
+        yielded = list(m.pending_chain_txns(m.longest_chain))
+        assert t not in yielded
