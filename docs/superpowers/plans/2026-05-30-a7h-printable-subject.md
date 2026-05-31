@@ -105,9 +105,13 @@ def test_valid_raw_subject_helper():
 
 Run:
 ```bash
-uv run pytest tests/test_payload.py -k "non_printable or valid_raw_subject_helper" tests/test_verification_audit.py::test_a7_h_non_printable_subject_accepted -v
+uv run pytest tests/test_payload.py tests/test_verification_audit.py::test_a7_h_non_printable_subject_accepted -v
 ```
-Expected: FAIL — today a control-char subject passes `validate_subject`/`validate_raw_subject` (so the `is False` assertions fail), `_valid_raw_subject` doesn't exist (ImportError/AttributeError), and `test_a7_h…` fails because `receive_transaction` does not raise.
+Expected: FAIL. Two distinct failure shapes, both expected and both the "red" signal (do not treat them as a setup mistake):
+- `tests/test_payload.py` errors at **collection** with `ImportError: cannot import name '_valid_raw_subject'` — the helper doesn't exist until Step 4. (This is why the whole module errors rather than showing per-test failures; the new unit tests can't run until the import resolves.)
+- `test_a7_h_non_printable_subject_accepted` FAILS because `receive_transaction` does not raise on the control-char subject today.
+
+(The accept-case tests — `test_validate_subject_accepts_printable`, `test_validate_raw_subject_accepts_printable` — would pass even without the fix, since the current validators already accept `'Acme Corp'`/`'café'`/`'🍎'`; they're correctness guards that the fix doesn't over-reject, not gap demonstrators.)
 
 - [ ] **Step 4: Implement the helper and route both validators through it**
 
@@ -192,6 +196,8 @@ git commit -m "fix(a7h): reject non-printable subjects via str.isprintable()"
 **Files:**
 - Modify: `docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md`
 - Modify: `docs/superpowers/ROADMAP.md`
+
+> **All Find/Replace edits below are substring replacements** (use the Edit tool): match the quoted "Find" text and swap only that span, preserving any other text on the same line that the Find string doesn't include. Several target lines (e.g. the audit findings-table count, the ROADMAP open-count) continue with trailing sentences that must survive.
 
 - [ ] **Step 1: Update the audit doc**
 
