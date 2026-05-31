@@ -325,23 +325,27 @@ Replace: `Three have since been remediated (A2.e, A4.c, A7.b); three remain open
 Find: `4 open findings: 0 Critical / 0 High / 0 Medium / 4 Low (post-A4.c).`
 Replace: `3 open findings: 0 Critical / 0 High / 0 Medium / 3 Low (post-A7.b).`
 
-(c) A7.b findings-table row (line 43): prefix the description with a remediation marker, mirroring how remediated findings are flagged elsewhere in the table. Change the leading `| A7.b | Low |` cell text to begin with `✅ Remediated (PR #<N_impl>). ` and flip the substance to past tense ("accepted … " → "previously accepted; now rejected via a canonical-genesis check raising `DuplicateGenesisError`"). Keep the row's test reference.
+(c) A7.b findings-table row (line 43): **remove the entire `| A7.b | Low | … |` row.** This findings table lists only *open* findings — A2.e and A4.c were removed from it when they were remediated (verify: neither appears in the table today). Do the same for A7.b. After removal the table lists A1.f, A7.e, A7.h.
 
-(d) A7.b deep-dive section (the `**Outcome:**` / `**Finding A7.b…**` / `**Remediation sketch:**` block around lines 885-895): add a `✅ **Remediated.**` lead-in to the Finding paragraph and append a sentence describing the shipped fix: `Chain.validate_block` now calls `Block.genesis_from_db()` and raises `DuplicateGenesisError(InvalidBlockError)` when a different genesis is already persisted; `Block.genesis_from_db()` keys on `idx == 0` to avoid a `chain.py → block.py` circular import. Flip the `**Outcome:**` line for sub-attack b.ii from `ACCEPTED` to `REJECTED (post-remediation)`.
+(d) A7.b deep-dive section (the `**Outcome:**` / `**Finding A7.b…**` / `**Remediation sketch:**` block around lines 885-895): add a `✅ **Remediated.**` lead-in to the Finding paragraph and append a sentence describing the shipped fix: `Chain.validate_block` now calls `Block.genesis_from_db()` and raises `DuplicateGenesisError(InvalidBlockError)` when a different genesis is already persisted; `Block.genesis_from_db()` keys on `idx == 0` to avoid a `chain.py → block.py` circular import. Flip the `**Outcome:**` line for sub-attack b.ii from `ACCEPTED` to `REJECTED (post-remediation)`. (Match the existing A4.c convention: its deep-dive uses a `✅ **Implemented (v2 binding fix).**` lead-in.)
 
 (e) A7.j cross-link section (around lines 1072-1089): update the `**No new finding for j.**` paragraph to note A7.j's entry path is now closed: append `Closed via the A7.b remediation (PR #<N_impl>): the alternate-genesis root is rejected at admission, so a disjoint-ancestor reorg can no longer be mounted. Regression: test_a7_j_disjoint_genesis_reorg_rejected.`
 
-(f) Remediation-priority section "### 3. A7.b (Low)" (around line 1163): add a `✅ **Implemented.**` lead-in and replace the "Acceptance signal: … flips from xfail to pass" sentence with `Acceptance signal: test_a7_b_alternate_genesis_fragments_chain_registry is now a passing regression test (xfail removed); test_a7_j_disjoint_genesis_reorg_rejected proves the A7.j reorg path is closed.`
+(f) Remediation-priority section "### 3. A7.b (Low)" (around line 1163): mirror the A4.c heading convention (A4.c's heading reads `### 2. A4.c (Medium) — ✅ Implemented — coinbase-to-block binding…`). Change the A7.b heading to `### 3. A7.b (Low) — ✅ Implemented — canonical-genesis check in Chain.validate_block`, add a `✅ **Implemented.**` lead-in to the body, and replace the "Acceptance signal: … flips from xfail to pass" sentence with `Acceptance signal: test_a7_b_alternate_genesis_fragments_chain_registry is now a passing regression test (xfail removed); test_a7_j_disjoint_genesis_reorg_rejected proves the A7.j reorg path is closed.`
 
 - [ ] **Step 3: Update the ROADMAP**
 
 In `docs/superpowers/ROADMAP.md`:
 
-(a) Remove the A7.b bullet from the open-findings list (line 52, the `1. **A7.b — Low — Alternate-genesis…**` item) and renumber the remaining open items (A7.h, A7.e, A1.f) accordingly.
+(a) Update the open-findings count prose (line 48):
+Find: `Four open findings from the 2026-05-29 verification pipeline audit (A2.e and A4.c are closed; see Closed items).`
+Replace: `Three open findings from the 2026-05-29 verification pipeline audit (A2.e, A4.c, and A7.b are closed; see Closed items).`
 
-(b) Update the open-findings severity line wherever it states the current tally (it reads `0 Critical / 0 High / 0 Medium / 4 Low` post-A4.c) to `0 Critical / 0 High / 0 Medium / 3 Low`.
+(b) Remove the A7.b numbered item from the open-findings list (item `1. **A7.b — Low — Alternate-genesis admission fragments chain registry.**…`) and renumber the remaining items so A7.h, A7.e, A1.f become 1, 2, 3.
 
-(c) Add a remediated entry for A7.b in the same style as the A4.c entry (the `✅ **Audit finding A4.c …**` line), linking the docs PR (this branch's PR) and the impl PR placeholder:
+> Note: there is **no standalone open-findings severity-tally line** in the ROADMAP. The only `0 Critical / 0 High / 0 Medium / 4 Low` string lives inside the A4.c **Closed-items historical entry**, which records the severity *at A4.c's close* and must **NOT** be modified. Do not touch it. The new severity tally (`… / 3 Low`) appears only in the new A7.b closed entry added in (c) below, and in the audit doc (Step 2a/2b).
+
+(c) Add a remediated entry for A7.b at the end of the "Closed items (historical reference)" section, in the same style as the A4.c entry (the `✅ **Audit finding A4.c …**` line), linking the docs PR (this branch's PR) and the impl PR placeholder:
 
 ```markdown
 - ✅ **Audit finding A7.b — alternate-genesis admission fragments the chain registry** — closed by docs PR [#<N_docs>](https://github.com/gumptionthomas/cancelchain/pull/<N_docs>) (design+plan) and impl PR [#<N_impl>](https://github.com/gumptionthomas/cancelchain/pull/<N_impl>). `Chain.validate_block` now rejects a block claiming genesis when a different genesis is already persisted, raising `DuplicateGenesisError` (via a `Block.genesis_from_db()` helper keyed on `idx == 0`). This also closes A7.j (disjoint-ancestor reorg), whose only entry path is alternate-genesis admission. No schema change. Brings audit severity to 0 Critical / 0 High / 0 Medium / 3 Low.
@@ -393,5 +397,5 @@ Expected: empty — this change adds no migration.
 
 - **Do not** import `GENESIS_HASH` into `block.py` (circular import). The helper keys on `idx == 0`, which is equivalent to genesis by the `idx == prev_index + 1` invariant.
 - **Idempotency is load-bearing.** The `existing_genesis.block_hash != block.block_hash` guard is what keeps `Chain.validate()` full-chain revalidation green (revalidating the canonical genesis compares it against itself). Do not simplify it to a bare "a genesis already exists → raise".
-- Keep the A7.j test self-contained: submit `g2` then `b2` directly via `receive_block`. Both raise locally (`DuplicateGenesisError`, then `MissingBlockError`) — `receive_block` raises `MissingBlockError` on a missing parent without attempting a peer `fill_chain` walk (`node.py:160-165`). Do not wire a peer proxy. The point is that g2's rejection makes the longer fork unrootable, which b2's `MissingBlockError` concretely demonstrates.
+- Keep the A7.j test self-contained: submit `g2` then `b2` directly via `receive_block`. Both raise locally (`DuplicateGenesisError`, then `MissingBlockError`) — `receive_block` raises `MissingBlockError` on a missing parent without attempting a peer `fill_chain` walk (`node.py:159-165`). Do not wire a peer proxy. The point is that g2's rejection makes the longer fork unrootable, which b2's `MissingBlockError` concretely demonstrates.
 - This is a fix PR: no adjacent refactors. The pre-existing `test_create_wallet` terminal-width bug is out of scope (separate PR).
