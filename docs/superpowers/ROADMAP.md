@@ -45,7 +45,7 @@ Originating spec:
 
 ## Audit remediation — verification pipeline findings (PR #84)
 
-One open finding from the 2026-05-29 verification pipeline audit (A2.e, A4.c, A7.b, A7.h, and A7.e are closed; see Closed items). Each has a demonstration `@pytest.mark.xfail(strict=True)` test in `tests/test_verification_audit.py`; remediation removes the xfail and the test becomes a real pass (strict mode forces this).
+One open finding from the 2026-05-29 verification pipeline audit (A2.e, A4.c, A7.b, A7.h, and A7.e are closed; see Closed items). It has a demonstration `@pytest.mark.xfail(strict=True)` test in `tests/test_verification_audit.py`; remediation removes the xfail and the test becomes a real pass (strict mode forces this).
 
 Pick from this list in priority order (recommended ordering per the audit's Recommendations section — based on tractability + blast-radius alignment, not strict severity).
 

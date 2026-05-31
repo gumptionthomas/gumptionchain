@@ -468,21 +468,19 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
 def test_a7_e_txn_timeout_boundary_inconsistency(
     app, time_machine, wallet
 ) -> None:
-    """A7.e: same boundary value treated differently by three call sites.
+    """A7.e: the boundary value is treated consistently across call sites
+    (regression test).
 
     Pre-state: Local chain has a mined genesis paying `wallet` REWARD; a
     valid spending txn T exists in pending with timestamp exactly
     now - TXN_TIMEOUT.
-    Attack: Call Node.discard_expired_pending_txns at time `now`. Today
-    T is discarded (uses <=). Then construct an in-memory block with
-    timestamp `now` and call block.validate_transaction(T) — it does
-    NOT raise ExpiredTransactionError (Block uses strict <).
-    Expected after remediation: All three sites agree on the same
-    open/closed boundary semantics. Recommended: open (strict <),
-    meaning T is "alive" at the boundary instant. Concretely,
-    discard_expired_pending_txns should NOT discard T at the boundary.
-    Observed today: discard_expired_pending_txns evicts T even though
-    Block.validate_transaction would accept it.
+    Invariant under test (post-remediation): all sites share the open-
+    boundary `txn_is_expired` rule — a txn exactly TXN_TIMEOUT old is
+    "alive". So `Block.validate_transaction(T)` does NOT raise
+    ExpiredTransactionError at the boundary, AND
+    `Node.discard_expired_pending_txns` does NOT discard T at the boundary.
+    Pre-remediation, the block validator used strict `<` (alive) while
+    discard used `<=` (evicted), disagreeing at the boundary instant.
     """
     with app.app_context():
         # Mine a genesis paying `wallet` so we have a spendable outflow.
@@ -532,10 +530,11 @@ def test_a7_e_txn_timeout_boundary_inconsistency(
         # strict `<`, leaving T in pending.
         m.discard_expired_pending_txns()
         assert len(m.pending_txns) == 1, (
-            'A7.e gap demonstrated: T was discarded by '
+            'A7.e regression: T was discarded by '
             'discard_expired_pending_txns at the boundary even though '
             'Block.validate_transaction treats T as non-expired at the '
-            'same instant.'
+            'same instant — the open-boundary txn_is_expired rule should '
+            'keep them consistent.'
         )
 
 
