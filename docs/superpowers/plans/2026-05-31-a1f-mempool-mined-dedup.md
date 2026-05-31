@@ -85,7 +85,14 @@ Leave the rest of the test body unchanged.
 
 - [ ] **Step 3: Add the regression test in test_miller.py**
 
-`tests/test_miller.py` already imports `datetime`, `pytest`, `Inflow`, `Outflow`, `Transaction`, `Miller`, `now`. Add `DuplicateMinedTransactionError` to its `from cancelchain.exceptions import (...)` block (it currently imports `InsufficientFundsError`). Then append:
+`tests/test_miller.py` already imports `datetime`, `pytest`, `Inflow`, `Outflow`, `Transaction`, `Miller`, `now`. Its exceptions import is a single line: `from cancelchain.exceptions import InsufficientFundsError`. Adding a second name exceeds 80 chars, so rewrite it to the parenthesized multi-line form (alphabetical: D before I):
+```python
+from cancelchain.exceptions import (
+    DuplicateMinedTransactionError,
+    InsufficientFundsError,
+)
+```
+Then append:
 
 ```python
 def test_mined_txn_replay_rejected(app, time_machine, wallet):
