@@ -387,3 +387,8 @@ class Block:
     def from_db(cls, block_hash: str) -> Self | None:
         dao = BlockDAO.get(block_hash)
         return cls.from_dao(dao) if dao else None
+
+    @classmethod
+    def genesis_from_db(cls) -> Self | None:
+        dao = BlockDAO.get(idx=0)
+        return cls.from_dao(dao) if dao else None
