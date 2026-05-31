@@ -133,4 +133,4 @@ Expected: empty — this is a test-only change; no source files modified.
 
 - Do NOT change `src/cancelchain/command.py` or the Rich console — the CLI's wrapping of long paths is correct for human use; the test was the bug.
 - Keep the change scoped to `test_create_wallet`. The other `test_command.py` tests use short-substring `in result.output` checks that don't wrap.
-- The `COLUMNS=200` references in `CLAUDE.md` and plan/gate templates can be cleaned up in a separate follow-up once this lands — out of scope here.
+- The `COLUMNS=200` gate-command examples in this session's superpowers specs/plans become unnecessary once this lands, but they are harmless historical records (not worth retro-editing). `CLAUDE.md` does not reference `COLUMNS=200`. Out of scope here either way.

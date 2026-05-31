@@ -92,8 +92,11 @@ No source change. The CLI's Rich-wrapped output is unchanged.
   correct for human use).
 - Other `test_command.py` tests — they use short-substring `in result.output`
   checks that don't wrap; only `test_create_wallet` reconstructs a path.
-- Removing the now-unnecessary `COLUMNS=200` references in `CLAUDE.md` and the
-  plan/gate command templates — a separate follow-up cleanup once this lands.
+- The `COLUMNS=200` gate-command examples in this session's superpowers
+  specs/plans (`docs/superpowers/{specs,plans}/…`) become unnecessary once
+  this lands. They are harmless historical records (the prefix still works);
+  not worth retro-editing merged docs. (`CLAUDE.md` does not reference
+  `COLUMNS=200`.)
 
 ## Acceptance criteria
 
