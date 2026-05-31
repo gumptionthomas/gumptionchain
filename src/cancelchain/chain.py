@@ -173,7 +173,7 @@ class Chain:
         block.validate()
         if block.timestamp_dt is not None and block.timestamp_dt > now():
             raise FutureBlockError()
-        if is_genesis_block(block):
+        if is_genesis_block(block) and block.idx == 0:
             existing_genesis = Block.genesis_from_db()
             if (
                 existing_genesis is not None
