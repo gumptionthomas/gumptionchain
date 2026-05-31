@@ -23,9 +23,13 @@ and miller selection. Severity Low.
 
 The gap is observable on any node where the replayed txn isn't already in its
 own pending pool — e.g. a peer that learned the txn only via block gossip and
-never had it pending. (On the originating node, the existing
-`if txn not in self.pending_txns:` guard would short-circuit a same-node
-replay; the cross-node case is the real surface.)
+never had it pending (the usual post-mining state, since block assembly
+removes mined txids from pending). Note the existing
+`if txn not in self.pending_txns:` guard only skips *re-adding* an
+already-pending txn — `receive_transaction` still calls `send_transaction`
+afterward regardless, so even a same-node replay is re-gossiped. Placing the
+new mined-check before that guard therefore stops both the pool re-entry and
+the gossip amplification of replayed mined txns.
 
 ## Goal
 
