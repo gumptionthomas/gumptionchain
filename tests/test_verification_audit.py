@@ -37,10 +37,12 @@ from cancelchain.block import TXN_TIMEOUT, Block
 from cancelchain.chain import GENESIS_HASH, REWARD
 from cancelchain.database import db
 from cancelchain.exceptions import (
+    DuplicateGenesisError,
     InvalidBlockError,
     InvalidCoinbaseError,
     InvalidTransactionError,
     MismatchedCoinbaseError,
+    MissingBlockError,
 )
 from cancelchain.miller import Miller
 from cancelchain.models import ChainDAO
@@ -391,6 +393,77 @@ def test_a7_b_alternate_genesis_fragments_chain_registry(
         # today the count goes to 2 because Node.add_block created a
         # second ChainDAO row.
         assert _chain_count() == initial_chain_count
+
+
+def test_a7_j_disjoint_genesis_reorg_rejected(
+    app, time_machine, wallet, miller_2_wallet
+) -> None:
+    """A7.j: a longer fork rooted at an alternate genesis cannot displace
+    the canonical chain — its root genesis is rejected at admission.
+
+    A7.j (disjoint-ancestor reorg) has no standalone finding: the
+    catastrophic-rebuild branch is correct PoW longest-chain behavior. The
+    gap is the alternate-genesis admission (A7.b). This test proves closing
+    A7.b closes A7.j: even a LONGER fork (g2 + child b2, length 2 vs the
+    canonical length 1) cannot win. Its root genesis g2 is rejected
+    (DuplicateGenesisError), and its child b2 is then unrootable — submitting
+    b2 raises MissingBlockError because its parent g2 was never admitted. The
+    reorg never completes.
+    """
+    with app.app_context():
+
+        def _chain_count() -> int:
+            return len(db.session.execute(db.select(ChainDAO)).scalars().all())
+
+        now_dt = now()
+        when_dt = now_dt - datetime.timedelta(hours=1)
+        time_machine.move_to(when_dt)
+        # Canonical genesis g1 paying `wallet`.
+        m1 = Miller(milling_wallet=wallet)
+        g1 = m1.create_block()
+        m1.mill_block(g1)
+        assert g1.block_hash is not None
+        assert g1.idx == 0
+        canonical_chain = ChainDAO.longest()
+        assert canonical_chain is not None
+        canonical_tip = canonical_chain.block.block_hash
+        assert canonical_tip == g1.block_hash
+        assert _chain_count() == 1
+
+        # Build a LONGER disjoint fork rooted at an alternate genesis.
+        when_dt += datetime.timedelta(minutes=5)
+        time_machine.move_to(when_dt)
+        g2 = Block()
+        g2.link(0, GENESIS_HASH, TEST_TARGET)
+        g2.seal(miller_2_wallet, REWARD)
+        g2.mill()
+        assert g2.block_hash is not None
+        assert g2.block_hash != g1.block_hash
+        assert g2.idx == 0
+        # Child b2 chains off g2 — fork length 2 > canonical length 1.
+        when_dt += datetime.timedelta(minutes=5)
+        time_machine.move_to(when_dt)
+        b2 = Block()
+        b2.link(1, g2.block_hash, TEST_TARGET)
+        b2.seal(miller_2_wallet, REWARD)
+        b2.mill()
+        assert b2.idx == 1
+        assert b2.prev_hash == g2.block_hash
+
+        # The fork's root g2 is rejected at admission.
+        with pytest.raises(DuplicateGenesisError):
+            m1.receive_block(g2.to_json())
+        # b2 is therefore unrootable: its parent g2 was never persisted, so
+        # receive_block rejects it locally with MissingBlockError (no peer
+        # fill is attempted). The longer fork can never be assembled.
+        with pytest.raises(MissingBlockError):
+            m1.receive_block(b2.to_json())
+
+        # Canonical chain unchanged; registry still single.
+        post_chain = ChainDAO.longest()
+        assert post_chain is not None
+        assert post_chain.block.block_hash == canonical_tip
+        assert _chain_count() == 1
 
 
 @pytest.mark.xfail(
