@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from cancelchain.chain import CURMUDGEON_PER_GRUMBLE, REWARD
@@ -253,8 +254,11 @@ def test_create_wallet(app, runner):
         result = runner.invoke(
             args=['wallet', 'create', '--walletdir', walletdir]
         )
-        wallet_filename = result.output.strip()[len('Created ') :]
-        assert Wallet.from_file(wallet_filename) is not None
+        assert result.exit_code == 0
+        assert 'Created' in result.output
+        pem_files = list(Path(walletdir).glob('*.pem'))
+        assert len(pem_files) == 1
+        assert Wallet.from_file(str(pem_files[0])) is not None
 
 
 def test_wallet_balance(
