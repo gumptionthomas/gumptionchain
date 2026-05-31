@@ -38,7 +38,6 @@ from cancelchain.chain import GENESIS_HASH, REWARD
 from cancelchain.database import db
 from cancelchain.exceptions import (
     DuplicateGenesisError,
-    InvalidBlockError,
     InvalidCoinbaseError,
     InvalidTransactionError,
     MismatchedCoinbaseError,
@@ -384,8 +383,8 @@ def test_a7_b_alternate_genesis_fragments_chain_registry(
         assert g2.is_proved
 
         # Attack: submit the alternate genesis. After remediation, this
-        # should raise InvalidBlockError. Today it silently accepts.
-        with pytest.raises(InvalidBlockError):
+        # should raise DuplicateGenesisError. Today it silently accepts.
+        with pytest.raises(DuplicateGenesisError):
             m1.receive_block(g2.to_json())
         # Even if the call had not raised, post-remediation the chain
         # registry should still hold only the canonical chain. The

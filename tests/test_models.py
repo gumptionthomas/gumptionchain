@@ -676,6 +676,10 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
         # that the new DuplicateGenesisError check — which correctly
         # rejects an alternate genesis at the protocol level — does not
         # interfere with this off-protocol DB-corruption setup.
+        # chain_b.block_hash is advanced manually after each to_db() call
+        # because chain_b.link_block reads chain_b.last_block from the DB
+        # via the tip block_hash; without advancing the tip, block_b2 would
+        # link at idx 0 (a second genesis) instead of chaining onto block_b1.
         chain_b = Chain()
         block_b1 = Block()
         chain_b.link_block(block_b1)
