@@ -159,6 +159,7 @@ def test_validate_raw_subject_rejects_non_printable():
     assert validate_raw_subject('a\u200db') is False
     assert validate_raw_subject('a\u200bb') is False
     assert validate_raw_subject('a\tb') is False
+    assert validate_raw_subject('a\nb') is False
 
 
 def test_validate_raw_subject_accepts_printable():
