@@ -56,15 +56,34 @@ Originating audit:
 
 ---
 
-## Future audit — API authentication layer
+## Audit remediation — API authentication findings (PR #102)
 
-The API authentication layer (JWT handshake, role keying via `*_ADDRESSES` regex, RSA+AES challenge in `api.py`) was deliberately scoped out of the verification audit (per its Non-goals). A companion audit pass would apply the same threat-modeled methodology to authentication: adversary categories (e.g., token replay, role-regex escape, challenge-decryption bypass, expired-but-valid-signature replay), per-attack traces through `api.Role.address_role` + `ApiToken` + the handshake endpoints, and `@pytest.mark.xfail(strict=True)` demonstration tests for any gaps.
+The 2026-05-31 API authentication audit ([report](audits/2026-05-31-api-authentication-audit.md); design+plan [#101](https://github.com/gumptionthomas/cancelchain/pull/101), findings+tests [#102](https://github.com/gumptionthomas/cancelchain/pull/102)) produced **8 findings: 0 Critical / 1 High / 5 Medium / 2 Low**, each with a `@pytest.mark.xfail(strict=True)` demonstration test in `tests/test_auth_audit.py`. Each remediation flips its xfail to a real pass. Grouped by shared fix (see the audit's Recommendations for full detail):
 
-Why deferred: the verification pipeline (chain correctness) is the more foundational layer — gaps there are existential. Auth is bounded blast radius and the audit methodology is now well-established.
+- **A4.a (High) — validate `*_ADDRESSES` regexes at config load.** Reject overbroad/unanchored patterns (e.g. `CC.*CC`) that escalate every authenticated address. Highest priority — config-triggered, no key needed. Test: `test_a4_a_overbroad_admin_regex_escalates_reader`.
+- **A3.a + A5.b (Medium) — re-validate `rol` against live config in `authorize()`.** One per-request `Role.address_role(address)` re-check closes both the forged-role (A3.a) and stale-role-after-revocation (A5.b) demonstrations. Tests: `test_a3_a_forged_role_claim_accepted`, `test_a5_b_stale_role_rejected_after_config_revocation`.
+- **A3.b (Medium) — add + verify JWT `iss`/`aud` (and `iat`/`jti`).** Binds tokens to a node/audience; closes cross-node replay. Test: `test_a3_b_cross_node_token_replay`.
+- **A2.c + A7.a (Medium) — throttle the unauthenticated token endpoint.** Wrong-challenge attempt counter + challenge invalidation, unredeemed-row cap/eviction, rate limiting; reorder `TokenView.post` to verify → role-check → reset → issue (closes the challenge-burn observation). Tests: `test_a2_c_unauthenticated_row_creation`, `test_a7_a_repeated_wrong_challenge_invalidates_token`.
+- **A1.a (Low) — `SECRET_KEY` minimum-length check at `create_app()`.** Test: `test_a1_a_weak_secret_key_startup_check`.
+- **A2.e (Low) — normalize the wrong-`Content-Type` rejection** so the status code doesn't reveal whether a token row exists. Test: `test_a2_e_content_type_oracle`.
 
-Originating spec:
-- [Verification audit — Non-goals](specs/2026-05-29-verification-pipeline-audit-design.md) "Not auth"
-- [Verification audit — What comes next](specs/2026-05-29-verification-pipeline-audit-design.md) "API auth audit"
+**Observations (no demonstration test; from the audit's Cross-cutting):**
+- `authorize_admin` is bound to no endpoint (ADMIN ≡ MILLER today) — bind it to an ADMIN-only endpoint or document the tier as reserved.
+- The `remote_app` test fixture references `host_netloc`/`remote_host_netloc` as bare names rather than fixture parameters (pre-existing bug, doesn't affect the A3.b demo) — separate `fix(test):` PR.
+
+Originating report:
+- [API authentication audit — Findings table + Recommendations](audits/2026-05-31-api-authentication-audit.md)
+
+---
+
+## API auth protocol replacement (design cycle)
+
+Beyond the targeted remediations above, the audit's Recommendations flag two structural roots: the JWT is an unbound symmetric bearer token (no `iss`/`aud`/`jti`, `rol` not re-validated), and the handshake is a roll-your-own challenge (RSA-OAEP encrypt + argon2 over a 122-bit random secret, while `Wallet.sign`/`validate_signature` sit unused). Evaluate **replacing the handshake** as its own brainstorm → spec → plan cycle. Two candidate directions named in the audit:
+- **(a) Signed-nonce challenge-response reusing `Wallet.sign`** — low-risk interim; deletes the encrypt/AES-GCM + argon2-on-random-secret path, keeps the rest of the stack.
+- **(b) RFC 9421 HTTP Message Signatures / RS256 client-assertion** — stateless; removes the challenge round-trip, the `ApiToken` table, and the shared symmetric `SECRET_KEY` for issuance. Larger change (per-request signing on every client).
+
+Originating report:
+- [API authentication audit — Recommendations: targeted fixes vs. protocol replacement](audits/2026-05-31-api-authentication-audit.md)
 
 ---
 
@@ -86,3 +105,4 @@ Each removed from this file when the closing PR landed. Keep here for now so fut
 - ✅ **Audit finding A7.h — subjects accept non-printable characters** — closed by docs PR [#93](https://github.com/gumptionthomas/cancelchain/pull/93) (design+plan) and impl PR [#94](https://github.com/gumptionthomas/cancelchain/pull/94). `validate_subject` / `validate_raw_subject` now require the decoded raw subject to satisfy `str.isprintable()` (via a shared `_valid_raw_subject()` helper) — rejecting control characters, bidi overrides, ZWJ, zero-width and non-ASCII whitespace, private-use, and unassigned codepoints, while allowing letters, marks, numbers, punctuation, symbols/emoji, and plain spaces. No schema change. Brings audit severity to 0 Critical / 0 High / 0 Medium / 2 Low.
 - ✅ **Audit finding A7.e — `TXN_TIMEOUT` comparison-operator inconsistency** — closed by docs PR [#95](https://github.com/gumptionthomas/cancelchain/pull/95) (design+plan) and impl PR [#96](https://github.com/gumptionthomas/cancelchain/pull/96). The expiry boundary is now defined once by a `txn_is_expired(txn_ts, reference_dt)` helper in `block.py` (expired ⟺ strictly older than `TXN_TIMEOUT`; open boundary). `Block.validate_transaction` (behavior-identical), `Node.discard_expired_pending_txns`, and `Miller.pending_chain_txns` route through it; the `PendingTxnDAO.json_datas` SQL already matched and carries a cross-ref comment. No schema change. Brings audit severity to 0 Critical / 0 High / 0 Medium / 1 Low.
 - ✅ **Audit finding A1.f — mempool admits already-mined txids** — closed by docs PR [#97](https://github.com/gumptionthomas/cancelchain/pull/97) (design+plan) and impl PR [#98](https://github.com/gumptionthomas/cancelchain/pull/98). `Node.receive_transaction` now performs a global `TransactionDAO.get(txn.txid)` lookup after `txn.validate()` and raises `DuplicateMinedTransactionError(InvalidTransactionError)` when the txid is already mined — before the pending-add/gossip, so replays never enter the pool. Global indexed lookup (O(1)) rather than a lineage chain-walk. Mempool admission only; no consensus change, no schema change. **This was the last open audit finding — the verification-pipeline audit is now fully remediated: 0 Critical / 0 High / 0 Medium / 0 Low.**
+- ✅ **API authentication threat-modeled audit** — closed by docs PR [#101](https://github.com/gumptionthomas/cancelchain/pull/101) (design + plan) and impl PR [#102](https://github.com/gumptionthomas/cancelchain/pull/102) (audit report + demonstration tests). Companion to the verification-pipeline audit; first systematic pass over the API auth layer (token handshake, JWT issuance/validation via `authorize()`, role keying via `*_ADDRESSES` regex). 7 adversary categories traced; **8 findings (0 Critical / 1 High / 5 Medium / 2 Low)**, each with a `@pytest.mark.xfail(strict=True)` test in `tests/test_auth_audit.py`. The High (A4.a) is an unvalidated role-regex foot-gun; the Medium cluster (A3.a/A5.b/A3.b) shares one root cause — `authorize()` trusts the signed `rol` without re-validating live config. Adversary 6 (authorized insider) was fully clean; the JWT decode path correctly pins HS256 and fails closed on `alg=none`/RS256-confusion/expired. Recommendations resolve the targeted-fixes-vs-protocol-replacement question (the challenge/response is a known roll-your-own), naming signed-nonce (`Wallet.sign`) and RFC 9421 / RS256 client-assertion candidates. Remediation items + the replacement design cycle are broken out as their own roadmap entries above. Suite: 256 passed + 8 xfailed + 1 skipped. Review process note: the internal cross-model (Sonnet) review loop caught 28 issues + pruned 1 false-positive test across the two PRs; Copilot's single backstop on #102 had 0 actionable comments.
