@@ -9,7 +9,7 @@ has a corresponding test here, in one of two states:
   starts unexpectedly passing (because remediation landed), CI fails,
   forcing the remediation PR to remove the marker.
 - **Remediated findings** have had the xfail decorator removed and now
-  pass as plain regression tests guarding the fix (e.g. A2.e, A4.c).
+  pass as plain regression tests guarding the fix (e.g. A2.e, A4.c, A7.b).
 
 The module may also hold non-regression / invariant tests that assert a
 fix's intended behavior — e.g. test_a4_c_coinbase_block_binding, which
