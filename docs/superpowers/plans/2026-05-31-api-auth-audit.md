@@ -429,7 +429,7 @@ Use these rather than reimplementing setup. Reference patterns: `tests/test_api.
 
 **When in doubt, write the trace pessimistically.** If the trace doesn't show clear rejection but you're unsure whether real-world behavior catches the attack, write the demonstration test and let it tell you. `uv run pytest --runxfail tests/test_auth_audit.py::test_a<N>_<letter>` runs the test in non-xfail mode — if it passes, the auth layer actually catches the attack and the finding is a false positive (remove the finding from the audit doc, move the trace to "correctly rejected" / Clean categories, delete the test). If it fails, the gap is real.
 
-**Known existing coverage to consult (may pre-empt findings):** `tests/test_api.py::test_post_token_invalid` shows a non-JSON `POST /api/token` body returns `400`, and `{"challenge": "foo"}` returns `401` — so the "request.json is None → 500" concern (attack 2e) is likely already a no-finding. Confirm by trace + a quick check before writing it up as a gap.
+**Known existing coverage to consult (does NOT fully pre-empt 2e):** `tests/test_api.py::test_post_token_invalid` covers two cases — a body of `'foo'` *with* `Content-Type: application/json` (Flask returns `400` on the JSON parse error) and a well-formed `{"challenge": "foo"}` (returns `401`). It does **not** exercise the attack-2e scenario: a `POST` with a *missing or non-JSON* `Content-Type` (so `request.json` is `None`) made *after* an `ApiToken` row exists, where `request.json.get('challenge')` would raise on `None`. Do not cite this test as evidence that 2e is a no-finding — trace `TokenView.post` directly and write a fresh demonstration test for the missing/wrong-content-type path before concluding either way.
 
 ---
 
@@ -512,7 +512,7 @@ EOF
 - **b.** Exploit the 60-second cipher-reuse window — `refreshed_cipher()` returns the same cipher until `expired`; is the secret single-use (does `reset()` reliably fire before a second redemption)?
 - **c.** Force-create `ApiToken` rows for arbitrary on-chain addresses (public key recoverable from chain) — unbounded table growth from an unauthenticated endpoint.
 - **d.** Race two concurrent `GET`s or `GET`/`POST` interleavings against the `unique` constraints on `cipher`/`hashed`.
-- **e.** Send `POST` with no JSON body / wrong content-type so `request.json` is `None` and `request.json.get('challenge')` raises — does it 500 (unhandled) rather than 401? (NOTE: `tests/test_api.py::test_post_token_invalid` suggests this is already a clean 400/401 — confirm before writing as a gap.)
+- **e.** Send `POST` with no JSON body / wrong content-type so `request.json` is `None` and `request.json.get('challenge')` raises — does it 500 (unhandled) rather than 401? (NOTE: the existing `test_post_token_invalid` does *not* cover this — it only tests bad JSON with the JSON content-type. Trace `TokenView.post` directly for the `None` path and write a fresh test.)
 
 **Files to read:**
 - `src/cancelchain/api.py` — `TokenView.get` / `TokenView.post` (lines ~189-227).
@@ -640,7 +640,8 @@ EOF
 
 **Files to read:**
 - `src/cancelchain/api.py` — `Role.addresses`, `Role.address_roles`, `Role.address_role` (lines ~166-186); `TokenView.post` role resolution + JWT `rol` set.
-- `src/cancelchain/schema.py` — the `address` URL converter / `AddressType` (how `<address:address>` validates the path segment).
+- `src/cancelchain/application.py` — `AddressConverter` (the `<address:address>` route converter, registered at `app.url_map.converters['address']`); its `to_python` rejects non-address path segments via `validate_address_format`.
+- `src/cancelchain/schema.py` — `validate_address_format` / `AddressType` (the helper the converter calls; how an address string is validated).
 - `src/cancelchain/config.py` — `*_ADDRESSES` loading (are values JSON lists of regexes; is there any anchoring/validation?).
 - `tests/.test.env` — the actual configured regexes used in tests (informs what a realistic match looks like).
 

@@ -155,7 +155,8 @@ Recording the no-finding rationales matters as much as the findings: the verific
 - `src/cancelchain/models.py` — `ApiToken` (+ `_PASSWORD_HASHER`).
 - `src/cancelchain/api_client.py` — `ApiClient.request_token` / token caching / 401 retry.
 - `src/cancelchain/wallet.py` — `encrypt`/`decrypt` (used) and `sign`/`validate_signature` (unused by auth).
-- `src/cancelchain/schema.py` — the `address` URL converter / `AddressType` validation.
+- `src/cancelchain/application.py` — the `AddressConverter` for the `<address:address>` URL route segment (registered at `app.url_map.converters['address']`); its `to_python` calls `validate_address_format`.
+- `src/cancelchain/schema.py` — `validate_address_format` / `AddressType` and the other validation helpers the converters call.
 - `src/cancelchain/config.py` — `*_ADDRESSES` loading.
 - `tests/test_api.py`, `tests/test_api_client.py`, `tests/conftest.py` — existing coverage + fixtures.
 
