@@ -178,3 +178,20 @@ def test_to_dao_partial_block_raises():
     assert block.block_hash is None
     with pytest.raises(InvalidBlockError, match='missing identity fields'):
         block.to_dao()
+
+
+def test_genesis_from_db(app, reward, wallet):
+    """Block.genesis_from_db() returns None until a genesis is persisted,
+    then returns the persisted canonical genesis."""
+    with app.app_context():
+        assert Block.genesis_from_db() is None
+        block = Block()
+        block.link(0, GENESIS_HASH, TEST_TARGET)
+        block.seal(wallet, reward)
+        block.mill()
+        block.validate()
+        block.to_db()
+        genesis = Block.genesis_from_db()
+        assert genesis is not None
+        assert genesis == block
+        assert genesis.idx == 0

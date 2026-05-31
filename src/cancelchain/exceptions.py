@@ -110,6 +110,10 @@ class InvalidBlockError(CCError):
     pass
 
 
+class DuplicateGenesisError(InvalidBlockError):
+    pass
+
+
 class InvalidBlockHashError(InvalidBlockError):
     pass
 

@@ -387,3 +387,15 @@ class Block:
     def from_db(cls, block_hash: str) -> Self | None:
         dao = BlockDAO.get(block_hash)
         return cls.from_dao(dao) if dao else None
+
+    @classmethod
+    def genesis_from_db(cls) -> Self | None:
+        # The canonical-genesis check in Chain.validate_block keeps at most
+        # one idx==0 row in the DB, so BlockDAO.get(idx=0)'s
+        # scalar_one_or_none() is safe. A multi-genesis DB is only reachable
+        # via pre-fix corruption (no such installs exist); if one ever did,
+        # MultipleResultsFound surfaces loudly rather than masking the
+        # corruption. Keyed on idx (not GENESIS_HASH) to avoid a
+        # chain.py -> block.py circular import.
+        dao = BlockDAO.get(idx=0)
+        return cls.from_dao(dao) if dao else None

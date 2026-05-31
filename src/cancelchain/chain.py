@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from cancelchain.block import Block
 from cancelchain.database import db
 from cancelchain.exceptions import (
+    DuplicateGenesisError,
     EmptyChainError,
     FutureBlockError,
     ImbalancedTransactionError,
@@ -172,6 +173,13 @@ class Chain:
         block.validate()
         if block.timestamp_dt is not None and block.timestamp_dt > now():
             raise FutureBlockError()
+        if is_genesis_block(block) and block.idx == 0:
+            existing_genesis = Block.genesis_from_db()
+            if (
+                existing_genesis is not None
+                and existing_genesis.block_hash != block.block_hash
+            ):
+                raise DuplicateGenesisError()
         prev_block = Block.from_db(block.prev_hash) if block.prev_hash else None
         if prev_block is None and not is_genesis_block(block):
             raise InvalidPreviousHashError()
