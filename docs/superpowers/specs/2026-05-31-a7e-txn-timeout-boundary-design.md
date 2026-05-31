@@ -87,14 +87,17 @@ datetimes; callers keep their existing `None`-guards.
    anchor through the shared definition so the pool sites can't diverge from
    it.
 
-2. **`Node.discard_expired_pending_txns`** (node.py) — replace the
-   `expired_dt = now() - TXN_TIMEOUT` + `txn.timestamp_dt <= expired_dt` logic
-   with `if txn.timestamp_dt is not None and txn_is_expired(txn.timestamp_dt, now()):`.
-   Boundary txn is now **kept** (was dropped under `<=`).
+2. **`Node.discard_expired_pending_txns`** (node.py) — capture a single
+   `reference_dt = now()` *before* the loop (as the current code captures
+   `expired_dt` once), then gate on
+   `if txn.timestamp_dt is not None and txn_is_expired(txn.timestamp_dt, reference_dt):`.
+   Boundary txn is now **kept** (was dropped under `<=`). Capturing the
+   reference once keeps expiry independent of iteration order across a second
+   boundary — do **not** evaluate `now()` inside the per-txn predicate.
 
-3. **`Miller.pending_chain_txns`** (miller.py) — replace the
-   `expired_dt = now() - TXN_TIMEOUT` + `txn.timestamp_dt > expired_dt` logic
-   with `... and not txn_is_expired(txn.timestamp_dt, now()) and ...`.
+3. **`Miller.pending_chain_txns`** (miller.py) — same: capture
+   `reference_dt = now()` once before the loop, then
+   `... and not txn_is_expired(txn.timestamp_dt, reference_dt) and ...`.
    Boundary txn is now **yielded** (was excluded under `>`).
 
 4. **`PendingTxnDAO.json_datas`** (models.py) — unchanged

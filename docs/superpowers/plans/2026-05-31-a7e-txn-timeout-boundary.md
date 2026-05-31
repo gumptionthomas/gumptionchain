@@ -113,13 +113,37 @@ def test_pending_chain_txns_boundary_alive(app, time_machine, wallet):
         m.pending_txns.add(t)
         yielded = list(m.pending_chain_txns(m.longest_chain))
         assert t in yielded
+
+
+def test_pending_chain_txns_expired_excluded(app, time_machine, wallet):
+    """A7.e: a pending txn one second older than the boundary
+    (strictly older than TXN_TIMEOUT) is NOT yielded by pending_chain_txns.
+
+    Directly exercises pending_chain_txns's helper use (the existing
+    test_expired_transaction routes through create_block, which calls
+    discard_expired_pending_txns first, so it does not cover this site)."""
+    with app.app_context():
+        m = Miller(milling_wallet=wallet)
+        b0 = m.create_block()
+        m.mill_block(b0)
+        now_dt = now()
+        # One second past the boundary -> strictly older -> expired.
+        time_machine.move_to(now_dt - TXN_TIMEOUT - datetime.timedelta(seconds=1))
+        t = m.longest_chain.create_transfer(
+            wallet, m.longest_chain.balance(wallet.address), wallet.address
+        )
+        t.sign()
+        time_machine.move_to(now_dt)
+        m.pending_txns.add(t)
+        yielded = list(m.pending_chain_txns(m.longest_chain))
+        assert t not in yielded
 ```
 
 - [ ] **Step 3: Run to verify failure**
 
 Run:
 ```bash
-uv run pytest tests/test_block.py::test_txn_is_expired_boundary tests/test_miller.py::test_pending_chain_txns_boundary_alive tests/test_verification_audit.py::test_a7_e_txn_timeout_boundary_inconsistency -v
+uv run pytest tests/test_block.py::test_txn_is_expired_boundary tests/test_miller.py::test_pending_chain_txns_boundary_alive tests/test_miller.py::test_pending_chain_txns_expired_excluded tests/test_verification_audit.py::test_a7_e_txn_timeout_boundary_inconsistency -v
 ```
 Expected: FAIL — `tests/test_block.py` errors at collection (`ImportError: cannot import name 'txn_is_expired'`); the miller test fails (today `pending_chain_txns` uses strict `>`, so the boundary txn is NOT yielded); `test_a7_e…` fails (today `discard_expired_pending_txns` uses `<=`, evicting the boundary txn).
 
@@ -242,7 +266,7 @@ with:
 
 Run:
 ```bash
-uv run pytest tests/test_block.py::test_txn_is_expired_boundary tests/test_miller.py::test_pending_chain_txns_boundary_alive tests/test_verification_audit.py::test_a7_e_txn_timeout_boundary_inconsistency -v
+uv run pytest tests/test_block.py::test_txn_is_expired_boundary tests/test_miller.py::test_pending_chain_txns_boundary_alive tests/test_miller.py::test_pending_chain_txns_expired_excluded tests/test_verification_audit.py::test_a7_e_txn_timeout_boundary_inconsistency -v
 ```
 Expected: all PASS.
 
@@ -290,9 +314,16 @@ Replace: `1 open finding: 0 Critical / 0 High / 0 Medium / 1 Low (post-A7.e).`
 
 (c) REMOVE the entire findings-table row for A7.e — the markdown line beginning `| A7.e | Low |` and ending `| `test_a7_e_txn_timeout_boundary_inconsistency` |`. (After removal the table lists only A1.f.)
 
-(d) Sub-attack Outcome (line 976):
-Find: `**Outcome:** REJECTED operationally (the txn gets discarded from pending before any miller picks it up) but ACCEPTED structurally (block-layer validation considers it non-expired). The boundary inconsistency is observable: the same txn-timestamp is "alive" per Block layer and "dead" per Node/Miller layers.`
-Replace: `**Outcome:** RESOLVED (post-remediation). All four sites now share one `txn_is_expired()` definition (expired ⟺ strictly older than `TXN_TIMEOUT`; open boundary), so a boundary txn is consistently "alive" across the Block validator, Node discard, Miller selection, and the pending-query SQL. (Pre-remediation, the same txn-timestamp was "alive" per the Block layer but "dead" per Node/Miller.)`
+(d) Sub-attack Outcome (line 976) — a single substring swap.
+
+Find exactly:
+```
+**Outcome:** REJECTED operationally (the txn gets discarded from pending before any miller picks it up) but ACCEPTED structurally (block-layer validation considers it non-expired). The boundary inconsistency is observable: the same txn-timestamp is "alive" per Block layer and "dead" per Node/Miller layers.
+```
+Replace with:
+```
+**Outcome:** RESOLVED (post-remediation). All four sites now agree on a single boundary rule (expired ⟺ strictly older than `TXN_TIMEOUT`; open boundary): the three Python sites (Block validator, Node discard, Miller selection) via the shared `txn_is_expired()` helper, and the pending-query SQL via the equivalent `timestamp >= cutoff` predicate. A boundary txn is consistently "alive" across all four. (Pre-remediation, the same txn-timestamp was "alive" per the Block layer but "dead" per Node/Miller.)
+```
 
 (e) Finding A7.e paragraph (line 978) — replace the entire paragraph (a single substring swap). This applies the "past-tense Finding paragraph under a ✅ Remediated banner" convention and drops the now-stale per-site line numbers (avoiding doc line-drift).
 
@@ -302,13 +333,30 @@ Find exactly:
 ```
 Replace with:
 ```
-✅ **Remediated.** **Finding A7.e — Severity Low** (pre-remediation behavior described below): Three call sites applied `TXN_TIMEOUT` with three different comparison operators around the boundary value: `Block.validate_transaction` used strict `<`, `Miller.pending_chain_txns` used strict `>`, and `Node.discard_expired_pending_txns` used `<=`. A txn whose `timestamp` was *exactly* `now - TXN_TIMEOUT` was therefore "non-expired" per the block validator but "expired" per pending-pool maintenance and miller selection. No chain-correctness invariant was violated (the txn would have been REJECTED via the miller's exclusion before reaching a block), but the inconsistency was a latent foot-gun: a future refactor that swapped the miller's `>` for `>=` (or removed `discard_expired_pending_txns`'s `<=` branch) would have let the txn drift to a state where the block layer accepts what the miller silently rejected. Remediated: a single `txn_is_expired(txn_ts, reference_dt)` helper in `src/cancelchain/block.py` now defines the open boundary; `Block.validate_transaction` (behavior-identical), `Node.discard_expired_pending_txns`, and `Miller.pending_chain_txns` all call it, and the `PendingTxnDAO.json_datas` SQL (`timestamp >= cutoff`) carries a cross-ref comment. Regression: `test_a7_e_txn_timeout_boundary_inconsistency` plus `test_txn_is_expired_boundary` and `test_pending_chain_txns_boundary_alive`.
+✅ **Remediated.** **Finding A7.e — Severity Low** (pre-remediation behavior described below): Three call sites applied `TXN_TIMEOUT` with three different comparison operators around the boundary value: `Block.validate_transaction` used strict `<`, `Miller.pending_chain_txns` used strict `>`, and `Node.discard_expired_pending_txns` used `<=`. A txn whose `timestamp` was *exactly* `now - TXN_TIMEOUT` was therefore "non-expired" per the block validator but "expired" per pending-pool maintenance and miller selection. No chain-correctness invariant was violated (the txn would have been REJECTED via the miller's exclusion before reaching a block), but the inconsistency was a latent foot-gun: a future refactor that swapped the miller's `>` for `>=` (or removed `discard_expired_pending_txns`'s `<=` branch) would have let the txn drift to a state where the block layer accepts what the miller silently rejected. Remediated: a single `txn_is_expired(txn_ts, reference_dt)` helper in `src/cancelchain/block.py` now defines the open boundary; `Block.validate_transaction` (behavior-identical), `Node.discard_expired_pending_txns`, and `Miller.pending_chain_txns` all call it, and the `PendingTxnDAO.json_datas` SQL (`timestamp >= cutoff`) carries a cross-ref comment. Regression: `test_a7_e_txn_timeout_boundary_inconsistency` plus `test_txn_is_expired_boundary`, `test_pending_chain_txns_boundary_alive`, and `test_pending_chain_txns_expired_excluded`.
 ```
 
-(f) Remediation-priority section (heading line 1169, body line 1171):
-- Change heading `### 5. A7.e (Low) — pick one `TXN_TIMEOUT` comparison operator` to `### 5. A7.e (Low) — ✅ Implemented — single `txn_is_expired()` definition`.
-- Prefix the body paragraph (line 1171, beginning `The fix lives at three sites:`) with `✅ **Implemented.** `.
-- In that body, replace the sentence `Acceptance signal: `test_a7_e_txn_timeout_boundary_inconsistency` flips from xfail to pass.` with `Acceptance signal: `test_a7_e_txn_timeout_boundary_inconsistency` is now a passing regression test (xfail removed), plus `test_txn_is_expired_boundary` and `test_pending_chain_txns_boundary_alive`. Implemented as a shared `txn_is_expired()` helper rather than three inline operator swaps, so the boundary is defined once and cannot drift again.`
+(f) Remediation-priority section (heading line 1169, body line 1171). Three substring swaps:
+
+Change the heading — find exactly:
+```
+### 5. A7.e (Low) — pick one `TXN_TIMEOUT` comparison operator
+```
+Replace with:
+```
+### 5. A7.e (Low) — ✅ Implemented — single `txn_is_expired()` definition
+```
+
+Prefix the body paragraph (line 1171, beginning `The fix lives at three sites:`) with `✅ **Implemented.** `.
+
+In that body, replace the acceptance-signal sentence — find exactly:
+```
+Acceptance signal: `test_a7_e_txn_timeout_boundary_inconsistency` flips from xfail to pass.
+```
+Replace with:
+```
+Acceptance signal: `test_a7_e_txn_timeout_boundary_inconsistency` is now a passing regression test (xfail removed), plus `test_txn_is_expired_boundary`, `test_pending_chain_txns_boundary_alive`, and `test_pending_chain_txns_expired_excluded`. Implemented as a shared `txn_is_expired()` helper rather than three inline operator swaps, so the boundary is defined once and cannot drift again.
+```
 
 - [ ] **Step 2: Update the ROADMAP**
 
@@ -340,7 +388,7 @@ git commit -m "docs(a7e): mark A7.e remediated; update audit + ROADMAP counts"
 - [ ] **Step 1: Full suite**
 
 Run: `COLUMNS=200 uv run pytest`
-Expected: **253 passed, 1 xfailed, 1 skipped** (baseline 250 passed / 2 xfailed / 1 skipped; this PR adds `test_txn_is_expired_boundary` + `test_pending_chain_txns_boundary_alive` as passing and moves `test_a7_e…` from xfailed to passed). No unexpectedly-passing xfails. If the baseline differs, the invariant is: +2 net new passing tests, and A7.e moved from xfailed to passed (xfailed drops by exactly 1, leaving only A1.f).
+Expected: **254 passed, 1 xfailed, 1 skipped** (baseline 250 passed / 2 xfailed / 1 skipped; this PR adds `test_txn_is_expired_boundary`, `test_pending_chain_txns_boundary_alive`, and `test_pending_chain_txns_expired_excluded` as passing and moves `test_a7_e…` from xfailed to passed). No unexpectedly-passing xfails. If the baseline differs, the invariant is: +3 net new passing tests, and A7.e moved from xfailed to passed (xfailed drops by exactly 1, leaving only A1.f).
 
 - [ ] **Step 2: xfail cross-check**
 
