@@ -36,10 +36,17 @@ def decode_subject(subject: str) -> str:
     return urlsafe_b64decode(subject_bytes).decode()
 
 
+def _valid_raw_subject(raw_subject: str) -> bool:
+    return (
+        MIN_SUBJECT_LENGTH <= len(raw_subject) <= MAX_SUBJECT_LENGTH
+        and raw_subject.isprintable()
+    )
+
+
 def validate_subject(subject: str) -> bool:
     try:
         raw_subject = decode_subject(subject)
-        if MIN_SUBJECT_LENGTH <= len(raw_subject) <= MAX_SUBJECT_LENGTH:
+        if _valid_raw_subject(raw_subject):
             return encode_subject(raw_subject) == subject
     except Exception:
         pass
@@ -48,7 +55,7 @@ def validate_subject(subject: str) -> bool:
 
 def validate_raw_subject(raw_subject: str) -> bool:
     try:
-        if MIN_SUBJECT_LENGTH <= len(raw_subject) <= MAX_SUBJECT_LENGTH:
+        if _valid_raw_subject(raw_subject):
             return decode_subject(encode_subject(raw_subject)) == raw_subject
     except Exception:
         pass

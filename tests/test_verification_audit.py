@@ -553,19 +553,6 @@ def test_a7_e_txn_timeout_boundary_inconsistency(
         )
 
 
-@pytest.mark.xfail(
-    reason=(
-        'Audit finding A7.h — severity Low — validate_subject and '
-        'validate_raw_subject (payload.py:39-55) enforce only length '
-        'bounds and canonical base64-url round-trip; they accept any '
-        'UTF-8 codepoint including null bytes, C0/C1 control characters, '
-        'bidirectional override (RLO), and zero-width joiners. Subjects '
-        'flow into CLI and API rendering paths that are unlikely to '
-        'sanitize control bytes. See '
-        'docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md'
-    ),
-    strict=True,
-)
 def test_a7_h_non_printable_subject_accepted(app, time_machine, wallet) -> None:
     """A7.h: subject with control characters is accepted into pending.
 

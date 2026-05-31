@@ -9,7 +9,9 @@ from cancelchain.payload import (
     InflowModel,
     Outflow,
     OutflowModel,
+    _valid_raw_subject,
     encode_subject,
+    validate_raw_subject,
     validate_subject,
 )
 
@@ -134,3 +136,41 @@ def test_inflow_model_rejects_negative_idx():
 def test_inflow_model_rejects_invalid_mill_hash():
     with pytest.raises(PydanticValidationError):
         InflowModel(outflow_txid='not-a-hash', outflow_idx=0)
+
+
+def test_validate_subject_rejects_non_printable():
+    assert validate_subject(encode_subject('\x1b[31mRED')) is False  # ESC, Cc
+    assert validate_subject(encode_subject('a\u202eb')) is False  # RLO, Cf
+    assert validate_subject(encode_subject('a\u200db')) is False  # ZWJ, Cf
+    assert validate_subject(encode_subject('a\u200bb')) is False  # ZWSP, Cf
+    assert validate_subject(encode_subject('a\tb')) is False  # tab, Cc
+    assert validate_subject(encode_subject('a\nb')) is False  # newline, Cc
+
+
+def test_validate_subject_accepts_printable():
+    assert validate_subject(encode_subject('Acme Corp')) is True
+    assert validate_subject(encode_subject('café')) is True
+    assert validate_subject(encode_subject('🍎')) is True
+
+
+def test_validate_raw_subject_rejects_non_printable():
+    assert validate_raw_subject('\x1b[31mRED') is False
+    assert validate_raw_subject('a\u202eb') is False
+    assert validate_raw_subject('a\u200db') is False
+    assert validate_raw_subject('a\u200bb') is False
+    assert validate_raw_subject('a\tb') is False
+    assert validate_raw_subject('a\nb') is False
+
+
+def test_validate_raw_subject_accepts_printable():
+    assert validate_raw_subject('Acme Corp') is True
+    assert validate_raw_subject('café') is True
+    assert validate_raw_subject('🍎') is True
+
+
+def test_valid_raw_subject_helper():
+    assert _valid_raw_subject('Acme Corp') is True
+    assert _valid_raw_subject('x' * 79) is True
+    assert _valid_raw_subject('\x1b') is False  # control char
+    assert _valid_raw_subject('') is False  # below min length
+    assert _valid_raw_subject('x' * 80) is False  # above max length
