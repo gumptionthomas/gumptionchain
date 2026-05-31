@@ -42,6 +42,10 @@ class InvalidTransactionError(CCError):
     pass
 
 
+class DuplicateMinedTransactionError(InvalidTransactionError):
+    pass
+
+
 class InvalidTransactionIdError(InvalidTransactionError):
     pass
 

@@ -6,7 +6,10 @@ import pytest
 from cancelchain.block import TXN_TIMEOUT
 from cancelchain.chain import CURMUDGEON_PER_GRUMBLE as CPG
 from cancelchain.chain import REWARD
-from cancelchain.exceptions import InsufficientFundsError
+from cancelchain.exceptions import (
+    DuplicateMinedTransactionError,
+    InsufficientFundsError,
+)
 from cancelchain.miller import Miller
 from cancelchain.payload import Inflow, Outflow
 from cancelchain.transaction import Transaction
@@ -279,3 +282,41 @@ def test_pending_chain_txns_expired_excluded(app, time_machine, wallet):
         m.pending_txns.add(t)
         yielded = list(m.pending_chain_txns(m.longest_chain))
         assert t not in yielded
+
+
+def test_mined_txn_replay_rejected(app, time_machine, wallet):
+    """A1.f: a fresh txn is admitted to pending, but replaying it after
+    it is mined raises DuplicateMinedTransactionError (and is not re-added)."""
+    with app.app_context():
+        now_dt = now()
+        when_dt = now_dt - datetime.timedelta(hours=1)
+        time_machine.move_to(when_dt)
+        m = Miller(milling_wallet=wallet)
+        b0 = m.create_block()
+        m.mill_block(b0)
+        cb0 = b0.coinbase
+        assert cb0 is not None
+        cb0_amount = next(iter(cb0.outflows)).amount
+        when_dt += datetime.timedelta(minutes=1)
+        time_machine.move_to(when_dt)
+        # A fresh (never-mined) txn is admitted to pending.
+        t = Transaction()
+        t.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
+        t.add_outflow(Outflow(amount=cb0_amount, address=wallet.address))
+        t.set_wallet(wallet)
+        t.seal()
+        t.sign()
+        m.receive_transaction(t.txid, t.to_json())
+        assert t in m.pending_txns
+        # Mine it, then drain pending (cross-node replay scenario).
+        when_dt += datetime.timedelta(minutes=1)
+        time_machine.move_to(when_dt)
+        b1 = m.create_block()
+        m.mill_block(b1)
+        for ptxn in list(m.pending_txns):
+            m.pending_txns.discard(ptxn)
+        assert len(m.pending_txns) == 0
+        # Replaying the now-mined txn is rejected and not re-added.
+        with pytest.raises(DuplicateMinedTransactionError):
+            m.receive_transaction(t.txid, t.to_json())
+        assert len(m.pending_txns) == 0

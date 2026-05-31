@@ -13,6 +13,7 @@ from cancelchain.block import Block, txn_is_expired
 from cancelchain.chain import Chain, is_genesis_block
 from cancelchain.database import db
 from cancelchain.exceptions import (
+    DuplicateMinedTransactionError,
     InvalidBlockError,
     InvalidBlockHashError,
     InvalidTransactionIdError,
@@ -22,6 +23,7 @@ from cancelchain.models import (
     ChainDAO,
     ChainFill,
     ChainFillBlock,
+    TransactionDAO,
     rollback_session,
 )
 from cancelchain.signals import new_block as new_block_signal
@@ -88,6 +90,8 @@ class Node:
         if txid != txn.txid:
             raise InvalidTransactionIdError()
         txn.validate()
+        if TransactionDAO.get(txn.txid) is not None:
+            raise DuplicateMinedTransactionError()
         if txn not in self.pending_txns:
             try:
                 self.pending_txns.add(txn)
