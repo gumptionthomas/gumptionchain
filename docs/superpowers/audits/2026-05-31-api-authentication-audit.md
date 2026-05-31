@@ -235,7 +235,7 @@ Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocki
 4. `api.py:203`: `wallet = Wallet(b64ks=txn.public_key)` — a public-key-only Wallet is constructed from the on-chain public key.
 5. `api.py:205`: `wallet` is non-None → does not abort.
 6. `api.py:206`: `ApiToken.create(wallet)` — persists a new row to `api_token`. The row has `unique=True` on `address` (`models.py:975`), so only one row per address is ever created; subsequent GETs reuse it.
-7. `models.py:1000-1007` (`refreshed_cipher`): called immediately; runs `_PASSWORD_HASHER.hash(secret)` (argon2, intentionally slow), an RSA-OAEP encrypt, and a DB write on every GET for a given address once the 60-second `expired` window elapses.
+7. `models.py:1000-1007` (`refreshed_cipher`): called immediately; runs `_PASSWORD_HASHER.hash(secret)` (argon2, intentionally slow), an RSA-OAEP encrypt, and a DB write under two conditions: (a) every time the 60-second `expired` window elapses, AND (b) on the very first call after row creation, because `cipher` and `hashed` are both `NULL` then (the `not (self.cipher and self.hashed)` arm fires). The first-call path is the common one during address enumeration — every new address triggers an immediate argon2 hash compute, strengthening the resource-cost argument.
 8. No cleanup: `ApiToken` has no `delete` method and no scheduled or trigger-based cleanup path anywhere in the codebase.
 
 **Outcome:** ACCEPTED as a finding. An unauthenticated caller can enumerate all on-chain addresses (all public) and trigger `api_token` row creation for each, plus argon2 hash computation every 60 seconds per address per GET. Row accumulation is bounded by the set of distinct on-chain addresses (each address creates exactly one row). No authentication is bypassed — the attacker cannot decrypt the cipher without the private key. But the unauthenticated write path and the unbounded persistent row accumulation with no eviction constitute a state-amplification / resource-exhaustion vector that grows with chain size.
@@ -316,8 +316,8 @@ Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocki
 
 **Outcome:** ACCEPTED. A bearer of the `SECRET_KEY` can assume any role for any address with no further challenge.
 
-**Finding A3.a — Severity High:**
-`authorize()` trusts the `rol` JWT claim directly without re-validating it against the live `Role.address_role()` config. A `SECRET_KEY`-bearing adversary can forge any role for any address.
+**Finding A3.a — Severity Medium:**
+`authorize()` trusts the `rol` JWT claim directly without re-validating it against the live `Role.address_role()` config. A `SECRET_KEY`-bearing adversary can forge any role for any address. Note: forging the `rol` claim requires possessing `SECRET_KEY`, which is already full compromise; the standalone severity of this `rol`-trust defect is Medium (same root cause as A5.b).
 
 **Impact:** Full RBAC bypass for all API endpoints (`/api/block` POST, `/api/transaction/*`, etc.). An attacker who extracts or guesses the `SECRET_KEY` environment variable becomes an unchallenged ADMIN with no RSA key required.
 
@@ -531,12 +531,7 @@ No `iss` (issuer) or `aud` (audience) claims are embedded in the JWT (`api.py:21
 
 **Outcome:** ACCEPTED — the replayed token grants full access. This is the **expected bearer-token model** (stateless JWT, no server-side session). There is no token-revocation mechanism; the only remediation is rotating `SECRET_KEY`, which invalidates every active token for every user system-wide. Within the TLS assumption (on-wire capture excluded), this is the documented design trade-off. The window is documented as `API_TOKEN_SECONDS = 14400` (4 hours), `api.py:51`.
 
-**Finding A5.b — Severity Low:**
-No `jti`, `iss`, or `aud` claim is embedded in the JWT (api.py:218-223: only `sub`, `rol`, `exp`). The absence of `jti` means there is no per-token identifier for a future revocation list. The absence of `iss`/`aud` is relevant if the same `SECRET_KEY` is ever shared between environments (staging/prod); a token issued against one node would be accepted by any other node with the same key. Within the current single-node design, under TLS, this is Low severity (claim-hygiene, no active exploit path). If multi-node deployments share a single `SECRET_KEY`, this rises to High.
-
-**Impact:** A leaked JWT (e.g., via logs) cannot be invalidated without a SECRET_KEY rotation that disrupts all active sessions. Missing `iss`/`aud` allows cross-environment token acceptance if `SECRET_KEY` is reused across deployments.
-
-**Remediation sketch:** Add `jti` (UUID), `iss` (NODE_HOST), and `aud` claims to the JWT payload at issuance (api.py:218-223); decode with `audience=` and `issuer=` parameters; maintain a small server-side `jti` denylist (TTL = token expiry) for explicit revocation. Alternatively, shorten `API_TOKEN_SECONDS` to reduce the exposure window of a leaked credential.
+**Observation (no finding):** a redeemed JWT is replayable for its full ~4h lifetime with no server-side revocation — an accepted property of the bearer-token model under the TLS precondition; noted for Cross-cutting.
 
 **Sub-case b2 — Stale-role replay after config revocation**
 
@@ -554,7 +549,7 @@ No `jti`, `iss`, or `aud` claim is embedded in the JWT (api.py:218-223: only `su
 
 **Outcome:** ACCEPTED — a JWT continues to grant the role it was issued with for the full 4-hour window, regardless of subsequent config changes. An operator who revokes a user's MILLER privileges in config has no way to enforce that revocation until all outstanding tokens expire, without a full `SECRET_KEY` rotation.
 
-**Finding A5.b (stale-role) — Severity Medium:**
+**Finding A5.b — Severity Medium:**
 The `rol` claim is not re-validated against live config on each request. Revoking a role from `*_ADDRESSES` config takes up to 4 hours to take effect for already-issued tokens.
 
 **Impact:** An address whose elevated role has been revoked retains that role for up to `API_TOKEN_SECONDS` (4 hours). An operator cannot enforce immediate privilege reduction without disrupting all users via SECRET_KEY rotation.
@@ -695,7 +690,7 @@ All write/gossip endpoints (POST block, POST transaction) are gated at MILLER or
 **Trace:**
 
 1. `GET /api/token/<address>` → `api.py:191` `ApiToken.get(address)` finds no row → `api.py:206` `ApiToken.create(wallet)` → `api.py:207` `api_token.refreshed_cipher()`.
-2. `models.py:1001` — `self.expired` is `True` on a brand-new row → branch enters the re-hash block.
+2. `models.py:977-978` — on a brand-new row `self.expired` is `False` (timestamp was just set by `ApiToken.create`), but `refreshed_cipher` re-hashes because `not (self.cipher and self.hashed)` is `True` — both `cipher` and `hashed` columns are `NULL` on creation, so the null-column arm fires.
 3. `models.py:1003` — `_PASSWORD_HASHER.hash(secret)` — argon2id, `time_cost=3`, `memory_cost=65536 KiB` (64 MiB), `parallelism=4` — measured ~50 ms per call on commodity hardware.
 4. Server returns `{'cipher': ...}` — the argon2 hash of the UUID secret now lives in `api_token.hashed`; the ciphertext (RSA-OAEP of the UUID, encrypted to the legitimate holder's public key) lives in `api_token.cipher`. The row is committed.
 5. Attacker now issues `POST /api/token/<address>` with `Content-Type: application/json` body `{"challenge": "<wrong-string>"}`.
@@ -703,7 +698,7 @@ All write/gossip endpoints (POST block, POST transaction) are gated at MILLER or
 7. `api.py:212` — `api_token.verify(request.json.get('challenge'))` is called unconditionally.
 8. `models.py:1015` — `self.expired` is `False` (within 60 s), `self.hashed` is set, `isinstance(secret, str)` is `True` — all guards pass.
 9. `models.py:1018` — `_PASSWORD_HASHER.verify(self.hashed, secret)` — full argon2id verify, ~45 ms / 64 MiB. Returns `False` (wrong secret).
-10. `models.py:1019` — `VerifyMismatchError` caught → `return False`.
+10. `models.py:1019` — `except (VerifyMismatchError, InvalidHashError): return False` — both a wrong secret and a malformed hash return `False` without propagating.
 11. `api.py:212-213` — `abort(401)`. **No reset, no attempt counter, no backoff.**
 12. The row remains live. Steps 5–11 repeat for every subsequent wrong-challenge POST within the 60-second window.
 13. After 60 s, the next GET triggers a fresh `hash()` call, re-opening another 60-second bombardment window. The cycle continues indefinitely.

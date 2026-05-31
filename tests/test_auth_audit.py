@@ -43,7 +43,7 @@ from cancelchain.models import ApiToken
         'See docs/superpowers/audits/2026-05-31-api-authentication-audit.md'
     ),
 )
-def test_a1_a_weak_secret_key_startup_check(app):
+def test_a1_a_weak_secret_key_startup_check():
     """A1.a: create_app() should refuse (RuntimeError) or warn loudly when
     SECRET_KEY is shorter than 32 bytes, preventing silent weak-key deployments
     that allow offline HS256 JWT forgery.
@@ -74,19 +74,15 @@ def test_a1_a_weak_secret_key_startup_check(app):
         'See docs/superpowers/audits/2026-05-31-api-authentication-audit.md'
     ),
 )
-def test_a2_c_unauthenticated_row_creation(
-    app, host, mill_block, requests_proxy, wallet
-):
+def test_a2_c_unauthenticated_row_creation(app, requests_proxy, wallet):
     """An unauthenticated caller must NOT be able to create api_token rows
     for arbitrary on-chain addresses. The endpoint should require
     authentication or at minimum cap / evict rows for addresses that
     never complete the handshake.
     """
 
-    with app.app_context():
-        # Mine a block so the chain has an on-chain address
-        _m, _b = mill_block(wallet)
-
+    # wallet.address is in app.wallets (app fixture); TokenView.get resolves
+    # it without a chain.
     # An unauthenticated attacker issues a GET for the node-wallet address.
     # The address is in app.wallets so TokenView.get resolves it and creates
     # a row in api_token without any authentication.
@@ -158,8 +154,8 @@ def test_a2_e_content_type_oracle(app, requests_proxy, wallet):
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        'Audit finding A3.a — severity High — authorize() trusts rol JWT claim '
-        'without re-validating against Role.address_role(). '
+        'Audit finding A3.a — severity Medium — authorize() trusts rol JWT '
+        'claim without re-validating against Role.address_role(). '
         'See docs/superpowers/audits/2026-05-31-api-authentication-audit.md'
     ),
 )
@@ -172,8 +168,8 @@ def test_a3_a_forged_role_claim_accepted(
     (bypassing the handshake) that claims rol=MILLER for reader_wallet's
     address and present it to a MILLER-only endpoint.  Secure behaviour:
     authorize() re-checks address_role and returns 403.  Today it returns
-    404 (auth passes, block not found), proving the rol claim is blindly
-    trusted.
+    400 (auth passes, rol claim believed; block body {} raises CCError),
+    proving the rol claim is blindly trusted.
     """
 
     with app.app_context():
@@ -201,7 +197,8 @@ def test_a3_a_forged_role_claim_accepted(
         timeout=10,
     )
     # Secure: auth layer re-checks address_role and rejects with 403.
-    # Today: auth passes (rol claim believed), endpoint returns 404.
+    # Today: auth passes (rol claim believed), endpoint returns 400
+    # (CCError from malformed block body).
     assert response.status_code == httpx.codes.FORBIDDEN
 
 
