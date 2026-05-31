@@ -4,7 +4,7 @@
 
 **Goal:** Execute the threat-modeled audit specified in `docs/superpowers/specs/2026-05-31-api-auth-audit-design.md` — produce a findings report at `docs/superpowers/audits/2026-05-31-api-authentication-audit.md` and a `tests/test_auth_audit.py` module with one `@pytest.mark.xfail(strict=True)` test per confirmed gap, across all 7 auth-adversary categories, plus a Recommendations section that resolves the targeted-fixes-vs-protocol-replacement question.
 
-**Architecture:** Single impl PR (report + tests), then a small follow-up docs PR for the roadmap update. The audit is an exploratory exercise — per-category tasks trace attacks through the existing auth code, document the trace (positive or negative), and write demonstration tests for any gaps. Per-category tasks are independent and can run in any order. The synthesis task (Findings table, Clean categories, Cross-cutting observations, Recommendations, Executive summary) comes last, after all per-category findings exist.
+**Architecture:** Single impl PR (report + tests), then a small follow-up docs PR for the roadmap update. The audit is an exploratory exercise — per-category tasks trace attacks through the existing auth code, document the trace (positive or negative), and write demonstration tests for any gaps. Per-category tasks are largely independent, with three cross-reference edges to respect in ordering: Task 9 (A7.b) and Task 7 (A5.a) cross-reference Task 4's A2.c/A2.d, and Task 5 (A3.d) cross-references Task 3's A1.b. So run **Task 3 and Task 4 before Tasks 5, 7, and 9** — otherwise those later tasks would cite a finding ID that doesn't exist yet (write a forward reference, or duplicate a test, both of which the plan tells them not to do). Tasks 6 and 8 are free-floating. The synthesis task (Findings table, Clean categories, Cross-cutting observations, Recommendations, Executive summary) comes last, after all per-category findings exist.
 
 **Tech Stack:** Python 3.12 + pytest (existing). `@pytest.mark.xfail(strict=True)` is the load-bearing marker — when remediation lands and a test starts passing, strict mode triggers a CI failure forcing the marker's removal. Auth tests drive the Flask app via the existing `requests_proxy` fixture (httpx `WSGITransport`) and `ApiClient`. The companion design spec is `docs/superpowers/specs/2026-05-31-api-auth-audit-design.md`.
 
@@ -15,12 +15,10 @@
 - Working directory: the cancelchain repo root. Run all commands from there.
 - `uv --version` 0.4.x or newer; `gh --version` works and `gh auth status` shows authenticated.
 - The verification audit and all six of its remediations are merged (audit fully closed 0/0/0/0). Verify with `git log --oneline -1 main` showing `c087cf6` or later.
-- The branch `docs/api-auth-audit-design` exists locally with one commit:
-  - `778e811 docs(auth-audit): API authentication threat-modeled audit design spec`
-  This plan adds a second commit on that branch (the plan file itself) and ships both as the docs PR.
+- The docs PR (spec + this plan) has already shipped: branch `docs/api-auth-audit-design`, opened as **PR #101**. Task 1 below is therefore already executed — it is retained for the record but its steps describe work the controller has done.
 - CI hard-gates (per `.github/workflows/tests.yml`): `ruff check`, `ruff format --check`, `pytest`, `mypy`, and `cancelchain db upgrade` + `cancelchain db check`.
 - Test baseline: **256 passed, 1 skipped**. After the audit, expect `256 passed, N xfailed, 1 skipped` where N is the number of confirmed gaps (estimated 3-8 based on the spec).
-- Each PR ends with `wor` (Copilot review wait + reply) and `mwg` (merge when green); the controller handles those, not the implementer subagent. Copilot auto-review is enabled in this repo (per `project_copilot_auto_rereview`) — no manual "Re-request review" click needed.
+- **Review loop (per `feedback_internal_review_then_one_copilot`):** before opening each PR, run an internal cross-model adversarial review (reviewer on a *different* model than the author — author is Opus, so reviewer = Sonnet) to convergence, relay findings, fix. **Then** open the PR and do exactly **one** Copilot backstop pass. Copilot does **not** auto re-review on this repo (`project_copilot_auto_rereview`) — if a fix round is needed, the controller triggers it with `gh pr comment <N> --body "/copilot review"`. `wor` + `mwg` are controller work, not the implementer subagent's.
 - Never push directly to `main`.
 
 ---
@@ -41,77 +39,16 @@ The impl PR creates exactly two new files and modifies none. The `docs/superpowe
 
 ---
 
-## Task 1: Ship the docs PR (spec + plan)
+## Task 1: Ship the docs PR (spec + plan) — ALREADY DONE
 
-**Files:** The design spec is committed on `docs/api-auth-audit-design` (`778e811`). This task adds the implementation plan as a second commit and ships both as one docs PR.
+**Status:** Complete. The controller committed the spec (`778e811`) and this plan (`accfcf4`) on `docs/api-auth-audit-design`, opened **PR #101**, ran the internal cross-model review (this very review loop) + one Copilot backstop, applied the resulting fixes, and is merging via `mwg`. No implementer subagent action is required for Task 1. The steps below are retained only as a record of what shipping the docs PR entailed:
 
-- [ ] **Step 1: Confirm branch state**
+1. Commit spec + plan on `docs/api-auth-audit-design`.
+2. Push and `gh pr create --base main` (became #101).
+3. Internal cross-model adversarial review → fix → converge.
+4. One Copilot backstop pass → fix → `mwg`.
 
-```bash
-git rev-parse --abbrev-ref HEAD
-git ls-files docs/superpowers/specs/2026-05-31-api-auth-audit-design.md
-git rev-list --count main..HEAD
-```
-
-Expected: branch is `docs/api-auth-audit-design`; spec file is tracked; commit count above main is `1`.
-
-- [ ] **Step 2: Verify the plan file is present and untracked**
-
-```bash
-ls -la docs/superpowers/plans/2026-05-31-api-auth-audit.md
-git status docs/superpowers/plans/
-```
-
-Expected: file exists; shows as untracked.
-
-- [ ] **Step 3: Stage and commit**
-
-```bash
-git add docs/superpowers/plans/2026-05-31-api-auth-audit.md
-git commit -m "$(cat <<'EOF'
-docs(auth-audit): API authentication audit implementation plan
-
-Plan executes the threat-modeled audit specified in
-2026-05-31-api-auth-audit-design.md. Single impl PR with per-category
-deep-dive tasks (7 adversaries x 3-5 attacks each), an audit
-infrastructure bootstrap task, a synthesis task (findings table +
-clean categories + cross-cutting + recommendations + executive
-summary), a follow-up roadmap PR, and an acceptance task. Tests use
-@pytest.mark.xfail(strict=True) so unexpectedly-passing tests force
-engagement during remediation.
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
-
-- [ ] **Step 4: Push**
-
-```bash
-git push -u origin docs/api-auth-audit-design
-```
-
-- [ ] **Step 5: Open the docs PR**
-
-```bash
-gh pr create --base main --head docs/api-auth-audit-design --title "docs(auth-audit): API authentication audit design + plan" --body "$(cat <<'EOF'
-## Summary
-- Adds the API authentication audit design spec (\`docs/superpowers/specs/2026-05-31-api-auth-audit-design.md\`).
-- Adds the API authentication audit implementation plan (\`docs/superpowers/plans/2026-05-31-api-auth-audit.md\`).
-- No code changes.
-
-The companion audit deferred by the verification-pipeline audit (#84), which carved auth out as an assumption. A threat-modeled security audit of the API authentication layer: the token handshake (\`TokenView\` + \`ApiToken\` + \`ApiClient.request_token\`), JWT issuance/validation (\`authorize()\`), and role-regex mapping (\`Role.address_role\`). Defines 7 adversary categories, traces each attack through the existing auth surface, and produces a findings report at \`docs/superpowers/audits/2026-05-31-api-authentication-audit.md\` plus a \`tests/test_auth_audit.py\` module with one \`@pytest.mark.xfail(strict=True)\` test per gap. Assumes TLS; audits application logic. The Recommendations section resolves the targeted-fixes-vs-protocol-replacement question the user raised (the challenge/response is a known roll-your-own), naming two best-practice replacement candidates.
-
-## Test plan
-- [x] Spec self-review passed.
-- [x] Plan self-review passed.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-```
-
-- [ ] **Step 6: Stop — controller handles wor + mwg + sync**
+Implementer subagents begin at **Task 2** (which branches off `main` after #101 merges).
 
 ---
 
@@ -185,8 +122,10 @@ Findings are ID'd as `A<N>.<letter>` where `N` is the adversary number (1-7) and
 
 [Placeholder — built by Task 10.]
 
-| ID | Severity | Description | Remediation sketch | Test |
-|---|---|---|---|---|
+| ID | Category | Severity | Description | Remediation sketch | Test |
+|---|---|---|---|---|---|
+
+(`Category` = the adversary number 1–7 the finding came from, per the spec's findings-table schema — it's the cross-link back to the Per-adversary-traces section. `Remediation sketch` is a plan convenience beyond the spec's minimum columns.)
 
 ## Per-adversary traces
 
@@ -368,6 +307,7 @@ All 7 per-category tasks follow the same shape. Each task:
 
 [If ACCEPTED — gap:]
 **Finding A<N>.a — Severity <S>:** <one-line description of the gap>.
+**Impact:** <what an attacker actually achieves if this gap is exploited, and the bounds of the breach — this is the severity-vs-risk argument that feeds Recommendations; required per the spec's per-finding detail>.
 **Remediation sketch:** <one sentence pointing at where the fix goes — file, function, what to add>.
 **Demonstration test:** `test_a<N>_<letter>_<short_name>` in `tests/test_auth_audit.py`.
 
@@ -421,7 +361,8 @@ from cancelchain.wallet import Wallet
 - `requests_proxy` — httpx client routed into the Flask app via `WSGITransport`; use it to make raw HTTP calls (`requests_proxy.get/post(path, ...)`). This is how `tests/test_api.py` exercises the token endpoints.
 - `remote_requests_proxy` — same, for a second (peer) app instance.
 - `host`, `remote_host`, `host_netloc` — base URLs / netlocs for `ApiClient`.
-- `wallet` (alias for the transactor wallet), `reader_wallet`, `transactor_wallet`, `miller_wallet`, `miller_2_wallet` — pre-created `Wallet`s with matching `*_ADDRESSES` config.
+- `wallet` — the **ADMIN-role** wallet (`Wallet(b58ks=WALLET_PRIVATE_KEY_B58)`; its address is placed in `ADMIN_ADDRESSES`, and it is also the `NODE_HOST` address with its PEM written to `walletdir`). **Not** the transactor wallet — do not use it where you need a bounded, non-admin identity (matters for adversary 4 role-escalation and adversary 6 insider tests, where the exact privilege level is the point).
+- `reader_wallet`, `transactor_wallet`, `miller_wallet`, `miller_2_wallet` — the per-role wallets, each pre-loaded into the corresponding `READER/TRANSACTOR/MILLER_ADDRESSES` config list.
 - `mill_block(milling_wallet)` — adds a milled block to the current longest chain; returns `(miller, block)`.
 - `add_chain_block(...)`, `time_stepper(start=..., delta=...)` — chain construction + deterministic time.
 
@@ -429,7 +370,7 @@ Use these rather than reimplementing setup. Reference patterns: `tests/test_api.
 
 **When in doubt, write the trace pessimistically.** If the trace doesn't show clear rejection but you're unsure whether real-world behavior catches the attack, write the demonstration test and let it tell you. `uv run pytest --runxfail tests/test_auth_audit.py::test_a<N>_<letter>` runs the test in non-xfail mode — if it passes, the auth layer actually catches the attack and the finding is a false positive (remove the finding from the audit doc, move the trace to "correctly rejected" / Clean categories, delete the test). If it fails, the gap is real.
 
-**Known existing coverage to consult (does NOT fully pre-empt 2e):** `tests/test_api.py::test_post_token_invalid` covers two cases — a body of `'foo'` *with* `Content-Type: application/json` (Flask returns `400` on the JSON parse error) and a well-formed `{"challenge": "foo"}` (returns `401`). It does **not** exercise the attack-2e scenario: a `POST` with a *missing or non-JSON* `Content-Type` (so `request.json` is `None`) made *after* an `ApiToken` row exists, where `request.json.get('challenge')` would raise on `None`. Do not cite this test as evidence that 2e is a no-finding — trace `TokenView.post` directly and write a fresh demonstration test for the missing/wrong-content-type path before concluding either way.
+**Known existing coverage + verified Flask 3.x behavior for attack 2e:** `tests/test_api.py::test_post_token_invalid` covers two cases — a body of `'foo'` *with* `Content-Type: application/json` (Flask returns `400` on the JSON parse error) and a well-formed `{"challenge": "foo"}` (returns `401`). It does **not** exercise the attack-2e scenario: a `POST` with a *missing or non-JSON* `Content-Type`. Verified empirically on the installed stack (Flask 3.1.3): a non-JSON content-type makes `request.json` raise `werkzeug.exceptions.UnsupportedMediaType` → **415** *at the property access*, before `TokenView.post` reaches `request.json.get('challenge')`. So the `request.json is None → AttributeError → 500` mechanism does **not** occur. Attack 2e is therefore not a 500/bypass; the open question for the trace is whether a bare 415 is the appropriate rejection for an unauthenticated handshake endpoint or whether 400/401 would be more correct (a robustness/consistency observation). Still write a demonstration test that exercises the missing/wrong-content-type `POST` and asserts the behavior the audit concludes is correct, rather than assuming.
 
 ---
 
@@ -512,7 +453,7 @@ EOF
 - **b.** Exploit the 60-second cipher-reuse window — `refreshed_cipher()` returns the same cipher until `expired`; is the secret single-use (does `reset()` reliably fire before a second redemption)?
 - **c.** Force-create `ApiToken` rows for arbitrary on-chain addresses (public key recoverable from chain) — unbounded table growth from an unauthenticated endpoint.
 - **d.** Race two concurrent `GET`s or `GET`/`POST` interleavings against the `unique` constraints on `cipher`/`hashed`.
-- **e.** Send `POST` with no JSON body / wrong content-type so `request.json` is `None` and `request.json.get('challenge')` raises — does it 500 (unhandled) rather than 401? (NOTE: the existing `test_post_token_invalid` does *not* cover this — it only tests bad JSON with the JSON content-type. Trace `TokenView.post` directly for the `None` path and write a fresh test.)
+- **e.** Send `POST` with no JSON body / wrong content-type. (Verified: Flask 3.x raises `UnsupportedMediaType` → **415** at the `request.json` access, *before* `request.json.get('challenge')` — it does not return `None`, so there is no `AttributeError`/500. The question is whether a bare 415 is the right rejection or whether 400/401 fits better — robustness/consistency, not bypass. Trace `TokenView.post` and write a fresh test asserting the correct behavior; the existing `test_post_token_invalid` does not cover this path.)
 
 **Files to read:**
 - `src/cancelchain/api.py` — `TokenView.get` / `TokenView.post` (lines ~189-227).
@@ -521,7 +462,7 @@ EOF
 
 - [ ] **Step 1: Read the handshake surface for attacks a-e**
 
-Trace `GET` (wallet/public-key resolution → `ApiToken.create`/`get` → `refreshed_cipher`) and `POST` (`get` → `verify(challenge)` → `reset` → role → JWT). For (a), examine `verify(secret: object)`: it returns `False` unless `isinstance(secret, str)` and argon2 verifies — confirm `None`/non-str/empty all fail closed. For (b), confirm `reset()` clears `hashed` so a second `POST` with the same secret fails `verify`. For (e), confirm Flask returns 400 on bad content-type before `request.json.get` is reached.
+Trace `GET` (wallet/public-key resolution → `ApiToken.create`/`get` → `refreshed_cipher`) and `POST` (`get` → `verify(challenge)` → `reset` → role → JWT). For (a), examine `verify(secret: object)`: it returns `False` unless `isinstance(secret, str)` and argon2 verifies — confirm `None`/non-str/empty all fail closed. For (b), confirm `reset()` clears `hashed` so a second `POST` with the same secret fails `verify`. For (e), trace the wrong/missing-content-type path: Flask 3.x raises `UnsupportedMediaType` → **415** at the `request.json` access (verified — not a `None`/500 path; see the Known-coverage note above). Determine whether 415 is the appropriate rejection or whether 400/401 fits better, and write a demonstration test asserting that conclusion — do not presuppose the outcome.
 
 - [ ] **Step 2: Populate Adversary 2's section in the audit doc**
 
@@ -591,7 +532,7 @@ Document the coupling and claim-hygiene observations even where they're Low/no-f
 
 - [ ] **Step 3: For each gap found, add a demonstration test**
 
-Claim-hygiene findings (Low) get a test asserting the desired claim is present/validated, if and only if the gap is demonstrable under the TLS assumption. Otherwise record as a Cross-cutting observation with no test (note this explicitly in the doc).
+Per the spec's Risks section, **write an xfail test for every confirmed gap, including claim-hygiene ones** (e.g. assert the issued JWT contains `iat`/`iss`/`aud`) — these are demonstrable as claim-*presence* assertions even though they have no exploit under TLS. Annotate any test whose full fix depends on the redesign by saying so in the xfail `reason` string (e.g. "full fix may land via protocol replacement — see Recommendations"). The only things that become Cross-cutting **observations** (no `**Finding`, no test) are pure design-smells with no assertable secure behavior (e.g. the `SECRET_KEY` coupling, argon2-on-high-entropy-secret). This keeps the finding-count == test-count invariant (Task 13 Step 4) honest: every `**Finding A...` has exactly one test.
 
 - [ ] **Step 4: Run pytest, verify xfails show up correctly**
 
@@ -870,10 +811,10 @@ After all 7 per-category tasks complete, the per-category sections are populated
 Read every finding produced by Tasks 3-9 (search the audit doc for `**Finding A`). Populate one row per finding in the Findings table:
 
 ```markdown
-| ID | Severity | Description | Remediation sketch | Test |
-|---|---|---|---|---|
-| A4.a | High | Operator *_ADDRESSES regex over-match enables role escalation | Validate/anchor configured regexes at load | `test_a4_a_regex_overmatch` |
-| A2.c | Medium | Unauthenticated GET creates ApiToken rows for any on-chain address | Gate row creation / cap unredeemed rows | `test_a2_c_token_row_amplification` |
+| ID | Category | Severity | Description | Remediation sketch | Test |
+|---|---|---|---|---|---|
+| A4.a | 4 | High | Operator *_ADDRESSES regex over-match enables role escalation | Validate/anchor configured regexes at load | `test_a4_a_regex_overmatch` |
+| A2.c | 2 | Medium | Unauthenticated GET creates ApiToken rows for any on-chain address | Gate row creation / cap unredeemed rows | `test_a2_c_token_row_amplification` |
 | ... | ... | ... | ... | ... |
 ```
 
@@ -911,9 +852,13 @@ Replace the placeholder with a 200-400 word summary: total findings by severity;
 grep -c '^## ' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
 grep -c '^### Adversary' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
 grep -c '^| A[1-7]\.' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
+# Recommendations actually contains both named replacement candidates (spec's primary deliverable):
+grep -cE 'Wallet\.sign|RFC 9421|RS256 client-assertion' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
+# No placeholder text left behind:
+grep -ci 'placeholder' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
 ```
 
-Expected: `^## ` matches 9 (Preconditions, Executive summary, Threat model, Methodology, Findings table, Per-adversary traces, Clean categories, Cross-cutting observations, Recommendations); `^### Adversary` matches 7; `^| A[1-7]\.` matches N (the finding count, equal to the test count).
+Expected: `^## ` matches 9 (Preconditions, Executive summary, Threat model, Methodology, Findings table, Per-adversary traces, Clean categories, Cross-cutting observations, Recommendations); `^### Adversary` matches 7; `^| A[1-7]\.` matches N (the finding count, equal to the test count); the candidate-grep matches **≥ 2** (both replacement directions named); the placeholder-grep matches **0**.
 
 - [ ] **Step 7: Verify the test module + audit doc are in sync**
 
@@ -1083,9 +1028,11 @@ Expected: all four files tracked.
 grep -c '^## ' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
 grep -c '^### Adversary' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
 grep -c '^| A[1-7]\.' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
+grep -cE 'Wallet\.sign|RFC 9421|RS256 client-assertion' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
+grep -ci 'placeholder' docs/superpowers/audits/2026-05-31-api-authentication-audit.md
 ```
 
-Expected: 9 top-level sections; 7 adversary subsections; N findings table rows.
+Expected: 9 top-level sections; 7 adversary subsections; N findings table rows; candidate-grep ≥ 2; placeholder-grep 0.
 
 - [ ] **Step 4: Test module sync with audit doc**
 

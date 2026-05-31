@@ -40,9 +40,9 @@ A request is authenticated and authorized in three stages:
 
 1. **Challenge issuance** — `GET /api/token/<address>` (`TokenView.get`). The server resolves a public key for `address` (from `app.wallets`, else from the first on-chain transaction's `public_key`), creates or reuses an `ApiToken` row, and returns `refreshed_cipher()`: a fresh random UUID4 secret, argon2-hashed into `ApiToken.hashed` and RSA-OAEP-encrypted (AES-GCM session key wrapped by the wallet's RSA public key) into `ApiToken.cipher`. The cipher is reused until the row's 60-second `expired` window lapses.
 2. **Challenge redemption → JWT** — `POST /api/token/<address>` (`TokenView.post`) with `{"challenge": <decrypted secret>}`. The server argon2-verifies the secret against `hashed`, calls `reset()` (clears cipher + hashed), resolves the role via `Role.address_role`, and returns an **HS256 JWT** signed with `SECRET_KEY` carrying `sub` (address), `rol` (role name), and `exp` (`now().timestamp() + API_TOKEN_SECONDS`, a 4-hour float).
-3. **Request authorization** — `authorize(required_role)` decorator (`authorize_reader/transactor/miller/admin`). Reads `Authorization: Bearer <jwt>`, `jwt.decode(..., algorithms=['HS256'])`, extracts `sub`/`rol`, and admits iff `Role[rol].value >= required_role.value`. Any decode exception → `abort(401)`; expired signature → `abort(401)`.
+3. **Request authorization** — `authorize(required_role)` decorator (`authorize_reader/transactor/miller/admin`). Reads `Authorization: Bearer <jwt>`, `jwt.decode(..., algorithms=['HS256'])`, extracts `sub`/`rol`, and admits iff `address and role.value >= required_role.value` (`api.py:261`) — note the `address` guard, so an empty/absent `sub` is rejected even when `rol` satisfies the ladder. Any decode exception → `abort(401)`; expired signature → `abort(401)`.
 
-Client mirror: `ApiClient.request_token` does the GET, `wallet.decrypt`s the cipher, POSTs the secret, caches the JWT, and transparently retries once on a 401 by resetting the token.
+Client mirror: `ApiClient.request_token` performs the raw two-step handshake (GET, `wallet.decrypt` the cipher, POST the secret) and returns the token string. Caching lives in `get_token()` (`api_client.py:96-99`, guards on `self.token is None`); the once-only 401 retry — `reset_token()` then re-issue — lives in `get()`/`post()` (`api_client.py:125-138`, `151-165`), not in `request_token()`.
 
 Notable for the audit: `Wallet` already exposes `sign()` / `validate_signature()` (RSA PKCS1v15 SHA-384) that the auth path does **not** use — it reaches for `encrypt`/`decrypt` instead. `SECRET_KEY` is used *only* for the JWT (no Flask-session use today). `argon2-cffi`'s `PasswordHasher()` hashes a high-entropy 122-bit UUID.
 
@@ -63,7 +63,7 @@ Notable for the audit: `Wallet` already exposes `sign()` / `validate_signature()
 - b. Exploit the 60-second cipher-reuse window — `refreshed_cipher()` returns the *same* cipher until `expired`; the secret is constant for that window. Is the secret single-use (does `reset()` reliably fire before a second redemption), or can a captured-but-not-yet-redeemed cipher be redeemed by two parties?
 - c. Force-create `ApiToken` rows for arbitrary on-chain addresses (public key recoverable from chain) — unbounded table growth / state amplification from an unauthenticated endpoint.
 - d. Race two concurrent `GET`s or `GET`/`POST` interleavings against the `unique` constraints on `cipher`/`hashed` to wedge a row or bypass single-use.
-- e. Send `POST` with no JSON body / wrong content-type so `request.json` is `None` and `request.json.get('challenge')` raises — does it 500 (unhandled) rather than 401?
+- e. Send `POST` with no JSON body / wrong content-type. (Verified: under Flask 3.x, `request.json` on a non-JSON content-type raises `UnsupportedMediaType` → **415** *before* `TokenView.post` reaches `request.json.get('challenge')` — it does not return `None`, so there is no `AttributeError`/500. The audit question is therefore whether a bare 415 is the appropriate rejection for an unauthenticated handshake endpoint, or whether a 400/401 would be more correct — a robustness/consistency observation, not an auth bypass.)
 
 #### 3. Token forger / cryptanalyst
 **Capabilities:** Targets the JWT and its signing key directly. Knows the algorithm (HS256) and the claim set. May know or guess properties of `SECRET_KEY`.
@@ -125,21 +125,23 @@ Recording the no-finding rationales matters as much as the findings: the verific
 `tests/test_auth_audit.py`, mirroring `tests/test_verification_audit.py`:
 
 - Module docstring linking back to this spec and the audit report.
-- One test function per finding, named `test_<finding-id>_<short_slug>`, decorated `@pytest.mark.xfail(strict=True, reason='<finding-id>: <one-line>')`.
+- One test function per finding. Because a finding id like `A3.b` is not a valid Python identifier (the `.` and uppercase), the test name lowercases it and replaces the dot: `test_a<N>_<letter>_<short_slug>` (e.g. `A3.b` → `test_a3_b_<slug>`), matching the existing `tests/test_verification_audit.py` convention. Decorate with `@pytest.mark.xfail(strict=True, reason='Audit finding A<N>.<letter> — severity <S> — <one-line>. See docs/superpowers/audits/2026-05-31-api-authentication-audit.md')`.
 - Each test builds the minimal app/client/wallet fixture state to exercise the gap and asserts the *secure* behavior (so it xfails today and flips to pass when remediated).
 - Reuse existing fixtures from `tests/conftest.py` (the four canonical wallets, the `requests_proxy` Flask-client routing) and patterns from `tests/test_api.py` / `tests/test_api_client.py`.
 
 ### Audit document structure
 
-`docs/superpowers/audits/2026-05-31-api-authentication-audit.md`:
+`docs/superpowers/audits/2026-05-31-api-authentication-audit.md`. Mirrors `tests/test_verification_audit.py`'s companion audit doc, so it carries two scaffolding sections (**Threat model**, **Methodology**) beyond the bare content sections, and organizes the per-finding detail under **Per-adversary traces** (one subsection per adversary) rather than as a flat list. The nine `##` sections are:
 
 - **Preconditions** (TLS assumed, scope boundary).
-- **Summary** — counts by severity (the `N Critical / N High / N Medium / N Low` headline).
+- **Executive summary** — counts by severity (the `N Critical / N High / N Medium / N Low` headline) + headline conclusions.
+- **Threat model** — the 7 adversary categories restated.
+- **Methodology** — the per-attempt trace→classify→demonstrate procedure and the `A<N>.<letter>` finding-id scheme.
 - **Findings table** — id, title, severity, category, one-line, test name.
-- **Per-finding detail** — attempt, trace, impact, remediation sketch, demonstration-test reference.
+- **Per-adversary traces** — one `### Adversary N` subsection each, holding every attack's attempt, trace, outcome, and (for gaps) impact, remediation sketch, demonstration-test reference.
 - **Clean categories** — explicit "no findings" results with rationale.
-- **Recommendations** — the targeted-fixes-vs-replacement analysis, with the two named candidate replacement directions (signed-nonce reusing `Wallet.sign`; RFC 9421 / RS256 client-assertion), each with a one-paragraph trade-off so the downstream redesign spec has a starting point.
 - **Cross-cutting observations** — `SECRET_KEY` coupling, argon2-on-high-entropy-secret smell, etc.
+- **Recommendations** — the targeted-fixes-vs-replacement analysis, with the two named candidate replacement directions (signed-nonce reusing `Wallet.sign`; RFC 9421 / RS256 client-assertion), each with a one-paragraph trade-off so the downstream redesign spec has a starting point.
 
 ## Changes
 
