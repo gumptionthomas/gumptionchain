@@ -232,6 +232,39 @@ Replace the comment + assertion at the end:
 ```
 Also update the `assert secret_key == remote_app.config['SECRET_KEY']` precondition line — keep it (it documents that the shared key is *not* what saves us; the binding is). Leave the `with app.app_context(): mill_block(wallet)` setup as-is.
 
+- [ ] **Step 5b: Keep `test_a3_a` passing — add `iss`/`aud` to its forged token (`tests/test_auth_audit.py`)**
+
+`test_a3_a_forged_role_claim_accepted` hand-mints a forged token (it is NOT handshake-issued), and currently omits `iss`/`aud`. Once `authorize()` enforces `audience=`/`issuer=`, a token lacking those claims raises `MissingRequiredClaimError` → 401, which would break that test's `403` assertion. The test's intent is to prove a forged *role* is rejected by the live-role check — so give the forged token valid node-binding claims (so it passes the audience/issuer gate) while keeping the bogus `rol`. Change its `forged_token` payload:
+```python
+    forged_token = jwt.encode(
+        {
+            'sub': reader_wallet.address,
+            'rol': 'MILLER',  # reader_wallet only has READER in config
+            'exp': int(time.time()) + 3600,
+        },
+        secret_key,
+        algorithm='HS256',
+    )
+```
+to:
+```python
+    forged_token = jwt.encode(
+        {
+            'sub': reader_wallet.address,
+            'rol': 'MILLER',  # reader_wallet only has READER in config
+            # valid node-binding (A3.b) so the token passes the audience
+            # check; the forged ROLE is still rejected by the live-role
+            # re-check (A3.a) -> 403.
+            'iss': app.config['NODE_HOST'],
+            'aud': app.config['NODE_HOST'],
+            'exp': int(time.time()) + 3600,
+        },
+        secret_key,
+        algorithm='HS256',
+    )
+```
+(`secret_key = app.config['SECRET_KEY']` is already set just above this block.) The test still asserts `FORBIDDEN` (403) — the forged role is caught by `Role.address_role(reader) = READER < MILLER`, not by the audience gate.
+
 - [ ] **Step 6: Add a same-node audience test (`tests/test_api.py`)**
 
 Add `import jwt` to the top import block (let ruff sort). Append this test (`now` and `API_TOKEN_SECONDS` are already imported):
