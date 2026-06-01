@@ -74,11 +74,22 @@ def staged_chain_fill_count(app):
     """Count ChainFillBlock rows currently staged — used by availability
     tests that assert fill_chain stages an attacker-controlled number of
     blocks with no depth cap.
+
+    NB: this project uses SQLAlchemy 2.0 with a plain ``DeclarativeBase``
+    (``SQLAlchemy(model_class=Base)``), NOT ``db.Model`` — so the legacy
+    ``Model.query`` attribute does NOT exist here (it raises AttributeError).
+    Use the 2.0 count idiom (mirrors ``tests/_sa_helpers._count``).
     """
+    from cancelchain.database import db
     from cancelchain.models import ChainFillBlock
 
     with app.app_context():
-        return ChainFillBlock.query.count()
+        return (
+            db.session.scalar(
+                db.select(db.func.count()).select_from(ChainFillBlock)
+            )
+            or 0
+        )
 ```
 
 - [ ] **Step 3: Verify the scaffold imports cleanly and doesn't change counts**
@@ -160,7 +171,7 @@ const ADVERSARIES = [
   { key: 'loop', name: 'Gossip-loop / amplification abuser',
     lens: 'Spoof, omit, or oversize visited_hosts / the Peer-Hosts header to induce gossip loops, defeat the loop-guard, or amplify fan-out across the peer set. Trace send_transaction/send_block/receive_* and how visited_hosts is built/trusted.' },
   { key: 'framing', name: 'Protocol / framing abuser',
-    lens: 'Oversized or slow-streamed bodies, content-type tricks, txid/block_hash mismatch handling, and abuse of the 202 async enqueue path (enqueue without doing work; self-/process recursion; broker mis/unconfigured behavior).' },
+    lens: 'Oversized or slow-streamed bodies, content-type tricks, txid/block_hash mismatch handling, and abuse of the 202 async enqueue path (enqueue without doing work; self-/process recursion; broker mis/unconfigured behavior). NOTE: if an oversized/slow body triggers resource expenditure BEFORE authorize() runs (i.e. unauthenticated request processing), that straddles the auth boundary — cross-reference it to the cc-sig-v1 auth audit rather than claiming it as a new networking finding. A networking finding here is one where an AUTHENTICATED peer drives the cost.' },
   { key: 'race', name: 'Race / concurrency',
     lens: 'Concurrent fill_chain/receive_block against the same chain prefix; ChainFill orphan rows on crash or interleave (cf. observation A5.c); mempool add/discard races. Orchestration/staging corruption only, not consensus.' },
   { key: 'async', name: 'Async post-process path',
@@ -255,7 +266,12 @@ Refute it. Set real=false if: the impact is already bounded (an httpx/Flask defa
 phase('Discover')
 const perAdversary = await pipeline(
   ADVERSARIES,
-  adv => agent(discoverPrompt(adv), { label: `discover:${adv.key}`, phase: 'Discover', schema: FINDINGS_SCHEMA, agentType: 'Explore' }),
+  // No agentType override: the discover analysts inherit the strong
+  // main-loop model. (Don't use the Haiku-powered 'Explore' agent here —
+  // it's tuned for fast code search, not thorough adversarial tracing with
+  // the 7-field-per-finding FINDINGS_SCHEMA, where a structured-output miss
+  // would silently drop a whole category's findings.)
+  adv => agent(discoverPrompt(adv), { label: `discover:${adv.key}`, phase: 'Discover', schema: FINDINGS_SCHEMA }),
   (found, adv) => parallel(((found && found.findings) || []).map(f => () =>
     agent(verifyPrompt(f), { label: `verify:${adv.key}:${f.id}`, phase: 'Verify', schema: VERDICT_SCHEMA })
       .then(v => ({ ...f, adversary: adv.name, verdict: v }))
@@ -388,7 +404,7 @@ def test_<id>_<short_name>(app, host, transactor_wallet, requests_proxy):
         assert <the buggy observable behavior>
 ```
 
-Each test's helper (e.g. `_make_fake_ancestor_chain`) is defined alongside it in the file. Helpers must use the existing fixtures and `Block`/`Transaction` factories from `conftest.py`; they fabricate *valid-but-hostile* inputs (the validity is assumed/trusted), never malformed ones.
+Each test's helper (e.g. `_make_fake_ancestor_chain`) is defined alongside it in the file. Helpers must use the existing fixtures and `Block`/`Transaction` factories from `conftest.py`; they fabricate *valid-but-hostile* inputs (the validity is assumed/trusted), never malformed ones. **Important for sync-path tests:** `fill_chain`/`fill_peer`/`request_block` make real HTTP calls to peers, so a helper feeding a fake ancestor chain must make those blocks *served by the mock peer through the `requests_proxy`/`remote_requests_proxy` WSGI fixtures* (e.g. persist them in the remote app's DB so its `GET /api/block/<hash>` returns them, or intercept via `requests_mock`) — constructing `Block` objects in memory alone is insufficient, because `request_block` will 404 and the walk aborts before demonstrating the gap.
 
 - [ ] **Step 2: Verify every demonstration FAILS as an xfail (the gap is real)**
 
