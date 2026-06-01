@@ -256,31 +256,28 @@ def test_a3_b_cross_node_token_replay(
     assert response.status_code == httpx.codes.FORBIDDEN
 
 
-def test_a4_a_overbroad_admin_regex_escalates_reader(
+def test_a4_a_overbroad_admin_regex_does_not_escalate(
     app, host, mill_block, requests_proxy, reader_wallet
 ):
-    """A reader-role wallet must NOT obtain miller/admin access when
-    ADMIN_ADDRESSES is misconfigured with a pattern that matches every
-    valid cancelchain address.
+    """A4.a (remediated): an overbroad ADMIN_ADDRESSES entry does not
+    escalate a reader-role wallet.
 
-    Today the code accepts any regex string in *_ADDRESSES without
-    warning; 'CC.*CC' matches every valid CC-format address, so
-    Role.address_roles() returns [READER, ADMIN] and address_role()
-    returns ADMIN — the reader wallet receives an ADMIN JWT and can
-    invoke miller-restricted endpoints.
-
-    Secure behavior: the reader wallet should be rejected (4xx) on a
-    miller-restricted endpoint even when ADMIN_ADDRESSES is overbroad.
+    Pre-remediation, *_ADDRESSES were regex-matched, so 'CC.*CC' matched
+    every valid CC-format address and Role.address_role() returned ADMIN
+    for the reader wallet — it received an ADMIN JWT. Now matching is
+    exact-membership: 'CC.*CC' is an inert non-matching literal, so the
+    reader wallet resolves to READER. (A fresh app configured this way is
+    also rejected at startup by the startup-validation test
+    test_create_app_rejects_overbroad_admin_config in tests/test_api.py.)
     """
     with app.app_context():
         # Give the reader wallet some chain presence so the token
         # handshake (GET /api/token/<addr>) can resolve the public key.
         mill_block(reader_wallet)
 
-        # Misconfigure ADMIN_ADDRESSES with a pattern that matches
-        # every valid cancelchain address (CC + base58 + CC).
-        # This is the foot-gun: an operator writing "all CC addresses"
-        # would naturally reach for 'CC.*CC'.
+        # An overbroad entry that previously matched every address. Mutated
+        # at runtime, so it bypasses startup validation — this exercises
+        # the matching defense (the literal no longer matches anything).
         app.config['ADMIN_ADDRESSES'] = ['CC.*CC']
 
         # Perform the normal challenge/response handshake as reader_wallet.
@@ -291,23 +288,19 @@ def test_a4_a_overbroad_admin_regex_escalates_reader(
         )
 
         # Decode the token (no signature verification needed — we just
-        # want to inspect the rol claim server minted).
+        # want to inspect the rol claim the server minted).
         payload = jwt.decode(
             raw_token,
             options={'verify_signature': False},
             algorithms=['HS256'],
         )
 
-        # SECURE BEHAVIOR: the server should NOT award ADMIN (or MILLER)
-        # to an address whose only legitimate role is READER.
-        # Today this assertion FAILS because rol == 'ADMIN'.
+        # Exact-match role allowlists must not honor the overbroad literal:
+        # the reader wallet's only legitimate role is READER.
         awarded_role = Role[payload['rol']]
         assert awarded_role.value <= Role.READER.value, (
-            f'reader_wallet was awarded role {awarded_role.name!r} '
-            f'(value {awarded_role.value}) because '
-            f'ADMIN_ADDRESSES=["CC.*CC"] '
-            f'matches every valid cancelchain address — '
-            f'privilege escalation via overbroad regex config'
+            f'reader_wallet was awarded {awarded_role.name!r}; exact-match '
+            'role allowlists must not honor the overbroad literal CC.*CC'
         )
 
 
