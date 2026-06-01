@@ -95,12 +95,25 @@ def queue_post_process(
     vhosts: list[str] | None,
 ) -> None:
     host, address = host_address(current_app.config['NODE_HOST'])
+    if address is None:
+        # NODE_HOST carries no embedded wallet address (e.g. just
+        # http://host:port), so we can't determine which local wallet
+        # signs outbound peer requests. Async post-processing needs
+        # NODE_HOST in http(s)://<address>@host form.
+        current_app.logger.warning(
+            'queue_post_process: NODE_HOST %r has no embedded wallet address '
+            '(expected http(s)://<address>@host); cannot sign async '
+            'post-processing — skipping',
+            current_app.config['NODE_HOST'],
+        )
+        return
     wallet: Wallet | None = current_app.wallets.get(address)  # type: ignore[attr-defined]
     if wallet is None:
-        # No wallet for this node's NODE_HOST address means we can't sign
-        # an outbound peer request. Log and skip rather than fail later.
+        # No local wallet held for this node's NODE_HOST address means we
+        # can't sign an outbound peer request. Log and skip rather than
+        # fail later.
         current_app.logger.warning(
-            'queue_post_process: no wallet for node address %s; skipping',
+            'queue_post_process: no local wallet for node address %s; skipping',
             address,
         )
         return
