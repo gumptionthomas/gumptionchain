@@ -34,6 +34,12 @@ def post_process(
 ) -> None:
     wallet = current_app.wallets.get(address)  # type: ignore[attr-defined]
     if wallet is None:
+        current_app.logger.warning(
+            'post_process: no wallet for address %s; '
+            'dropping post-processing of %s',
+            address,
+            path,
+        )
         return
     headers = {PEER_HOST_HEADER: ','.join(vhosts)} if vhosts else None
     with ApiClient(host, wallet) as c:

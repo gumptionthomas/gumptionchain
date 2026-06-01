@@ -136,6 +136,13 @@ def handle_http_post(
 ) -> None:
     if current_app.config.get('CELERY_BROKER_URL'):
         post_process.delay(host, address, path, data, vhosts)
+    else:
+        current_app.logger.warning(
+            'handle_http_post: CC_API_ASYNC_PROCESSING is enabled but '
+            'CELERY_BROKER_URL is unset; dropping async post-processing '
+            'of %s',
+            path,
+        )
 
 
 @blueprint.record

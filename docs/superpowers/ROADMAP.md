@@ -58,12 +58,12 @@ Originating audit:
 
 ## ✅ Audit remediation — API authentication findings (fully closed 0/0/0/0)
 
-The 2026-05-31 API authentication audit ([report](audits/2026-05-31-api-authentication-audit.md); design+plan [#101](https://github.com/gumptionthomas/cancelchain/pull/101), findings+tests [#102](https://github.com/gumptionthomas/cancelchain/pull/102)) produced **8 findings**. All are now closed — four individually by prior PRs, four dissolved by the protocol replacement (PR #PRNUM):
+The 2026-05-31 API authentication audit ([report](audits/2026-05-31-api-authentication-audit.md); design+plan [#101](https://github.com/gumptionthomas/cancelchain/pull/101), findings+tests [#102](https://github.com/gumptionthomas/cancelchain/pull/102)) produced **8 findings**. All are now closed — four individually by prior PRs, four dissolved by the protocol replacement (PR #111):
 
 - ✅ **A4.a (High) — exact-match role allowlists** — closed by PR #105. Replaced regex matching with exact-address membership + a READER-only `"*"` sentinel, validated at startup (`Role.validate_config` → `InvalidRoleConfigError`). Test: `test_a4_a_overbroad_admin_regex_does_not_escalate` (passing regression).
 - ✅ **A3.a + A5.b (Medium) — live-role re-check in `authorize()`** — closed by PR #107. `authorize()` now calls `Role.address_role(address)` on every request; insufficient or absent live role → 403. Tests: `test_a3_a_forged_role_claim_accepted`, `test_a5_b_stale_role_rejected_after_config_revocation` (passing regressions).
-- ✅ **A3.b (Medium) — node-binding** — closed by PR #109 (JWT `iss`/`aud`); dissolved structurally by PR #PRNUM (`cc-sig-v1` canonical includes `node_host`). Test: `test_a3_b_cross_node_token_replay` (re-expressed as signed-request regression).
-- ✅ **A2.c + A7.a (Medium) + A1.a + A2.e (Low) — dissolved by protocol replacement** — PR #PRNUM. The `/api/token` endpoint, `ApiToken` table, argon2, and `SECRET_KEY`-as-auth are all gone. No unauthenticated write path, no argon2 amplification surface, no content-type oracle, no weak-key forgery risk. Demonstration tests removed (gaps no longer exist).
+- ✅ **A3.b (Medium) — node-binding** — closed by PR #109 (JWT `iss`/`aud`); dissolved structurally by PR #111 (`cc-sig-v1` canonical includes `node_host`). Test: `test_a3_b_cross_node_token_replay` (re-expressed as signed-request regression).
+- ✅ **A2.c + A7.a (Medium) + A1.a + A2.e (Low) — dissolved by protocol replacement** — PR #111. The `/api/token` endpoint, `ApiToken` table, argon2, and `SECRET_KEY`-as-auth are all gone. No unauthenticated write path, no argon2 amplification surface, no content-type oracle, no weak-key forgery risk. Demonstration tests removed (gaps no longer exist).
 
 **Audit is fully closed: 0 Critical / 0 High / 0 Medium / 0 Low.**
 
@@ -74,9 +74,9 @@ Originating report:
 
 ---
 
-## ✅ API auth protocol replacement (PR #PRNUM)
+## ✅ API auth protocol replacement (PR #111)
 
-The audit's Recommendations flagged two structural roots: the JWT was an unbound symmetric bearer token, and the handshake was a roll-your-own challenge (RSA-OAEP encrypt + argon2 over a 122-bit random secret, while `Wallet.sign`/`validate_signature` sat unused). The replacement design cycle evaluated two candidates (signed-nonce and RFC 9421 / RS256 client-assertion) and implemented a bespoke per-request signature scheme: **`cc-sig-v1`** (PR #PRNUM).
+The audit's Recommendations flagged two structural roots: the JWT was an unbound symmetric bearer token, and the handshake was a roll-your-own challenge (RSA-OAEP encrypt + argon2 over a 122-bit random secret, while `Wallet.sign`/`validate_signature` sat unused). The replacement design cycle evaluated two candidates (signed-nonce and RFC 9421 / RS256 client-assertion) and implemented a bespoke per-request signature scheme: **`cc-sig-v1`** (PR #111).
 
 `cc-sig-v1` signs each request with the caller's RSA private key over a canonical string (version/method/path/query/body-digest/node-host/timestamp/address). The scheme is stateless, node-bound by construction, and documented in `docs/api-auth-protocol.md`. `Wallet.sign` is now the authentication primitive.
 
