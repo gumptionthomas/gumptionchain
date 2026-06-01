@@ -151,25 +151,17 @@ def test_a2_e_content_type_oracle(app, requests_proxy, wallet):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'Audit finding A3.a — severity Medium — authorize() trusts rol JWT '
-        'claim without re-validating against Role.address_role(). '
-        'See docs/superpowers/audits/2026-05-31-api-authentication-audit.md'
-    ),
-)
 def test_a3_a_forged_role_claim_accepted(
     app, requests_proxy, reader_wallet, mill_block, wallet
 ):
-    """A SECRET_KEY bearer can forge any role for any address.
+    """A3.a (remediated): a forged/over-claimed `rol` is not honored.
 
-    reader_wallet is configured as READER only.  We mint a JWT directly
-    (bypassing the handshake) that claims rol=MILLER for reader_wallet's
-    address and present it to a MILLER-only endpoint.  Secure behaviour:
-    authorize() re-checks address_role and returns 403.  Today it returns
-    400 (auth passes, rol claim believed; block body {} raises CCError),
-    proving the rol claim is blindly trusted.
+    reader_wallet is configured READER only. We mint a JWT directly
+    (bypassing the handshake) claiming rol=MILLER for reader_wallet's
+    address and present it to a MILLER-only endpoint. authorize() now
+    re-checks Role.address_role(reader)=READER < MILLER and returns 403;
+    pre-remediation the rol claim was trusted and the request reached the
+    view (400 on the malformed block body).
     """
 
     with app.app_context():
@@ -196,9 +188,8 @@ def test_a3_a_forged_role_claim_accepted(
         content=b'{}',
         timeout=10,
     )
-    # Secure: auth layer re-checks address_role and rejects with 403.
-    # Today: auth passes (rol claim believed), endpoint returns 400
-    # (CCError from malformed block body).
+    # authorize() authorizes on the live role (READER), not the forged
+    # rol=MILLER claim, so the request is rejected before the view runs.
     assert response.status_code == httpx.codes.FORBIDDEN
 
 
@@ -207,22 +198,23 @@ def test_a3_a_forged_role_claim_accepted(
     reason=(
         'Audit finding A3.b — severity Medium — JWT lacks iss/aud; '
         'token minted on node A accepted verbatim by node B sharing '
-        'SECRET_KEY. '
+        'SECRET_KEY (accepted cross-node due to shared SECRET_KEY + no '
+        'iss/aud). '
         'See docs/superpowers/audits/2026-05-31-api-authentication-audit.md'
     ),
 )
 def test_a3_b_cross_node_token_replay(
     app, remote_app, remote_requests_proxy, wallet, mill_block
 ):
-    """A JWT issued by app (where wallet=ADMIN) is accepted by remote_app
-    (where wallet has NO configured role) because both share the same
-    SECRET_KEY and the token carries no iss/aud claim.
+    """A JWT minted by `app` is accepted by `remote_app` purely because the
+    two nodes share SECRET_KEY and the token carries no iss/aud claim.
 
-    remote_app ADDRESSES config (conftest.py:409-423) lists only
-    miller_2_wallet as MILLER; wallet is absent from all *_ADDRESSES.
-    Secure behaviour: remote_app rejects with 403.  Today it accepts
-    (returning 404 — no chain — instead of 403) because rol=ADMIN is
-    trusted from the claim.
+    `wallet` is given a READER role on remote_app here, so the per-request
+    live-role re-check (the A3.a/A5.b fix) passes — isolating the residual
+    A3.b gap: nothing binds the token to the node that issued it. Secure
+    behaviour (once iss/aud lands): remote_app rejects with 403. Today it
+    accepts (404 — no chain on remote_app). Remains xfail until the iss/aud
+    remediation.
     """
 
     with app.app_context():
@@ -234,6 +226,12 @@ def test_a3_b_cross_node_token_replay(
     assert secret_key == remote_app.config['SECRET_KEY'], (
         'Precondition: both nodes share SECRET_KEY'
     )
+    # Give wallet a legitimate role on remote_app so the per-request
+    # live-role re-check (the A3.a/A5.b fix) passes there. The token is then
+    # accepted purely because both nodes share SECRET_KEY and the JWT has
+    # no iss/aud binding — which is the A3.b gap this test isolates.
+    with remote_app.app_context():
+        remote_app.config['READER_ADDRESSES'] = [wallet.address]
 
     cross_node_token = jwt.encode(
         {
@@ -245,14 +243,18 @@ def test_a3_b_cross_node_token_replay(
         secret_key,
         algorithm='HS256',
     )
-    # Present the token to remote_app, where wallet has NO role.
+    # Present the token to remote_app, where wallet now holds a READER role
+    # (granted above) so the live-role re-check passes — isolating the
+    # iss/aud gap.
     response = remote_requests_proxy.get(
         '/api/block',
         headers={'Authorization': f'Bearer {cross_node_token}'},
         timeout=10,
     )
-    # Secure: remote_app re-checks address_role (or enforces aud/iss) and
-    # returns 403.  Today: auth passes, returns 404 (no chain on remote_app).
+    # Secure (once iss/aud lands): remote_app rejects a token not issued for
+    # it -> 403. Today: the live-role re-check passes (wallet is READER here)
+    # and nothing checks token origin, so the cross-node token is accepted;
+    # the request reaches the view and returns 404 (no chain on remote_app).
     assert response.status_code == httpx.codes.FORBIDDEN
 
 
@@ -304,27 +306,15 @@ def test_a4_a_overbroad_admin_regex_does_not_escalate(
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'Audit finding A5.b — severity Medium — JWT rol claim not '
-        're-validated against live config; a token issued with MILLER '
-        'role continues to be accepted after the address is removed '
-        'from MILLER_ADDRESSES, until the 4-hour JWT expires. '
-        'See docs/superpowers/audits/2026-05-31-api-authentication-audit.md'
-    ),
-)
 def test_a5_b_stale_role_rejected_after_config_revocation(
     app, host, mill_block, requests_proxy, miller_wallet
 ):
-    """A JWT issued with role MILLER must be rejected after the address
-    is removed from MILLER_ADDRESSES config, even if the token has not expired.
+    """A5.b (remediated): a token's role is re-validated against live
+    config, so a revoked address loses access immediately.
 
-    Secure behaviour: authorize() re-validates the role against live config
-    and rejects a request whose live role is lower than the token's claimed rol.
-
-    Today's behaviour: the rol claim is trusted as-is, so the token continues
-    to grant MILLER access for the full 4-hour window.
+    A MILLER token is issued, then MILLER_ADDRESSES is emptied. authorize()
+    re-checks Role.address_role and finds no role -> 403, rather than
+    honoring the stale rol=MILLER claim for the token's 4h lifetime.
     """
 
     with app.app_context():

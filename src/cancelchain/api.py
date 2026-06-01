@@ -284,9 +284,7 @@ def authorize(
     ) -> Callable[..., Any]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            authorized = False
             address: str | None = None
-            role: Role | None = None
             try:
                 token = request.headers.get('Authorization')
                 if token and token.startswith('Bearer '):
@@ -300,19 +298,23 @@ def authorize(
                         algorithms=['HS256'],
                     )
                     address = data['sub']
-                    role = Role[data['rol']]
-                    if address and role.value >= required_role.value:
-                        authorized = True
             except jwt.exceptions.ExpiredSignatureError:
                 abort(401)
             except Exception as e:
                 current_app.logger.exception(e)
                 abort(401)
-            if authorized:
-                kwargs['_address'] = address
-                kwargs['_role'] = role
-                return func(*args, **kwargs)
-            abort(401)
+            if not address:
+                abort(401)
+            # Live config is the authority — the token's `rol` claim is
+            # informational and is NOT trusted for authorization. Re-checking
+            # Role.address_role on every request closes the forged-claim
+            # (A3.a) and stale-role-after-revocation (A5.b) gaps.
+            role = Role.address_role(address)
+            if role is None or role.value < required_role.value:
+                abort(403)
+            kwargs['_address'] = address
+            kwargs['_role'] = role
+            return func(*args, **kwargs)
 
         return wrapper
 

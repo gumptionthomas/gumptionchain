@@ -345,3 +345,44 @@ def test_validate_config_rejects_non_list(app):
     app.config['ADMIN_ADDRESSES'] = 'CCnotalistCC'
     with pytest.raises(InvalidRoleConfigError, match='must be a JSON list'):
         Role.validate_config(app.config)
+
+
+def test_authorize_insufficient_live_role_forbidden(
+    app, host, mill_block, reader_wallet, requests_proxy
+):
+    # A wallet with a valid token but a live role below the endpoint's
+    # requirement is forbidden (403), not unauthorized (401).
+    with app.app_context():
+        _m, b = mill_block(reader_wallet)  # reader on-chain -> can get a token
+        with pytest.raises(httpx.HTTPStatusError, match='403'):
+            ApiClient(host, reader_wallet).post(
+                f'/api/block/{b.block_hash}',
+                data=b.to_json(),
+                headers={'Content-Type': 'application/json'},
+            )
+
+
+def test_authorize_honors_live_downgrade(
+    app, host, mill_block, miller_wallet, requests_proxy
+):
+    # An address demoted mid-token-life is governed by its live role, not
+    # the higher role baked into its still-valid token.
+    with app.app_context():
+        _m, b = mill_block(miller_wallet)
+        client = ApiClient(host, miller_wallet)
+        assert client.get('/api/block').status_code == httpx.codes.OK
+        # Demote: remove from MILLER, add to READER.
+        app.config['MILLER_ADDRESSES'] = []
+        app.config['READER_ADDRESSES'] = [
+            *app.config['READER_ADDRESSES'],
+            miller_wallet.address,
+        ]
+        # Same cached (MILLER-claim) token: still reads (live READER >= READER)
+        assert client.get('/api/block').status_code == httpx.codes.OK
+        # but is forbidden on the MILLER endpoint (live READER < MILLER).
+        with pytest.raises(httpx.HTTPStatusError, match='403'):
+            client.post(
+                f'/api/block/{b.block_hash}',
+                data=b.to_json(),
+                headers={'Content-Type': 'application/json'},
+            )
