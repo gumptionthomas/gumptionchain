@@ -12,11 +12,11 @@
 
 ## Executive summary
 
-**8 findings: 0 Critical / 0 High (1 remediated) / 5 Medium / 2 Low.** No finding is an existential auth bypass with zero preconditions, and the JWT decode path is sound — `HS256` is pinned, and `alg=none`, RS256-confusion, expired, and malformed tokens all fail closed to `401`. The authorization *model*, not the token verification, is where the gaps are.
+**8 findings: 0 Critical / 0 High (1 remediated) / 3 Medium (2 remediated) / 2 Low.** No finding is an existential auth bypass with zero preconditions, and the JWT decode path is sound — `HS256` is pinned, and `alg=none`, RS256-confusion, expired, and malformed tokens all fail closed to `401`. The authorization *model*, not the token verification, is where the gaps are.
 
 The lone High, **A4.a** (remediated, PR #105), was an unvalidated `*_ADDRESSES` regex — an overbroad pattern such as `CC.*CC` silently granted every authenticated address that role, with no key compromise required and no warning from the code. It is fixed: role matching is now exact-address membership, and the allowlists are validated at startup (`Role.validate_config` → `InvalidRoleConfigError`).
 
-The Medium findings cluster on a single root cause: **`authorize()` trusts the signed `rol` claim and never re-validates it against live config.** That one omission is demonstrated three ways — a forged role is honored (A3.a), a config-revoked role keeps working for up to 4 hours (A5.b), and a token is accepted by any node sharing `SECRET_KEY` (A3.b) — and is closed primarily by a one-line per-request `Role.address_role()` re-check (plus `iss`/`aud` binding for A3.b). The remaining Mediums (A2.c, A7.a) are resource-amplification and address-enumeration surface on the *unauthenticated* token endpoint, which both creates DB rows and runs argon2 with no rate limiting.
+The Medium findings clustered on a single root cause: **`authorize()` trusted the signed `rol` claim and never re-validated it against live config.** That one omission was demonstrated three ways — a forged role was honored (A3.a), a config-revoked role kept working for up to 4 hours (A5.b), and a token was accepted by any node sharing `SECRET_KEY` (A3.b). **A3.a and A5.b are now closed** (PR #PRNUM): `authorize()` re-validates the caller's role against live config on every request via `Role.address_role(sub)`; insufficient or absent live role → 403. A3.b's privilege half is mitigated (the target node now re-checks the address's local role, so cross-node access requires a qualifying role on the target), but its `iss`/`aud` binding remains its open fix. The remaining Mediums (A2.c, A7.a) are resource-amplification and address-enumeration surface on the *unauthenticated* token endpoint, which both creates DB rows and runs argon2 with no rate limiting.
 
 Two cross-cutting observations refine the picture: `authorize_admin` is bound to no endpoint (so ADMIN ≡ MILLER today, which *tempers* A3.a/A4.a's real blast radius), and the handshake is a roll-your-own challenge — it hand-rolls RSA-OAEP encryption + argon2 over a 122-bit random secret while ordinary RSA signatures (`Wallet.sign`) sit unused. The most-capable adversaries (authorized insider; the role-forger) surfaced the cluster above but no privilege-escalation-without-precondition; Adversary 6 was fully clean.
 
@@ -41,15 +41,15 @@ Findings are ID'd as `A<N>.<letter>` where `N` is the adversary number (1-7) and
 
 ## Findings table
 
-**8 findings: 0 Critical / 0 High (A4.a remediated) / 5 Medium / 2 Low.** Sorted by severity, then ID. Three of the Mediums (A3.a, A5.b, A3.b) collapse onto one shared root remediation, and two more (A2.c, A7.a) onto another — see Recommendations.
+**8 findings: 0 Critical / 0 High (A4.a remediated) / 3 Medium (A3.a + A5.b remediated) / 2 Low.** Sorted by severity, then ID. A3.a and A5.b are now closed by the per-request live-role re-check in `authorize()` (PR #PRNUM); A3.b remains open (its privilege half is mitigated by that same re-check, but `iss`/`aud` binding is still required). Two more Mediums (A2.c, A7.a) share a second root — see Recommendations.
 
 | ID | Category | Severity | Description | Remediation sketch | Test |
 |---|---|---|---|---|---|
 | A4.a | 4 | High | ✅ (remediated, PR #105) Operator `*_ADDRESSES` regex was unvalidated; an overbroad pattern (e.g. `CC.*CC`) silently escalated every authenticated address to that role | Replaced with exact-address membership + a READER-only `"*"` sentinel, validated at startup (`Role.validate_config`) | `test_a4_a_overbroad_admin_regex_does_not_escalate` |
 | A2.c | 2 | Medium | Unauthenticated `GET /api/token/<address>` persists an `ApiToken` row (and runs argon2) for any on-chain address, with no eviction | Require proof-of-key before persisting / cap unredeemed rows / rate-limit the endpoint | `test_a2_c_unauthenticated_row_creation` |
-| A3.a | 3 | Medium | `authorize()` trusts the signed `rol` claim and never re-validates it against live `Role.address_role()`; a token claiming a role the address lacks is honored | Re-check `Role.address_role(address)` in `authorize()` per request; reject if the live role is below the claimed role | `test_a3_a_forged_role_claim_accepted` |
-| A3.b | 3 | Medium | JWT carries no `iss`/`aud`; a token is accepted by any node sharing `SECRET_KEY` (cross-node replay) | Add and verify `iss` (node) + `aud` (`cancelchain`) claims | `test_a3_b_cross_node_token_replay` |
-| A5.b | 5 | Medium | A role removed from `*_ADDRESSES` keeps working until the 4h JWT expires (same missing live re-check as A3.a) | Same per-request live-role re-check as A3.a | `test_a5_b_stale_role_rejected_after_config_revocation` |
+| A3.a | 3 | Medium | ✅ (remediated, PR #PRNUM) `authorize()` trusted the signed `rol` claim and never re-validated it against live `Role.address_role()`; a token claiming a role the address lacked was honored | Done: `authorize()` now calls `Role.address_role(sub)` on every request; insufficient or absent live role → 403 | `test_a3_a_forged_role_claim_accepted` |
+| A3.b | 3 | Medium | JWT carries no `iss`/`aud`; a token is accepted by any node sharing `SECRET_KEY` (cross-node replay) (privilege half mitigated by the A3.a/A5.b live-role re-check; iss/aud binding still required — open) | Add and verify `iss` (node) + `aud` (`cancelchain`) claims | `test_a3_b_cross_node_token_replay` |
+| A5.b | 5 | Medium | ✅ (remediated, PR #PRNUM) A role removed from `*_ADDRESSES` kept working until the 4h JWT expired (same missing live re-check as A3.a) | Done: same per-request `Role.address_role(sub)` re-check as A3.a; revocation is immediate | `test_a5_b_stale_role_rejected_after_config_revocation` |
 | A7.a | 7 | Medium | Unlimited wrong-challenge `POST`s each run a full argon2id verify with no attempt counter or challenge invalidation | Invalidate the challenge after N failures; add an attempt counter / rate limit | `test_a7_a_repeated_wrong_challenge_invalidates_token` |
 | A1.a | 1 | Low | No startup check that `SECRET_KEY` meets a minimum length; a weak key allows offline JWT forgery with no app-level signal | Assert `len(SECRET_KEY) >= 32` (raise/warn) in `create_app()` after config load | `test_a1_a_weak_secret_key_startup_check` |
 | A2.e | 2 | Low | `POST` with a wrong `Content-Type` returns 415 when a token row exists but 401 when not, leaking whether an address is known to the node | Normalize the rejection (consistent 400/401) regardless of row existence | `test_a2_e_content_type_oracle` |
@@ -332,12 +332,12 @@ Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocki
 
 **Outcome:** ACCEPTED. A bearer of the `SECRET_KEY` can assume any role for any address with no further challenge.
 
-**Finding A3.a — Severity Medium:**
-`authorize()` trusts the `rol` JWT claim directly without re-validating it against the live `Role.address_role()` config. A `SECRET_KEY`-bearing adversary can forge any role for any address. Note: forging the `rol` claim requires possessing `SECRET_KEY`, which is already full compromise; the standalone severity of this `rol`-trust defect is Medium (same root cause as A5.b).
+✅ Remediated (PR #PRNUM). **Finding A3.a — Severity Medium:**
+`authorize()` **trusted** the `rol` JWT claim directly without re-validating it against the live `Role.address_role()` config. A `SECRET_KEY`-bearing adversary could forge any role for any address. Note: forging the `rol` claim required possessing `SECRET_KEY`, which is already full compromise; the standalone severity of this `rol`-trust defect was Medium (same root cause as A5.b).
 
-**Impact:** Full RBAC bypass for all API endpoints (`/api/block` POST, `/api/transaction/*`, etc.). An attacker who extracts or guesses the `SECRET_KEY` environment variable becomes an unchallenged ADMIN with no RSA key required.
+**Impact:** Full RBAC bypass for all API endpoints (`/api/block` POST, `/api/transaction/*`, etc.). An attacker who extracted or guessed the `SECRET_KEY` environment variable became an unchallenged ADMIN with no RSA key required.
 
-**Remediation sketch:** In `authorize()` (api.py:243–272), after decoding the JWT, re-check the live role: `live_role = Role.address_role(address)`. Reject (abort 403) if `live_role is None` or `live_role.value < required_role.value`. The JWT `rol` claim should only be treated as a hint for the token-issuing node's intent; the actual gate must be the live config lookup. This also prevents stale-role replay after a role demotion.
+**Remediation sketch:** In `authorize()` (api.py:243–272), after decoding the JWT, re-check the live role: `live_role = Role.address_role(address)`. Reject (abort 403) if `live_role is None` or `live_role.value < required_role.value`. The JWT `rol` claim should only be treated as a hint for the token-issuing node's intent; the actual gate must be the live config lookup. This also prevents stale-role replay after a role demotion. (As implemented: `authorize()` re-validates `Role.address_role(sub)` on every request; the JWT `rol` claim is no longer trusted for authorization; insufficient/absent live role → 403.)
 
 **Demonstration test:** `test_a3_a_forged_role_claim_accepted`
 
@@ -360,8 +360,10 @@ Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocki
 
 **Outcome:** ACCEPTED. A token legitimately obtained from any same-key node is silently honoured by all other nodes sharing that key. The absence of `aud`/`iss` removes the only protocol-level defence against this scenario.
 
-**Finding A3.b — Severity Medium:**
+**Finding A3.b — Severity Medium (open):**
 No `iss` (issuer) or `aud` (audience) claims are embedded in the JWT (`api.py:217-226`), and `jwt.decode()` is called without `issuer=` or `audience=` enforcement (`api.py:254-258`). Combined with `rol` not being re-validated against local config (see A3.a), a token legitimately minted on any node is accepted as-is by every other node sharing the same `SECRET_KEY`.
+
+**Note:** The A3.a/A5.b live-role re-check (PR #PRNUM) now mitigates A3.b's privilege-escalation half: the target node re-checks the address's local role on every request, so cross-node access now requires a qualifying role on the target node — access is no longer freely carried over from the issuing node's config. However, `iss`/`aud` binding is still required to fully close A3.b — a token issued by one node should not be structurally valid on another, regardless of role. A3.b remains open.
 
 **Impact:** An operator with access on one node in a multi-node deployment can access all other nodes sharing the same `SECRET_KEY`, at the role level granted by the issuing node's config (which may be higher than the target node would allow). The attack requires only a legitimate auth on one node — no key extraction needed.
 
@@ -555,22 +557,22 @@ No `iss` (issuer) or `aud` (audience) claims are embedded in the JWT (`api.py:21
 
 **Attack:** Attacker (or the now-demoted address) replays the captured JWT with `rol=MILLER` within the original 4-hour window.
 
-**Trace:**
+**Trace (pre-remediation):**
 1. `authorize` — `api.py:254`: `jwt.decode()` succeeds (signature valid, not expired).
-2. `api.py:260`: `role = Role[data['rol']]` — `rol` claim is `'MILLER'`; `Role['MILLER']` = `Role.MILLER`. **The live config is never consulted here.**
+2. `api.py:260`: `role = Role[data['rol']]` — `rol` claim is `'MILLER'`; `Role['MILLER']` = `Role.MILLER`. Pre-remediation, the live config was never consulted here.
 3. `api.py:261`: `Role.MILLER.value >= required_role.value` for a MILLER-required endpoint → `True`.
 4. Request is processed with `_role = Role.MILLER`.
 
-**Contrast with `Role.address_role`:** The `authorize` decorator does NOT call `Role.address_role(address)` (api.py:184-186) on the incoming request. `Role.address_role` re-reads `*_ADDRESSES` from live config on every call — but `authorize` trusts the `rol` embedded in the token instead.
+**Contrast with `Role.address_role` (pre-remediation):** Pre-remediation, `authorize` did **not** call `Role.address_role(address)` (api.py:184-186) on the incoming request. `Role.address_role` re-reads `*_ADDRESSES` from live config on every call — but `authorize` trusted the `rol` embedded in the token instead.
 
-**Outcome:** ACCEPTED — a JWT continues to grant the role it was issued with for the full 4-hour window, regardless of subsequent config changes. An operator who revokes a user's MILLER privileges in config has no way to enforce that revocation until all outstanding tokens expire, without a full `SECRET_KEY` rotation.
+**Outcome:** ACCEPTED — pre-remediation, a JWT continued to grant the role it was issued with for the full 4-hour window, regardless of subsequent config changes. An operator who revoked a user's MILLER privileges in config had no way to enforce that revocation until all outstanding tokens expired, without a full `SECRET_KEY` rotation.
 
-**Finding A5.b — Severity Medium:**
-The `rol` claim is not re-validated against live config on each request. Revoking a role from `*_ADDRESSES` config takes up to 4 hours to take effect for already-issued tokens.
+✅ Remediated (PR #PRNUM). **Finding A5.b — Severity Medium:**
+The `rol` claim was not re-validated against live config on each request. Revoking a role from `*_ADDRESSES` config took up to 4 hours to take effect for already-issued tokens.
 
-**Impact:** An address whose elevated role has been revoked retains that role for up to `API_TOKEN_SECONDS` (4 hours). An operator cannot enforce immediate privilege reduction without disrupting all users via SECRET_KEY rotation.
+**Impact:** An address whose elevated role had been revoked retained that role for up to `API_TOKEN_SECONDS` (4 hours). An operator could not enforce immediate privilege reduction without disrupting all users via SECRET_KEY rotation.
 
-**Remediation sketch:** Either (a) re-evaluate `Role.address_role(address)` inside `authorize` on each request and compare against the token's `rol` — reject if live role is lower than token's claimed role; or (b) shorten `API_TOKEN_SECONDS` significantly (e.g., 15 minutes) to bound the revocation lag. Option (a) is stricter and does not require reducing token lifetime.
+**Remediation sketch:** Either (a) re-evaluate `Role.address_role(address)` inside `authorize` on each request and compare against the token's `rol` — reject if live role is lower than token's claimed role; or (b) shorten `API_TOKEN_SECONDS` significantly (e.g., 15 minutes) to bound the revocation lag. Option (a) is stricter and does not require reducing token lifetime. (As implemented: `authorize()` re-validates `Role.address_role(sub)` on every request; the JWT `rol` claim is no longer trusted for authorization; insufficient/absent live role → 403.)
 
 ---
 
@@ -780,7 +782,7 @@ Negative evidence is a deliverable. The following were traced and found sound.
 
 Several findings are symptoms of a few shared roots:
 
-1. **The `rol` claim is the sole authorization gate (A3.a, A5.b, partly A3.b).** `authorize()` reads the role from the signed JWT and never consults live config. This one omission produces three distinct demonstrations — a forged role is honored (A3.a), a config-revoked role keeps working for up to 4h (A5.b), and a token is honored on any node sharing the key (A3.b) — all closed primarily by a single per-request `Role.address_role(address)` re-check. A3.b additionally needs `iss`/`aud` binding.
+1. **The `rol` claim was the sole authorization gate (A3.a, A5.b, partly A3.b).** Pre-remediation, `authorize()` read the role from the signed JWT and never consulted live config. This one omission produced three distinct demonstrations — a forged role was honored (A3.a), a config-revoked role kept working for up to 4h (A5.b), and a token was honored on any node sharing the key (A3.b). A3.a and A5.b are now closed (PR #PRNUM): `authorize()` re-validates the caller's role against live config on every request via `Role.address_role(sub)`. A3.b's residual is the missing `iss`/`aud` binding — its privilege half is mitigated by the same re-check, but the structural token-origin binding remains its open fix.
 
 2. **JWT claim hygiene is minimal.** The token carries only `sub`/`rol`/`exp` — no `iat`, `nbf`, `iss`, `aud`, or `jti`. The consequences: no issuer/audience binding (A3.b), no per-token revocation handle (`jti`), and the only revocation lever is rotating `SECRET_KEY`, which logs out everyone.
 
@@ -788,9 +790,9 @@ Several findings are symptoms of a few shared roots:
 
 4. **`reset()` runs before the role check (observation).** `TokenView.post` (`api.py:213-216`) verifies the challenge, immediately `reset()`s it, and only *then* checks the role. A legitimate key-holder with no configured role thus burns their challenge and must re-fetch one. Reorder to verify → role-check → reset → issue.
 
-5. **The ADMIN tier is decorative (observation).** `authorize_admin` (`api.py:282`) is bound to no endpoint, so ADMIN currently confers nothing beyond MILLER. This *tempers* the practical blast radius of A3.a/A4.a (a forged or escalated ADMIN token is no more powerful than a MILLER one today; A4.a is now remediated) but is itself a latent foot-gun: adding an ADMIN-gated endpoint later would silently widen those findings.
+5. **The ADMIN tier is decorative (observation).** `authorize_admin` (`api.py:282`) is bound to no endpoint, so ADMIN currently confers nothing beyond MILLER. This *tempers* the practical blast radius of A3.a/A4.a (a forged or escalated ADMIN token is no more powerful than a MILLER one today; A4.a and A3.a are now remediated) but is itself a latent foot-gun: adding an ADMIN-gated endpoint later would silently widen those findings.
 
-6. **One symmetric key, no strength gate (A1.a).** A single HS256 `SECRET_KEY` signs every token (and would sign Flask sessions/CSRF if those are ever added), with no startup length/entropy check. Its compromise lets an attacker forge any token — which is precisely why A3.a is rated Medium, not High: the forge-a-role path's precondition (holding `SECRET_KEY`) is already total compromise.
+6. **One symmetric key, no strength gate (A1.a).** A single HS256 `SECRET_KEY` signs every token (and would sign Flask sessions/CSRF if those are ever added), with no startup length/entropy check. Its compromise lets an attacker forge any token — which is precisely why A3.a was rated Medium, not High: the forge-a-role path's precondition (holding `SECRET_KEY`) is already total compromise. A3.a is now remediated; the precondition analysis remains the same (the live re-check is additional hardening, not a precondition removal).
 
 7. **A roll-your-own challenge while standard primitives sit unused.** The handshake hand-rolls "encrypt a random UUID secret to the wallet's RSA key, argon2-hash it, compare on redemption," while `Wallet.sign`/`validate_signature` (ordinary RSA signatures) are never used by the auth path. Argon2 — a deliberately slow KDF for *low-entropy passwords* — is being applied to a 122-bit random secret, which is both unnecessary and the root of the A7.a cost-amplification. This is the structural smell that motivates the replacement analysis in Recommendations.
 
@@ -803,7 +805,7 @@ Several findings are symptoms of a few shared roots:
 Ordered by priority. The eight findings collapse to roughly five code changes:
 
 1. ✅ (done — PR #105) **Validated `*_ADDRESSES` at config load — closed A4.a (High).** Was highest priority: it needed no key compromise, was triggered by an ordinary operator config mistake, and the code previously invited it silently. Regex matching was replaced with exact-address membership + a READER-only `"*"` sentinel; `Role.validate_config` rejects non-address entries and out-of-READER `"*"` at `create_app` startup via `InvalidRoleConfigError`.
-2. **Re-validate the role against live config in `authorize()` — closes A3.a + A5.b (Medium), and the privilege half of A3.b.** After `jwt.decode`, call `live = Role.address_role(address)` and `abort(403)` if `live is None or live.value < required_role.value`. One change closes the largest finding cluster. (Decide product-side whether to honor the *lower* of token-vs-live role, or reject any mismatch.)
+2. ✅ (done — PR #PRNUM) **Re-validated the role against live config in `authorize()` — closed A3.a + A5.b (Medium), and mitigated the privilege half of A3.b.** After `jwt.decode`, `authorize()` now calls `live = Role.address_role(address)` and `abort(403)` if `live is None or live.value < required_role.value`. One change closed the largest finding cluster.
 3. **Add and verify JWT claim hygiene — closes A3.b (Medium), hardens the rest.** Issue `iss` (node host/address), `aud` (`cancelchain`), `iat`, and a `jti`; pass `issuer=`/`audience=` to `jwt.decode`. The `jti` enables a small server-side revocation denylist (TTL = token lifetime) if per-token revocation is ever needed.
 4. **Throttle the token endpoint — closes A2.c + A7.a (Medium), addresses the A2.d observation.** Add a per-address wrong-challenge attempt counter that invalidates the challenge after N failures; cap/evict unredeemed `ApiToken` rows; rate-limit the endpoint at the app or proxy layer; and reorder `TokenView.post` to verify → role-check → `reset()` → issue (fixes the challenge-burn observation). Consider requiring a signed proof before persisting a row at all, which folds into the replacement options below.
 5. **`SECRET_KEY` length check (A1.a) and content-type rejection normalization (A2.e) — Low.** Assert `len(SECRET_KEY) >= 32` at `create_app()`; make the wrong-content-type rejection status independent of whether a token row exists (closes the enumeration oracle).
@@ -812,7 +814,7 @@ Housekeeping (not findings): bind or explicitly document `authorize_admin` so th
 
 ### Targeted fixes vs. protocol replacement
 
-The findings cluster around two structural roots: **(R1)** the JWT is an unbound bearer token whose `rol` claim is trusted without live re-validation and which lacks issuer/audience/issued-at/jti hygiene; and **(R2)** the handshake is a roll-your-own challenge that hand-rolls RSA-OAEP encryption + argon2-hashing of a high-entropy secret while ordinary RSA *signatures* (`Wallet.sign`) sit unused. The targeted remediations above fully close every individual finding and are low-risk — A4.a is already done; the live re-check and the `SECRET_KEY` check remain the near-mandatory ones and should land next regardless of any larger decision. But targeted fixes leave R2 in place. Because the user has flagged the challenge protocol as a known roll-your-own chosen only to reuse the wallet key pairs, it is worth evaluating a replacement of the handshake half. Two candidate directions:
+The findings clustered around two structural roots: **(R1)** the JWT was an unbound bearer token whose `rol` claim was trusted without live re-validation and which lacked issuer/audience/issued-at/jti hygiene; and **(R2)** the handshake is a roll-your-own challenge that hand-rolls RSA-OAEP encryption + argon2-hashing of a high-entropy secret while ordinary RSA *signatures* (`Wallet.sign`) sit unused. The targeted remediations above fully close every individual finding and are low-risk — A4.a and the live-role re-check (A3.a/A5.b) are already done; the remaining near-term items are the `SECRET_KEY` length check (A1.a), A3.b's `iss`/`aud` binding, and the A2.c/A7.a throttling. Targeted fixes address R1's re-validation gap but leave R2 in place. Because the user has flagged the challenge protocol as a known roll-your-own chosen only to reuse the wallet key pairs, it is worth evaluating a replacement of the handshake half. Two candidate directions:
 
 **Candidate (a) — signed-nonce challenge-response, reusing `Wallet.sign`/`validate_signature`.** The server issues a random nonce; the client signs it with its RSA private key; the server verifies with the address's public key. *For:* smallest change — it deletes the RSA-OAEP/AES-GCM encrypt path and the argon2-on-a-random-secret smell (there is no shared secret to hash), reuses primitives already present in `Wallet`, and keeps the rest of the stack intact. *Against:* still stateful (a nonce must be stored and single-used, so the A2.c/A7.a endpoint-abuse surface persists unless paired with the throttling above), and it still issues the same JWT — so the R1 findings (rol re-validation, claim hygiene) must still be fixed separately. Good as a low-risk interim that removes the worst of the hand-rolled crypto.
 

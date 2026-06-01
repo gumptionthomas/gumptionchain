@@ -116,7 +116,7 @@ Domain objects own validation, serialization (Marshmallow schemas in `schema.py`
 1. `GET /api/token/<address>` returns an RSA+AES-encrypted challenge (cipher in `ApiToken`); only the holder of the private key can decrypt it.
 2. `POST /api/token/<address>` with the decrypted challenge yields a JWT containing `sub` (address) and `rol` (role name).
 
-`ApiClient` (`api_client.py`) wraps this handshake; it transparently retries once on 401 by resetting the token. `Role.address_role` checks the address against the `*_ADDRESSES` exact-match allowlists on every request, so role membership is dynamic — an address can appear in multiple allowlists, and the highest matching role wins.
+`ApiClient` (`api_client.py`) wraps this handshake; it transparently retries once on 401 by resetting the token. `authorize()` re-validates the caller's role against live `*_ADDRESSES` config on every request via `Role.address_role(sub)`; the JWT `rol` claim is informational, not the authorization gate — a revoked address loses access immediately and a forged or over-claimed `rol` is not honored. `Role.address_role` checks the address against the `*_ADDRESSES` exact-match allowlists; an address can appear in multiple allowlists, and the highest matching role wins.
 
 ### Async post-processing
 
