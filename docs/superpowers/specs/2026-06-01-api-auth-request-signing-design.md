@@ -28,6 +28,7 @@ Authenticate every API request with a wallet signature over a canonical request 
 Newline-joined, deterministic; the client signs it and the server reconstructs it byte-for-byte:
 
 ```
+sig_version       # the scheme identifier, literally "cc-sig-v1" (first field)
 method            # request method, uppercased, e.g. "POST"
 path              # request path only (no scheme/host), e.g. "/api/block/<hash>"
 query_string      # the raw URL query string ("" when absent)
@@ -37,13 +38,16 @@ timestamp         # request time, unix seconds, as a decimal string
 address           # the caller's CC address
 ```
 
-Rationale per field: `method`/`path`/`query`/`body_sha256` bind the signature to the exact request (tamper-evident); `node_host` binds it to the receiving node (preserves A3.b — a signature minted for node A fails on node B); `timestamp` bounds replay; `address` ties the signature to the claimed identity (also self-certified against the public key).
+Rationale per field: `sig_version` binds the signature to a specific scheme (prevents cross-scheme reinterpretation when a v2 is added later); `method`/`path`/`query`/`body_sha256` bind the signature to the exact request (tamper-evident); `node_host` binds it to the receiving node (preserves A3.b — a signature minted for node A fails on node B); `timestamp` bounds replay; `address` ties the signature to the claimed identity (also self-certified against the public key).
+
+**Versioned for evolution (published-API forward-compat).** cancelchain has (or will have) a published API and intends to allow third-party clients eventually. The scheme is therefore explicitly **versioned**: the `sig_version` field + a `CC-Sig-Version` header (value `1`) let the server dispatch on scheme version, so a future RFC 9421 scheme (`v2`) can be accepted **side-by-side** with `v1` — additively, no breaking change for existing clients. See "Public protocol documentation" and the future-scheme note in Out of scope.
 
 **Canonicalization matching — the critical correctness detail.** Because this is a thin signer (no RFC 9421 library standardizing the wire form), the client and server MUST derive `path` and `query_string` to **identical bytes**, or every signature fails verification. The rule: both sides use the **server-side, Werkzeug-decoded** forms — server reads `request.path` and `request.query_string.decode()`; the `ApiClient` signs the exact same path and query string it is about to send to `httpx` (it controls both, so it canonicalizes to match what Werkzeug will present). No reordering, re-quoting, or normalization on either side. The load-bearing guard is the round-trip test: a real `ApiClient` request routed through `requests_proxy` into the app must verify — if canonicalization drifts, that test fails immediately. (Paths already in use, e.g. `/api/block/<64-char mill_hash>`, route correctly today; the signer must reproduce whatever Werkzeug yields for them, not re-derive it.)
 
 ### Wire format (headers)
 
 The client sends:
+- `CC-Sig-Version`: the scheme version, `1` (selects the `cc-sig-v1` canonicalization + RSA-PKCS1v15-SHA384).
 - `CC-Address`: the caller's CC address.
 - `CC-Public-Key`: the caller's public key, base64 (`Wallet.public_key_b64`).
 - `CC-Timestamp`: unix seconds (decimal string), matching the signed value.
@@ -55,14 +59,15 @@ The client sends:
 
 The decorator interface is unchanged (`authorize(required_role)` → `authorize_reader/transactor/miller/admin`, injecting `_address`/`_role`). The wrapper body becomes:
 
-1. Read `CC-Address`, `CC-Public-Key`, `CC-Timestamp`, `CC-Signature`; any missing/blank → `abort(401)`.
-2. Parse `CC-Timestamp` to a number; non-numeric → `abort(401)`. Freshness: `abs(now_seconds − ts) > 300` → `abort(401)`.
-3. `validate_address(public_key_b64, address)` (pubkey must hash to the claimed address) → else `abort(401)`.
-4. Reconstruct the canonical string from the live request: `request.method`, `request.path`, `request.query_string` (decoded), `sha256(request.get_data()).hexdigest()`, `host_address(current_app.config['NODE_HOST'])[0]`, the `CC-Timestamp` value, `address`.
-5. `Wallet(b64ks=public_key_b64).validate_signature(canonical.encode(), signature_b64)` → else `abort(401)`. (A signature made for a different node fails here because `node_host` differs.)
-6. `role = Role.address_role(address)`; `role is None or role.value < required_role.value` → `abort(403)`. Inject `kwargs['_address'] = address`, `kwargs['_role'] = role`; call the view.
+1. Read `CC-Sig-Version`; if it is not `1` (unknown/missing scheme) → `abort(401)`. (This is the dispatch point: future schemes add branches here; `v1` proceeds as below.)
+2. Read `CC-Address`, `CC-Public-Key`, `CC-Timestamp`, `CC-Signature`; any missing/blank → `abort(401)`.
+3. Parse `CC-Timestamp` to a number; non-numeric → `abort(401)`. Freshness: `abs(now_seconds − ts) > 300` → `abort(401)`.
+4. `validate_address(public_key_b64, address)` (pubkey must hash to the claimed address) → else `abort(401)`.
+5. Reconstruct the canonical string from the live request: the literal `"cc-sig-v1"`, `request.method`, `request.path`, `request.query_string` (decoded), `sha256(request.get_data()).hexdigest()`, `host_address(current_app.config['NODE_HOST'])[0]`, the `CC-Timestamp` value, `address`.
+6. `Wallet(b64ks=public_key_b64).validate_signature(canonical.encode(), signature_b64)` → else `abort(401)`. (A signature made for a different node fails here because `node_host` differs.)
+7. `role = Role.address_role(address)`; `role is None or role.value < required_role.value` → `abort(403)`. Inject `kwargs['_address'] = address`, `kwargs['_role'] = role`; call the view.
 
-All exceptions in 1–5 funnel to `abort(401)` (a malformed/forged credential is unauthenticated); insufficient role is `abort(403)`. A small module helper — e.g. `verify_signed_request(required_role) -> tuple[address, role]` or an inline block — keeps `authorize()` readable. No DB access, no token state.
+All failures in steps 1–6 funnel to `abort(401)` (a malformed/forged/wrong-scheme credential is unauthenticated); insufficient role (step 7) is `abort(403)`. A small module helper — e.g. `verify_signed_request(required_role) -> tuple[address, role]` or an inline block — keeps `authorize()` readable. No DB access, no token state. The `cc-sig-v1` canonicalization + RSA-PKCS1v15-SHA384 should live behind a named scheme so a `v2` can slot in beside it.
 
 A note on `request.get_data()`: reading the body for the digest is safe for these endpoints (Flask caches it; the views re-read `request.data`/`request.json` afterward). Confirm during implementation that body-consuming views still see the body after the digest read (they do — `get_data()` caches).
 
@@ -130,21 +135,23 @@ Existing block/transaction/chain tests are unaffected (transaction/block signing
 ## Documentation updates
 
 - **Audit report**: close A1.a/A2.c/A2.e/A7.a as "remediated by protocol replacement (PR #N)"; headline → `0 Critical / 0 High / 0 Medium / 0 Low`; a short "Resolution" note that the handshake was replaced with per-request wallet signatures, dissolving the token-endpoint and symmetric-key findings; update the Recommendations/Targeted-vs-replacement section to record the chosen path as implemented.
-- **CLAUDE.md**: rewrite the API-auth paragraph — requests are authenticated by a per-request wallet signature over a canonical string (method/path/query/body-digest/node-host/timestamp/address), sent in `CC-*` headers and verified against the address's public key; no token, no `SECRET_KEY` for auth, stateless with a ±300s freshness window.
-- **ROADMAP**: close the "API auth protocol replacement (design cycle)" entry and the A2.c/A7.a + A1.a/A2.e remediation entries; note the audit is fully closed 0/0/0/0.
+- **CLAUDE.md**: rewrite the API-auth paragraph — requests are authenticated by a per-request wallet signature over a canonical string (`cc-sig-v1`: version/method/path/query/body-digest/node-host/timestamp/address), sent in `CC-*` headers and verified against the address's public key; no token, no `SECRET_KEY` for auth, stateless with a ±300s freshness window. Point to the public protocol doc below.
+- **Public protocol documentation (first-class deliverable):** a versioned, external-facing spec — e.g. `docs/api-auth-protocol.md` (and surfaced in the Sphinx docs if present) — precise enough that a third-party client author can implement `cc-sig-v1` from it alone (canonical string, header set, the canonicalization-matching rule, the ±300s window, error semantics, and the `CC-Sig-Version` evolution contract). This is the deliverable that makes a *published API* with future third-party clients viable without RFC 9421 — the SigV4 pattern: bespoke but fully, publicly documented.
+- **ROADMAP**: close the "API auth protocol replacement (design cycle)" entry and the A2.c/A7.a + A1.a/A2.e remediation entries; note the audit is fully closed 0/0/0/0; add a forward entry for "RFC 9421 as an additive `v2` auth scheme" (deferred until real third-party demand — see below).
 
 ## Out of scope
 
 - Transaction/block signing, the `Wallet` signing primitive, and the address scheme — untouched.
 - Rate limiting / DoS at the infra layer (an unsigned request now fails fast at signature verify with no argon2; there is no expensive unauthenticated path left to amplify).
-- RFC 9421 wire compatibility / third-party clients (none exist).
+- RFC 9421 wire compatibility — **deferred, not abandoned.** A published API and third-party clients are intended eventually, but are premature today (zero current external consumers; the RFC 9421 Python library ecosystem is still thin in 2026). The `CC-Sig-Version` dispatch makes RFC 9421 a clean **additive `v2` scheme** later — accepted side-by-side with `v1`, with a registered-alg (`rsa-pss-sha512`/`rsa-v1_5-sha256`) API-signing method added to `Wallet` (kept separate from consensus transaction/block signing). Until then, third parties implement the publicly-documented `cc-sig-v1` (SigV4-style). Recorded as a roadmap entry; not built here.
 - A nonce-based replay cache (timestamp-freshness chosen; revisit only if the TLS precondition is ever dropped).
 - Any change to the browser layer (still has no auth).
 
 ## Acceptance criteria
 
-- `authorize()` verifies a per-request wallet signature (canonical string as specified), self-certifies pubkey→address, enforces a ±300s timestamp window and node-binding, then the live `Role.address_role` gate; no token, no `ApiToken`, no argon2, no `SECRET_KEY` read by auth.
-- `ApiClient` signs every request via `_signed_headers`; `request_token`/`get_token`/`auth_header`/`self.token` and the 401-retry loop are removed; the CLI works unchanged.
+- `authorize()` dispatches on `CC-Sig-Version` (`1`), verifies a per-request wallet signature over the `cc-sig-v1` canonical string (version field included), self-certifies pubkey→address, enforces a ±300s timestamp window and node-binding, then the live `Role.address_role` gate; no token, no `ApiToken`, no argon2, no `SECRET_KEY` read by auth.
+- `ApiClient` signs every request via `_signed_headers` (emitting `CC-Sig-Version`/`CC-Address`/`CC-Public-Key`/`CC-Timestamp`/`CC-Signature`); `request_token`/`get_token`/`auth_header`/`self.token` and the 401-retry loop are removed; the CLI works unchanged.
+- A versioned, external-facing protocol doc (e.g. `docs/api-auth-protocol.md`) documents `cc-sig-v1` precisely enough for a third-party client author, including the `CC-Sig-Version` evolution contract.
 - `TokenView`, the `/api/token` routes, the `ApiToken` model/table, and the `PyJWT` + `argon2-cffi` deps are removed; the base migration is regenerated without `api_token`; `uv.lock` re-resolved and committed.
 - Audit findings A1.a/A2.c/A2.e/A7.a are closed-by-replacement; A4.a/A3.a/A5.b/A3.b properties preserved; audit headline `0/0/0/0`.
 - Tests: dissolved-finding tests removed; survivors re-expressed; new negative signature coverage added; full suite green with **0 xfailed**; `ruff`/`mypy`/`db check` green.
