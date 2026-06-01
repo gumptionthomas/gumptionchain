@@ -179,11 +179,16 @@ class Role(Enum):
 
     @classmethod
     def address_roles(cls, address: str) -> list[Role]:
+        # Fail closed if a list is not configured (None / a stray string):
+        # `isinstance` excludes both, avoiding silent substring semantics.
+        # The '*' match-all sentinel is honored only for READER at match
+        # time too (defense-in-depth: startup validation forbids it in
+        # higher tiers, but a runtime config mutation must not escalate).
         return [
             role
             for role in Role
-            if (addrs := role.addresses()) is not None
-            and (address in addrs or '*' in addrs)
+            if isinstance(addrs := role.addresses(), (list, tuple))
+            and (address in addrs or (role is cls.READER and '*' in addrs))
         ]
 
     @classmethod
@@ -200,7 +205,14 @@ class Role(Enum):
         READER_ADDRESSES. Raises InvalidRoleConfigError on any violation.
         """
         for role in cls:
-            for entry in config.get(f'{role.name}_ADDRESSES', []) or []:
+            entries = config.get(f'{role.name}_ADDRESSES', []) or []
+            if not isinstance(entries, (list, tuple)):
+                msg = (
+                    f'{role.name}_ADDRESSES must be a JSON list of '
+                    f'addresses, got {type(entries).__name__}'
+                )
+                raise InvalidRoleConfigError(msg)
+            for entry in entries:
                 if entry == '*':
                     if role is not cls.READER:
                         msg = (

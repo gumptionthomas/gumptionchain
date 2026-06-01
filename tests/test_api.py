@@ -327,3 +327,21 @@ def test_create_app_rejects_overbroad_admin_config():
             },
             register_browser=False,
         )
+
+
+def test_address_role_wildcard_ignored_outside_reader(app, wallet):
+    # Defense-in-depth: even if '*' is injected into a higher tier at
+    # runtime (bypassing startup validation), match-time honors '*' only
+    # for READER — it must not escalate.
+    with app.app_context():
+        _clear_role_config(app)
+        app.config['MILLER_ADDRESSES'] = ['*']
+        assert Role.address_role(wallet.address) is None
+
+
+def test_validate_config_rejects_non_list(app):
+    # A non-list value (e.g. a bare string from a malformed env var) must
+    # fail-hard with a clear message, not iterate character-by-character.
+    app.config['ADMIN_ADDRESSES'] = 'CCnotalistCC'
+    with pytest.raises(InvalidRoleConfigError, match='must be a JSON list'):
+        Role.validate_config(app.config)
