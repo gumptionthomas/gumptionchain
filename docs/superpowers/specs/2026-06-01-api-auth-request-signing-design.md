@@ -33,7 +33,7 @@ method            # request method, uppercased, e.g. "POST"
 path              # request path only (no scheme/host), e.g. "/api/block/<hash>"
 query_string      # the raw URL query string ("" when absent)
 body_sha256_hex   # hex sha256 of the raw request body (sha256 of b"" for GET/empty)
-node_host         # the target node identity: host_address(<target url>)[0], e.g. "localhost:8080"
+node_host         # the target node identity: host_address(<target url>)[0], e.g. "http://localhost:8080" (scheme+netloc; symmetric on both sides)
 timestamp         # request time, unix seconds, as a decimal string
 address           # the caller's CC address
 ```

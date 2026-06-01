@@ -363,7 +363,7 @@ EOF
 
 ## Task 3: The atomic swap — server verify + client sign + test overhaul
 
-**Files:** `src/cancelchain/api.py`, `src/cancelchain/api_client.py`, `tests/test_api.py`, `tests/test_api_client.py`, `tests/test_auth_audit.py`.
+**Files:** `src/cancelchain/api.py`, `src/cancelchain/api_client.py`, `src/cancelchain/tasks.py`, `tests/test_api.py`, `tests/test_api_client.py`, `tests/test_auth_audit.py`.
 
 This is one coherent change: the server must verify signatures, the client must produce them, and the auth tests must move to the signature model — the suite is only green once all three agree. Work to green, then a single commit.
 
@@ -480,7 +480,88 @@ Remove `request_token`, `get_token`, `reset_token`, `auth_header`, the `self.tok
             raise_for_status=raise_for_status,
         )
 ```
-Notes: `self.host` is the normalized netloc (`host_address(host)[0]`) — matches the server's `host_address(NODE_HOST)[0]`. The 401-retry loop is gone (a 401 is a real failure now). `req.url.path`/`req.url.query` are exactly what httpx sends, so the server's `request.path`/`request.query_string` match. The `Peer-Hosts` and `Content-Type` headers (passed via `headers=`) ride along unsigned. The `get_*`/`post_*`/`post_block`/`post_transaction` convenience methods are unchanged.
+Notes: `self.host` is `host_address(host)[0]` — the full `scheme://host:port` URL (e.g. `http://localhost:8080`), matching the server's `host_address(NODE_HOST)[0]` (`host_address` returns `urlunparse((scheme, netloc, ...))`, *with* scheme — not a bare netloc). The 401-retry loop is gone (a 401 is a real failure now). `req.url.path`/`req.url.query` are exactly what httpx sends, so the server's `request.path`/`request.query_string` match. The `Peer-Hosts` and `Content-Type` headers (passed via `headers=`) ride along unsigned. The `get_*`/`post_*`/`post_block`/`post_transaction` convenience methods are unchanged.
+
+- [ ] **Step 3b: Move async-path signing to send time (`src/cancelchain/api.py` `queue_post_process` + `src/cancelchain/tasks.py` `post_process`)**
+
+`queue_post_process` currently pre-builds auth headers with `c.auth_header(...)` (removed in Step 3) and ships them to the Celery task — which is doubly broken for per-request signatures: the method no longer exists, and a signature minted at queue time would be stale (and not cover the right method/path/body) by the time the worker sends. Move signing into the task so it happens at send time via the now-signing `ApiClient`. (This async path is currently untested and, with the test `NODE_HOST` lacking an embedded address, was already a no-op skip — so the suite stays green either way; fix it anyway so it is correct, not silently broken.)
+
+Rewrite `queue_post_process` (`api.py`) — stop pre-signing; emit the raw bits the task needs (node host, node address, path, data, vhosts):
+```python
+def queue_post_process(
+    path: str,
+    data: str | bytes | None,
+    vhosts: list[str] | None,
+) -> None:
+    host, address = host_address(current_app.config['NODE_HOST'])
+    wallet: Wallet | None = current_app.wallets.get(address)  # type: ignore[attr-defined]
+    if wallet is None:
+        # No wallet for this node's NODE_HOST address — can't sign an
+        # outbound peer request. Log and skip rather than fail later.
+        current_app.logger.warning(
+            'queue_post_process: no wallet for node address %s; skipping',
+            address,
+        )
+        return
+    http_post_signal.send(
+        current_app._get_current_object(),  # type: ignore[attr-defined]
+        host=host,
+        address=address,
+        path=path,
+        data=data,
+        vhosts=vhosts,
+    )
+```
+Update `handle_http_post` (`api.py`) to the new signal kwargs and forward them:
+```python
+def handle_http_post(
+    sender: Any,
+    host: str | None = None,
+    address: str | None = None,
+    path: str | None = None,
+    data: str | bytes | None = None,
+    vhosts: list[str] | None = None,
+) -> None:
+    if current_app.config.get('CELERY_BROKER_URL'):
+        post_process.delay(host, address, path, data, vhosts)
+```
+Rewrite `tasks.post_process` (`src/cancelchain/tasks.py`) to sign at send time via `ApiClient` (it runs inside the `app_context` that `init_tasks` wraps tasks in):
+```python
+def post_process(
+    host: str,
+    address: str,
+    path: str,
+    data: str | bytes | None = None,
+    vhosts: list[str] | None = None,
+) -> None:
+    from flask import current_app
+
+    from cancelchain.api_client import PEER_HOST_HEADER, ApiClient
+
+    wallet = current_app.wallets.get(address)  # type: ignore[attr-defined]
+    if wallet is None:
+        return
+    headers = {PEER_HOST_HEADER: ','.join(vhosts)} if vhosts else None
+    with ApiClient(host, wallet) as c:
+        c.post(path, data=data, headers=headers)
+```
+(Check `tasks.py`'s existing imports — keep `httpx` only if still used elsewhere; the direct `httpx.post` is replaced by the signing `ApiClient.post`. `urljoin`/`json_header` uses in `queue_post_process` that are now dead should be removed if unused.)
+
+Add a focused test in `tests/test_api.py` so this path is no longer untested — call `post_process` synchronously under `requests_proxy` with a node wallet configured, and assert the signed self-request is accepted:
+```python
+def test_post_process_signs_at_send_time(app, host, mill_block, requests_proxy, wallet):
+    # `wallet` is the ADMIN node wallet (in app.wallets); post_process should
+    # sign the outbound /process request at send time and it should verify.
+    from cancelchain.tasks import post_process
+    with app.app_context():
+        m, b = mill_block(wallet)
+        # POST the block to its own /process endpoint (miller-gated; wallet is ADMIN).
+        post_process(
+            host, wallet.address, f'/api/block/{b.block_hash}/process',
+            data=b.to_json(), vhosts=None,
+        )  # raises on non-2xx via ApiClient.post -> proves the signed request verified
+```
+(If `wallet` is not resolvable for this node's config, adjust to a wallet that has a MILLER+ role and is in `app.wallets`; the assertion is simply that `post_process` completes without an HTTPStatusError, i.e. the signed request authenticated.)
 
 - [ ] **Step 4: Run the impact check — see the whole auth surface move**
 
@@ -491,8 +572,9 @@ Expected: lots of churn. ApiClient-based happy-path tests (`test_roles`, balance
 
 - [ ] **Step 5: Overhaul `tests/test_api.py`**
 
-- **Delete** `test_post_token_none` and `test_post_token_invalid` (no token endpoint).
-- The role/access tests (`test_roles`, `test_no_role`, `test_non_app_wallet`, the balance/support/pending/transfer tests, and the live-role + audience tests `test_authorize_insufficient_live_role_forbidden`/`test_authorize_honors_live_downgrade`) drive auth through `ApiClient`, which now signs — keep them; they should pass unchanged. **Remove** `test_authorize_rejects_wrong_audience_token` (it hand-mints a JWT — superseded by the signature negative tests below).
+- **Delete** `test_post_token_none`, `test_post_token_invalid` (no token endpoint), `test_expired_auth` (line ~113 — uses `API_TOKEN_SECONDS`; token expiry is moot with no token), and `test_authorize_rejects_wrong_audience_token` (line ~395 — hand-mints a JWT with `API_TOKEN_SECONDS`; superseded by the signature negative tests below).
+- **Remove the `API_TOKEN_SECONDS` import** from `tests/test_api.py` (line 8: `from cancelchain.api import API_TOKEN_SECONDS, Role` → `from cancelchain.api import Role`) — the symbol is removed from `api.py` and, after the deletions above, no test references it. Grep `API_TOKEN_SECONDS` in the file to confirm zero remaining uses.
+- The role/access tests (`test_roles`, `test_no_role`, `test_non_app_wallet`, the balance/support/pending/transfer tests, and the live-role tests `test_authorize_insufficient_live_role_forbidden`/`test_authorize_honors_live_downgrade`) drive auth through `ApiClient`, which now signs — keep them; they should pass unchanged.
 - **Add** signature negative/positive tests. They hand-build headers via `signing.sign_headers` and inject a defect, sending through `requests_proxy` (raw httpx into the app, `host_address(host)[0]` == app's `NODE_HOST` netloc == `localhost:8080`). Add `from cancelchain import signing` and `from cancelchain.util import host_address` imports:
 ```python
 def _node(host):
@@ -555,7 +637,7 @@ def test_pubkey_address_mismatch_rejected(app, host, mill_block, requests_proxy,
 
 - [ ] **Step 6: Overhaul `tests/test_api_client.py`**
 
-Delete the token-handshake tests (anything exercising `request_token`/`get_token`/`auth_header`/the cipher dance). Keep/repoint the functional client tests (they call `ApiClient.get_*`/`post_*`, which now sign — they should pass). Add one assertion that `ApiClient.get`/`post` attach the `CC-*` headers (e.g. capture the request via the existing requests_proxy seam, or assert a round-trip 200 against a signed endpoint). If a test asserted on `.token`/`auth_header`, delete that assertion.
+Delete the token-handshake tests (anything exercising `request_token`/`get_token`/`auth_header`/the cipher dance), **including `test_expired_token` (line ~28 — uses `API_TOKEN_SECONDS`)**, and **remove the `API_TOKEN_SECONDS` import** (line 4: `from cancelchain.api import API_TOKEN_SECONDS`) since the symbol is gone and nothing else in the file uses it (grep to confirm). Keep/repoint the functional client tests (they call `ApiClient.get_*`/`post_*`, which now sign — they should pass). Add one assertion that `ApiClient.get`/`post` attach the `CC-*` headers (e.g. capture the request via the existing requests_proxy seam, or assert a round-trip 200 against a signed endpoint). If a test asserted on `.token`/`auth_header`, delete that assertion.
 
 - [ ] **Step 7: Overhaul `tests/test_auth_audit.py`**
 
@@ -564,7 +646,7 @@ Delete the token-handshake tests (anything exercising `request_token`/`get_token
   - `test_a3_a_*` → a validly-signed request from a READER-only address (`reader_wallet`) to a MILLER endpoint (`POST /api/block/<hash>`) → **403** (live-role gate). Build headers with `signing.sign_headers` for the exact path/body and send via `requests_proxy`.
   - `test_a3_b_*` → a request signed for node A's `node_host` (`_node(host)`) sent to `remote_app` via `remote_requests_proxy` → **401** (the `remote_app` reconstructs `node_host = peer.node:8888`, so the signature fails). Replaces the old JWT cross-node test.
   - `test_a5_b_*` → sign as `miller_wallet`, then `app.config['MILLER_ADDRESSES'] = []`, then a signed MILLER-endpoint request → **403** (live role now `None`).
-  - `test_a4_a_*` → unchanged (it tests `Role.validate_config`, independent of the transport).
+  - `test_a4_a_*` → **rewrite** (it is NOT transport-independent — the current body calls `client.request_token(rfs=True)` and `jwt.decode(...)`, both removed). Re-express against signed requests: mutate `app.config['ADMIN_ADDRESSES'] = ['CC.*CC']` (runtime, bypassing startup validation), then send a **signed** request as `reader_wallet` (READER-only) to a MILLER endpoint via `requests_proxy` (using `signing.sign_headers`) and assert **403** — the overbroad literal must not escalate a reader to ADMIN/MILLER. (The `Role.validate_config` startup-rejection aspect of A4.a is already covered by `test_create_app_rejects_overbroad_admin_config` + `test_validate_config_*` in `test_api.py`; this test covers the runtime non-escalation.) Remove the now-dead `jwt`/`ApiToken`/handshake imports from `test_auth_audit.py`.
 - If the module is left with only re-expressed passing tests and no `xfail`, that's correct — the audit demonstrations are now regressions.
 
 - [ ] **Step 8: Full suite + gates**
