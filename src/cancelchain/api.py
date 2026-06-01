@@ -257,10 +257,13 @@ class TokenView(MethodView):
         api_token.reset()
         if (role := Role.address_role(address)) is None:
             abort(403)
+        node_host = current_app.config['NODE_HOST']
         token = jwt.encode(
             {
                 'sub': address,
                 'rol': str(role.name),
+                'iss': node_host,
+                'aud': node_host,
                 'exp': now().timestamp() + API_TOKEN_SECONDS,
             },
             current_app.config['SECRET_KEY'],
@@ -292,10 +295,13 @@ def authorize(
                 else:
                     token = None
                 if token:
+                    node_host = current_app.config['NODE_HOST']
                     data = jwt.decode(
                         token,
                         current_app.config['SECRET_KEY'],
                         algorithms=['HS256'],
+                        issuer=node_host,
+                        audience=node_host,
                     )
                     address = data['sub']
             except jwt.exceptions.ExpiredSignatureError:
