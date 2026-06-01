@@ -83,6 +83,13 @@ client and the server. The server reads `request.path` and
 client must sign the exact path and query string it is about to send, using the
 same encoding. Do not re-order, re-quote, or normalize the query string.
 
+The request target (path and query) must be ASCII — any non-ASCII characters
+must be consistently percent-encoded on the wire, and the signed `<path>`/`<query>`
+must use that same percent-encoded form. Sign what goes on the wire, not a decoded
+intermediate. (CancelChain's own endpoints keep path segments ASCII — subjects
+embedded in a path are urlsafe-base64 — so this only concerns clients constructing
+arbitrary targets.)
+
 ### Body digest
 
 The body digest is computed as:
