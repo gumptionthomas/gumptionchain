@@ -396,7 +396,9 @@ def app(
 
 
 @pytest.fixture
-def remote_app(miller_2_wallet, miller_wallet, wallet):
+def remote_app(
+    miller_2_wallet, miller_wallet, wallet, host_netloc, remote_host_netloc
+):
     peer_host = f'http://{miller_wallet.address}@{host_netloc}'
     with (
         NamedTemporaryFile(suffix='.sqlite') as db_file,

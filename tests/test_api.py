@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import httpx
+import jwt
 import pytest
 
 from cancelchain import create_app
@@ -386,3 +387,44 @@ def test_authorize_honors_live_downgrade(
                 data=b.to_json(),
                 headers={'Content-Type': 'application/json'},
             )
+
+
+def test_authorize_rejects_wrong_audience_token(app, requests_proxy, wallet):
+    # A token signed with the live SECRET_KEY but bound to a different node
+    # (wrong `aud`) is rejected at decode -> 401, regardless of the address's
+    # role, proving the audience binding is enforced on the local node.
+    wrong_aud = jwt.encode(
+        {
+            'sub': wallet.address,
+            'rol': 'READER',
+            'iss': 'http://elsewhere:9999',
+            'aud': 'http://elsewhere:9999',
+            'exp': now().timestamp() + API_TOKEN_SECONDS,
+        },
+        app.config['SECRET_KEY'],
+        algorithm='HS256',
+    )
+    r = requests_proxy.get(
+        '/api/block',
+        headers={'Authorization': f'Bearer {wrong_aud}'},
+        timeout=60,
+    )
+    assert r.status_code == httpx.codes.UNAUTHORIZED
+
+    # A token with no `aud` claim at all is likewise rejected (decode
+    # requires the audience claim when `audience=` is passed).
+    no_aud = jwt.encode(
+        {
+            'sub': wallet.address,
+            'rol': 'READER',
+            'exp': now().timestamp() + API_TOKEN_SECONDS,
+        },
+        app.config['SECRET_KEY'],
+        algorithm='HS256',
+    )
+    r2 = requests_proxy.get(
+        '/api/block',
+        headers={'Authorization': f'Bearer {no_aud}'},
+        timeout=60,
+    )
+    assert r2.status_code == httpx.codes.UNAUTHORIZED

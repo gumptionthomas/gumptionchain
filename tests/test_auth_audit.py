@@ -174,6 +174,11 @@ def test_a3_a_forged_role_claim_accepted(
         {
             'sub': reader_wallet.address,
             'rol': 'MILLER',  # reader_wallet only has READER in config
+            # valid node-binding (A3.b) so the token passes the audience
+            # check; the forged ROLE is still rejected by the live-role
+            # re-check (A3.a) -> 403.
+            'iss': app.config['NODE_HOST'],
+            'aud': app.config['NODE_HOST'],
             'exp': int(time.time()) + 3600,
         },
         secret_key,
@@ -193,28 +198,17 @@ def test_a3_a_forged_role_claim_accepted(
     assert response.status_code == httpx.codes.FORBIDDEN
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'Audit finding A3.b — severity Medium — JWT lacks iss/aud; '
-        'token minted on node A accepted verbatim by node B sharing '
-        'SECRET_KEY (accepted cross-node due to shared SECRET_KEY + no '
-        'iss/aud). '
-        'See docs/superpowers/audits/2026-05-31-api-authentication-audit.md'
-    ),
-)
 def test_a3_b_cross_node_token_replay(
     app, remote_app, remote_requests_proxy, wallet, mill_block
 ):
-    """A JWT minted by `app` is accepted by `remote_app` purely because the
-    two nodes share SECRET_KEY and the token carries no iss/aud claim.
+    """A3.b (remediated): a JWT minted for one node is rejected by another.
 
-    `wallet` is given a READER role on remote_app here, so the per-request
-    live-role re-check (the A3.a/A5.b fix) passes — isolating the residual
-    A3.b gap: nothing binds the token to the node that issued it. Secure
-    behaviour (once iss/aud lands): remote_app rejects with 403. Today it
-    accepts (404 — no chain on remote_app). Remains xfail until the iss/aud
-    remediation.
+    The token is issued for `app` (iss/aud = app's NODE_HOST,
+    http://localhost:8080) and presented to `remote_app` (NODE_HOST
+    http://peer.node:8888). authorize() now verifies audience against the
+    local NODE_HOST, so the mismatch raises InvalidAudienceError -> 401,
+    even though both nodes share SECRET_KEY. Pre-remediation the token was
+    accepted (no iss/aud binding).
     """
 
     with app.app_context():
@@ -226,36 +220,25 @@ def test_a3_b_cross_node_token_replay(
     assert secret_key == remote_app.config['SECRET_KEY'], (
         'Precondition: both nodes share SECRET_KEY'
     )
-    # Give wallet a legitimate role on remote_app so the per-request
-    # live-role re-check (the A3.a/A5.b fix) passes there. The token is then
-    # accepted purely because both nodes share SECRET_KEY and the JWT has
-    # no iss/aud binding — which is the A3.b gap this test isolates.
-    with remote_app.app_context():
-        remote_app.config['READER_ADDRESSES'] = [wallet.address]
-
     cross_node_token = jwt.encode(
         {
             'sub': wallet.address,
             'rol': 'ADMIN',
+            'iss': app.config['NODE_HOST'],
+            'aud': app.config['NODE_HOST'],
             'exp': int(time.time()) + 3600,
-            # no 'iss', no 'aud'
         },
         secret_key,
         algorithm='HS256',
     )
-    # Present the token to remote_app, where wallet now holds a READER role
-    # (granted above) so the live-role re-check passes — isolating the
-    # iss/aud gap.
+    # remote_app verifies `audience` against its own NODE_HOST; the token's
+    # aud (app's NODE_HOST) doesn't match -> rejected at decode (401).
     response = remote_requests_proxy.get(
         '/api/block',
         headers={'Authorization': f'Bearer {cross_node_token}'},
         timeout=10,
     )
-    # Secure (once iss/aud lands): remote_app rejects a token not issued for
-    # it -> 403. Today: the live-role re-check passes (wallet is READER here)
-    # and nothing checks token origin, so the cross-node token is accepted;
-    # the request reaches the view and returns 404 (no chain on remote_app).
-    assert response.status_code == httpx.codes.FORBIDDEN
+    assert response.status_code == httpx.codes.UNAUTHORIZED
 
 
 def test_a4_a_overbroad_admin_regex_does_not_escalate(
