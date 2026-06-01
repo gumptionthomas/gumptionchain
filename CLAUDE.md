@@ -76,7 +76,7 @@ Two stacked layers, both read by `create_app()` in `src/cancelchain/__init__.py`
 1. **`FLASK_*` env vars** → injected into `app.config` via `Flask.config.from_prefixed_env()` (strips the `FLASK_` prefix). This is how `SECRET_KEY`, `SQLALCHEMY_DATABASE_URI`, etc. get set.
 2. **`CC_*` env vars** → loaded into `EnvAppSettings` (`src/cancelchain/config.py`, dataclass), then `app.config.from_object`. Values are JSON-parsed when possible, so list/bool settings (`CC_PEERS`, `CC_MILLER_ADDRESSES`, `CC_API_ASYNC_PROCESSING`) must be valid JSON strings in the env.
 
-Key `CC_*` settings: `NODE_HOST`, `PEERS` (list of `http(s)://<peer-address>@host` URLs — username component is the peer's wallet address), `WALLET_DIR`, `DEFAULT_COMMAND_HOST`, `{ADMIN,MILLER,TRANSACTOR,READER}_ADDRESSES` (regex-matched against the JWT `sub` in `api.Role.address_role`). `WALLET_DIR` is walked at startup; every `*.pem` becomes an in-memory `Wallet` in `app.wallets`, keyed by address.
+Key `CC_*` settings: `NODE_HOST`, `PEERS` (list of `http(s)://<peer-address>@host` URLs — username component is the peer's wallet address), `WALLET_DIR`, `DEFAULT_COMMAND_HOST`, `{ADMIN,MILLER,TRANSACTOR,READER}_ADDRESSES` (exact-address allowlists matched against the JWT `sub` in `api.Role.address_role`; `READER_ADDRESSES` may contain the literal `"*"` to grant READER to any authenticated wallet; a non-address entry, or `"*"` outside `READER_ADDRESSES`, is rejected at startup via `Role.validate_config` → `InvalidRoleConfigError`). `WALLET_DIR` is walked at startup; every `*.pem` becomes an in-memory `Wallet` in `app.wallets`, keyed by address.
 
 ## Architecture
 
@@ -116,7 +116,7 @@ Domain objects own validation, serialization (Marshmallow schemas in `schema.py`
 1. `GET /api/token/<address>` returns an RSA+AES-encrypted challenge (cipher in `ApiToken`); only the holder of the private key can decrypt it.
 2. `POST /api/token/<address>` with the decrypted challenge yields a JWT containing `sub` (address) and `rol` (role name).
 
-`ApiClient` (`api_client.py`) wraps this handshake; it transparently retries once on 401 by resetting the token. `Role.address_role` re-matches `*_ADDRESSES` config regexes on every request, so role membership is dynamic — addresses can match multiple roles, and the highest one wins.
+`ApiClient` (`api_client.py`) wraps this handshake; it transparently retries once on 401 by resetting the token. `Role.address_role` checks the address against the `*_ADDRESSES` exact-match allowlists on every request, so role membership is dynamic — an address can appear in multiple allowlists, and the highest matching role wins.
 
 ### Async post-processing
 
