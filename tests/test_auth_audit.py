@@ -243,14 +243,18 @@ def test_a3_b_cross_node_token_replay(
         secret_key,
         algorithm='HS256',
     )
-    # Present the token to remote_app, where wallet has NO role.
+    # Present the token to remote_app, where wallet now holds a READER role
+    # (granted above) so the live-role re-check passes — isolating the
+    # iss/aud gap.
     response = remote_requests_proxy.get(
         '/api/block',
         headers={'Authorization': f'Bearer {cross_node_token}'},
         timeout=10,
     )
-    # Secure: remote_app re-checks address_role (or enforces aud/iss) and
-    # returns 403.  Today: auth passes, returns 404 (no chain on remote_app).
+    # Secure (once iss/aud lands): remote_app rejects a token not issued for
+    # it -> 403. Today: the live-role re-check passes (wallet is READER here)
+    # and nothing checks token origin, so the cross-node token is accepted;
+    # the request reaches the view and returns 404 (no chain on remote_app).
     assert response.status_code == httpx.codes.FORBIDDEN
 
 

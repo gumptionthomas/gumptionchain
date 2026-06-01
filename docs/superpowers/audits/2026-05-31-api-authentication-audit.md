@@ -337,7 +337,7 @@ Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocki
 
 **Impact:** Full RBAC bypass for all API endpoints (`/api/block` POST, `/api/transaction/*`, etc.). An attacker who extracted or guessed the `SECRET_KEY` environment variable became an unchallenged ADMIN with no RSA key required.
 
-**Remediation sketch:** In `authorize()` (api.py:243–272), after decoding the JWT, re-check the live role: `live_role = Role.address_role(address)`. Reject (abort 403) if `live_role is None` or `live_role.value < required_role.value`. The JWT `rol` claim should only be treated as a hint for the token-issuing node's intent; the actual gate must be the live config lookup. This also prevents stale-role replay after a role demotion. (As implemented: `authorize()` re-validates `Role.address_role(sub)` on every request; the JWT `rol` claim is no longer trusted for authorization; insufficient/absent live role → 403.)
+**Remediation sketch:** In `authorize()`, after decoding the JWT, re-check the live role: `live_role = Role.address_role(address)`. Reject (abort 403) if `live_role is None` or `live_role.value < required_role.value`. The JWT `rol` claim should only be treated as a hint for the token-issuing node's intent; the actual gate must be the live config lookup. This also prevents stale-role replay after a role demotion. (As implemented: `authorize()` re-validates `Role.address_role(sub)` on every request; the JWT `rol` claim is no longer trusted for authorization; insufficient/absent live role → 403.)
 
 **Demonstration test:** `test_a3_a_forged_role_claim_accepted`
 
@@ -638,7 +638,7 @@ The `rol` claim was not re-validated against live config on each request. Revoki
 **Trace:**
 
 1. `api.py:442-448` — The route is bound with `authorize_transactor(TransferTxnView.as_view(...))`.
-2. `api.py:243-271` — `authorize()` wrapper verifies the Bearer JWT. `address = data['sub']` and `role = Role[data['rol']]` from the token. Checks `role.value >= Role.TRANSACTOR.value`. Passes; injects `kwargs['_address'] = transactor_address` and `kwargs['_role'] = Role.TRANSACTOR`.
+2. `authorize()` wrapper verifies the Bearer JWT (`address = data['sub']`), then re-validates the live role: `role = Role.address_role(address)` (post-A3.a/A5.b remediation — the JWT `rol` claim is not trusted for authorization). Admits iff `role` is not `None` and `role.value >= Role.TRANSACTOR.value`; injects `kwargs['_address'] = transactor_address` and `kwargs['_role'] = Role.TRANSACTOR`.
 3. `api.py:417-438` — `TransferTxnView.get(**kwargs)` is entered. `_address` and `_role` are present in `kwargs` but are **never read** by the view body.
 4. `api.py:419` — `TransferTxnQueryModel.model_validate(request.args.to_dict(flat=True))`. The model has `model_config = ConfigDict(extra='forbid')` (`api.py:409`). The model fields are `public_key`, `amount`, `address` — none overlap with `_address`/`_role` kwarg names. No kwarg injection risk.
 5. `api.py:429` — `wallet = Wallet(b64ks=public_key_b64)` builds a public-key-only Wallet from the caller-supplied `public_key`. The transaction is built referencing this wallet.
