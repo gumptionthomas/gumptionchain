@@ -12,15 +12,13 @@
 
 ## Executive summary
 
-**8 findings: 0 Critical / 0 High (1 remediated) / 2 Medium (3 remediated) / 2 Low.** No finding is an existential auth bypass with zero preconditions, and the JWT decode path is sound — `HS256` is pinned, and `alg=none`, RS256-confusion, expired, and malformed tokens all fail closed to `401`. The authorization *model*, not the token verification, is where the gaps are.
+**8 findings: 0 Critical / 0 High / 0 Medium / 0 Low.** The token handshake was replaced with stateless per-request wallet signatures (`cc-sig-v1`) in PR #111, dissolving A1.a, A2.c, A2.e, and A7.a by removal alongside A3.a, A3.b, A4.a, and A5.b which were individually remediated by prior PRs. The audit is fully closed.
 
 The lone High, **A4.a** (remediated, PR #105), was an unvalidated `*_ADDRESSES` regex — an overbroad pattern such as `CC.*CC` silently granted every authenticated address that role, with no key compromise required and no warning from the code. It is fixed: role matching is now exact-address membership, and the allowlists are validated at startup (`Role.validate_config` → `InvalidRoleConfigError`).
 
-The Medium findings clustered on a single root cause: **`authorize()` trusted the signed `rol` claim and never re-validated it against live config.** That one omission was demonstrated three ways — a forged role was honored (A3.a), a config-revoked role kept working for up to 4 hours (A5.b), and a token was accepted by any node sharing `SECRET_KEY` (A3.b). **The entire `rol`/cross-node cluster is now closed:** A3.a and A5.b closed by PR #107 (per-request live-role re-check in `authorize()`); **A3.b is now closed by PR #109** — `iss` and `aud` are set to `NODE_HOST` at issuance and enforced on decode, so each token is bound to the node that issued it. The remaining Mediums (A2.c, A7.a) are resource-amplification and address-enumeration surface on the *unauthenticated* token endpoint, which both creates DB rows and runs argon2 with no rate limiting.
+The Medium findings clustered on a single root cause: **`authorize()` trusted the signed `rol` claim and never re-validated it against live config.** That one omission was demonstrated three ways — a forged role was honored (A3.a), a config-revoked role kept working for up to 4 hours (A5.b), and a token was accepted by any node sharing `SECRET_KEY` (A3.b). **The entire `rol`/cross-node cluster was closed:** A3.a and A5.b closed by PR #107 (per-request live-role re-check in `authorize()`); A3.b closed by PR #109 (`iss`/`aud` node-binding).
 
-Two cross-cutting observations refine the picture: `authorize_admin` is bound to no endpoint (so ADMIN ≡ MILLER today, which *tempers* A3.a/A4.a's real blast radius), and the handshake is a roll-your-own challenge — it hand-rolls RSA-OAEP encryption + argon2 over a 122-bit random secret while ordinary RSA signatures (`Wallet.sign`) sit unused. The most-capable adversaries (authorized insider; the role-forger) surfaced the cluster above but no privilege-escalation-without-precondition; Adversary 6 was fully clean.
-
-**Recommended next action:** land the remaining targeted fixes — the `SECRET_KEY` length check (A1.a) and the A2.c/A7.a token-endpoint throttling — then open a separate design cycle to evaluate replacing the handshake (signed-nonce reusing `Wallet.sign`, or RFC 9421 / RS256 client-assertion) and adding further JWT claim hygiene (`iat`/`jti`). See Recommendations for the full targeted-fixes-vs-replacement analysis.
+The remaining two Mediums (A2.c, A7.a) and two Lows (A1.a, A2.e) were dissolved by protocol replacement (PR #111): the `/api/token` endpoint is gone (no more unauthenticated row creation, no argon2 amplification, no content-type oracle, no `SECRET_KEY`-as-auth). The `cc-sig-v1` scheme uses per-request RSA signatures via `Wallet.sign` — the primitive that previously sat unused — with a ±300 s freshness window that is also bounded in a way bearer JWTs were not.
 
 ## Threat model
 
@@ -41,18 +39,18 @@ Findings are ID'd as `A<N>.<letter>` where `N` is the adversary number (1-7) and
 
 ## Findings table
 
-**8 findings: 0 Critical / 0 High (A4.a remediated) / 2 Medium (A3.a, A5.b, A3.b remediated) / 2 Low.** Sorted by severity, then ID. A3.a and A5.b are closed by the per-request live-role re-check in `authorize()` (PR #107); A3.b is closed by PR #109 (`iss`/`aud` node-binding). Remaining Mediums: A2.c and A7.a — see Recommendations.
+**8 findings: 0 Critical / 0 High / 0 Medium / 0 Low.** Fully closed. All findings remediated — A4.a, A3.a, A5.b, A3.b individually by prior PRs; A1.a, A2.c, A2.e, A7.a dissolved by protocol replacement in PR #111 (token endpoint and symmetric key removed).
 
 | ID | Category | Severity | Description | Remediation sketch | Test |
 |---|---|---|---|---|---|
 | A4.a | 4 | High | ✅ (remediated, PR #105) Operator `*_ADDRESSES` regex was unvalidated; an overbroad pattern (e.g. `CC.*CC`) silently escalated every authenticated address to that role | Replaced with exact-address membership + a READER-only `"*"` sentinel, validated at startup (`Role.validate_config`) | `test_a4_a_overbroad_admin_regex_does_not_escalate` |
-| A2.c | 2 | Medium | Unauthenticated `GET /api/token/<address>` persists an `ApiToken` row (and runs argon2) for any on-chain address, with no eviction | Require proof-of-key before persisting / cap unredeemed rows / rate-limit the endpoint | `test_a2_c_unauthenticated_row_creation` |
-| A3.a | 3 | Medium | ✅ (remediated, PR #107) `authorize()` trusted the signed `rol` claim and never re-validated it against live `Role.address_role()`; a token claiming a role the address lacked was honored | Done: `authorize()` now calls `Role.address_role(sub)` on every request; insufficient or absent live role → 403 | `test_a3_a_forged_role_claim_accepted` |
-| A3.b | 3 | Medium | ✅ (remediated, PR #109) JWT carried no `iss`/`aud`; a token was accepted by any node sharing `SECRET_KEY` (cross-node replay). Now closed: `iss`/`aud` are set to `NODE_HOST` at issuance and enforced on decode, binding each token to its issuing node | `iss`=`aud`=`NODE_HOST` minted by `TokenView.post`; `issuer=`/`audience=` enforced by `jwt.decode` in `authorize()` | `test_a3_b_cross_node_token_replay` |
-| A5.b | 5 | Medium | ✅ (remediated, PR #107) A role removed from `*_ADDRESSES` kept working until the 4h JWT expired (same missing live re-check as A3.a) | Done: same per-request `Role.address_role(sub)` re-check as A3.a; revocation is immediate | `test_a5_b_stale_role_rejected_after_config_revocation` |
-| A7.a | 7 | Medium | Unlimited wrong-challenge `POST`s each run a full argon2id verify with no attempt counter or challenge invalidation | Invalidate the challenge after N failures; add an attempt counter / rate limit | `test_a7_a_repeated_wrong_challenge_invalidates_token` |
-| A1.a | 1 | Low | No startup check that `SECRET_KEY` meets a minimum length; a weak key allows offline JWT forgery with no app-level signal | Assert `len(SECRET_KEY) >= 32` (raise/warn) in `create_app()` after config load | `test_a1_a_weak_secret_key_startup_check` |
-| A2.e | 2 | Low | `POST` with a wrong `Content-Type` returns 415 when a token row exists but 401 when not, leaking whether an address is known to the node | Normalize the rejection (consistent 400/401) regardless of row existence | `test_a2_e_content_type_oracle` |
+| A2.c | 2 | Medium | ✅ (remediated by protocol replacement, PR #111) Unauthenticated `GET /api/token/<address>` persisted an `ApiToken` row (and ran argon2) for any on-chain address, with no eviction | The `/api/token` endpoint and `ApiToken` table are gone; no unauthenticated write path exists | `test_a2_c_unauthenticated_row_creation` (removed — gap no longer exists) |
+| A3.a | 3 | Medium | ✅ (remediated, PR #107) `authorize()` trusted the signed `rol` claim and never re-validated it against live `Role.address_role()`; a token claiming a role the address lacked was honored | Done: `authorize()` now calls `Role.address_role(address)` on every request; insufficient or absent live role → 403 | `test_a3_a_forged_role_claim_accepted` (passing regression) |
+| A3.b | 3 | Medium | ✅ (remediated, PR #109; dissolved, PR #111) JWT carried no `iss`/`aud`; a token was accepted by any node sharing `SECRET_KEY` (cross-node replay). Further dissolved: the signature canonical includes `node_host`, so a `cc-sig-v1` signature for node A fails verification at node B structurally | Node-binding is inherent in the per-request signature: `signing.py:_canonical` includes `node_host`; `api.py:authorize()` passes `host_address(NODE_HOST)[0]` | `test_a3_b_cross_node_token_replay` (re-expressed as signed-request regression) |
+| A5.b | 5 | Medium | ✅ (remediated, PR #107) A role removed from `*_ADDRESSES` kept working until the 4h JWT expired (same missing live re-check as A3.a) | Done: same per-request `Role.address_role(address)` re-check as A3.a; revocation is immediate | `test_a5_b_stale_role_rejected_after_config_revocation` (passing regression) |
+| A7.a | 7 | Medium | ✅ (remediated by protocol replacement, PR #111) Unlimited wrong-challenge `POST`s each ran a full argon2id verify with no attempt counter or challenge invalidation | The `/api/token` endpoint and argon2 are gone; no unauthenticated amplification path exists | `test_a7_a_repeated_wrong_challenge_invalidates_token` (removed — gap no longer exists) |
+| A1.a | 1 | Low | ✅ (remediated by protocol replacement, PR #111) No startup check that `SECRET_KEY` meets a minimum length; a weak key allowed offline JWT forgery with no app-level signal | The JWT and `SECRET_KEY`-as-auth are gone; `cc-sig-v1` uses per-request RSA wallet signatures — no symmetric secret is used for authentication | `test_a1_a_weak_secret_key_startup_check` (removed — gap no longer exists) |
+| A2.e | 2 | Low | ✅ (remediated by protocol replacement, PR #111) `POST` with a wrong `Content-Type` returned 415 when a token row existed but 401 when not, leaking whether an address was known to the node | The `/api/token` endpoint is gone; the oracle surface no longer exists | `test_a2_e_content_type_oracle` (removed — gap no longer exists) |
 
 ## Per-adversary traces
 
@@ -176,22 +174,11 @@ Findings are ID'd as `A<N>.<letter>` where `N` is the adversary number (1-7) and
 
 #### Finding A1.a — Severity Low: No startup guard against a weak or absent SECRET_KEY
 
-**Impact:** If `FLASK_SECRET_KEY` is set to a short or guessable value, an adversary can forge HS256 JWTs bearing any address and role claim; `authorize()` will accept them. The blast radius is full authentication bypass for as long as the weak key is in use. This requires the operator to first make the deployment mistake; under a strong random key the risk is zero. Marked Low (not Medium) because it requires an operator error in addition to the adversary action, and there is no code-level mechanism (not even a test) that prevents the weak-key deployment.
+✅ Remediated (PR #111). The token handshake was replaced with stateless per-request wallet signatures (`cc-sig-v1`). The `SECRET_KEY` is no longer used for API authentication; `authorize()` verifies an RSA wallet signature rather than decoding an HS256 JWT. A weak `SECRET_KEY` therefore cannot be leveraged to forge API credentials. The `/api/token` endpoint, the `ApiToken` table, and the JWT issuance path are all removed.
 
-**Remediation sketch:** In `create_app()` (after `app.config.from_prefixed_env()`), add:
+(As implemented: the token handshake was replaced with stateless per-request wallet signatures; the `/api/token` endpoint, `ApiToken` table, argon2, and the symmetric `SECRET_KEY` auth secret are gone.)
 
-```python
-sk = app.config.get('SECRET_KEY') or ''
-if len(sk.encode('utf-8')) < 32:
-    raise RuntimeError(
-        'SECRET_KEY must be at least 32 bytes for HS256 token signing. '
-        'Set FLASK_SECRET_KEY to a cryptographically random value.'
-    )
-```
-
-Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocking notice is preferred. The test suite's `TEST_SECRET_KEY` is already 35 bytes and would pass the check.
-
-**Demonstration test:** `test_a1_a_weak_secret_key_startup_check`
+**Demonstration test:** `test_a1_a_weak_secret_key_startup_check` (removed — gap no longer exists)
 
 ### Adversary 2: Challenge attacker
 
@@ -258,11 +245,11 @@ Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocki
 
 **Finding A2.c — Severity Medium:**
 
-**Impact:** An unauthenticated attacker who can enumerate on-chain addresses (chain data is public) can: (a) cause `api_token` row creation for every on-chain address, growing the table in proportion to the chain's address universe with no upper bound and no eviction; (b) repeatedly GET any already-registered address to force argon2 hash computation + RSA-OAEP encrypt + DB write every 60 seconds with no rate limiting. The `api_token` table is never pruned. On a long-running public node the table accumulates stale rows for addresses that will never authenticate again. No auth bypass results — the cipher is encrypted to the target's public key; only the private-key holder can decrypt it.
+✅ Remediated (PR #111). The `/api/token` endpoint and the `ApiToken` table are removed. There is no longer any unauthenticated write path or argon2 amplification surface. Every API request must carry a valid `cc-sig-v1` wallet signature before any application code executes.
 
-**Remediation sketch:** Add a periodic cleanup job (or `ON DELETE CASCADE` from `TransactionDAO`, or a TTL via cron/background task) to evict `api_token` rows idle for longer than a configurable threshold (e.g., 24 h). Additionally, consider rate-limiting `GET /api/token/<address>` per source IP to throttle argon2 amplification. A simpler partial fix is to not call `refreshed_cipher()` eagerly inside `TokenView.get` — instead, only generate the cipher on-demand and skip the DB write if the existing cipher is still fresh.
+(As implemented: the token handshake was replaced with stateless per-request wallet signatures; the `/api/token` endpoint, `ApiToken` table, argon2, and the symmetric `SECRET_KEY` auth secret are gone.)
 
-**Demonstration test:** `test_a2_c_unauthenticated_row_creation`
+**Demonstration test:** `test_a2_c_unauthenticated_row_creation` (removed — gap no longer exists)
 
 ---
 
@@ -301,11 +288,11 @@ Alternatively, emit `app.logger.warning(...)` instead of raising if a non-blocki
 
 **Finding A2.e — Severity Low:**
 
-**Impact:** An unauthenticated attacker can distinguish "address is known to this node" (415) from "address is unknown to this node" (401) by POSTing with wrong Content-Type. This reveals the node's wallet set and the set of previously-authenticated or previously-probed on-chain addresses without any authentication. Under TLS, exploitation requires an active attacker; the leaked information (which addresses are node-local or on-chain) is largely already public via chain exploration.
+✅ Remediated (PR #111). The `/api/token` endpoint is removed. The oracle surface (differentiated 415 vs. 401 response revealing token-row existence) no longer exists because the endpoint itself is gone.
 
-**Remediation sketch:** Move the `Content-Type` check before the `ApiToken.get` lookup — either by requiring `application/json` at the routing / middleware layer for all POST `/api/token/<address>` requests, or by swapping the guard order in `TokenView.post` so that a missing JSON body always returns 400/415 regardless of token-row existence. The cleanest fix: validate `request.content_type` at the top of `TokenView.post` and return 415 uniformly, then proceed to the `ApiToken.get` lookup.
+(As implemented: the token handshake was replaced with stateless per-request wallet signatures; the `/api/token` endpoint, `ApiToken` table, argon2, and the symmetric `SECRET_KEY` auth secret are gone.)
 
-**Demonstration test:** `test_a2_e_content_type_oracle`
+**Demonstration test:** `test_a2_e_content_type_oracle` (removed — gap no longer exists)
 
 ### Adversary 3: Token forger / cryptanalyst
 
@@ -733,11 +720,11 @@ All write/gossip endpoints (POST block, POST transaction) are gated at MILLER or
 
 **Finding A7.a — Severity Medium:**
 
-**Impact:** An unauthenticated attacker who knows any valid on-chain address can sustain a sustained CPU/memory amplification attack by sending a stream of POST requests with wrong challenge values. Each POST burns one full argon2id verify (~45 ms, 64 MiB) with no server-side limit. Across a pool of known on-chain addresses the attacker can scale amplification linearly. No unearned authentication is granted — the blast radius is availability of the token-handshake and collateral API latency under load, not privilege escalation.
+✅ Remediated (PR #111). The `/api/token` endpoint and argon2 are removed. There is no unauthenticated amplification path; all API code is gated behind `authorize()` which verifies a per-request RSA wallet signature before executing. The asymmetric amplification (cheap request → expensive server argon2) no longer exists.
 
-**Remediation sketch:** Add a failed-attempt counter to `ApiToken` (e.g., a `failed_attempts` integer column defaulting to 0). Increment it in `verify()` on mismatch and call `self.reset()` (clearing `hashed`/`cipher`) once the counter exceeds a threshold (e.g., 3). After reset, further wrong-challenge POSTs will hit the `not self.hashed` guard at `models.py:1015` and return `False` immediately, without executing the argon2 verify. The GET must be repeated to obtain a fresh challenge, which costs one `hash()` call — acceptable because it gates on an RSA-OAEP decryption the attacker cannot perform. Optionally, deploy a middleware rate-limit (e.g., Flask-Limiter) as defense-in-depth.
+(As implemented: the token handshake was replaced with stateless per-request wallet signatures; the `/api/token` endpoint, `ApiToken` table, argon2, and the symmetric `SECRET_KEY` auth secret are gone.)
 
-**Demonstration test:** `test_a7_a_repeated_wrong_challenge_invalidates_token`
+**Demonstration test:** `test_a7_a_repeated_wrong_challenge_invalidates_token` (removed — gap no longer exists)
 
 ---
 
@@ -780,42 +767,33 @@ Negative evidence is a deliverable. The following were traced and found sound.
 
 ## Cross-cutting observations
 
-Several findings are symptoms of a few shared roots:
+Several findings were symptoms of a few shared roots (past-tense: all resolved):
 
-1. **The `rol` claim was the sole authorization gate (A3.a, A5.b, A3.b) — cluster fully closed.** Pre-remediation, `authorize()` read the role from the signed JWT and never consulted live config. This one omission produced three distinct demonstrations — a forged role was honored (A3.a), a config-revoked role kept working for up to 4h (A5.b), and a token was honored on any node sharing the key (A3.b). A3.a and A5.b are closed (PR #107): `authorize()` re-validates the caller's role against live config on every request via `Role.address_role(sub)`. A3.b is now also closed (PR #109): `iss`/`aud` node-binding landed — the token carries `iss`=`aud`=`NODE_HOST` and decode enforces `issuer=`/`audience=`; a cross-node replay is rejected at the structural level. The entire cluster is remediated.
+1. **The `rol` claim was the sole authorization gate (A3.a, A5.b, A3.b) — cluster fully closed.** Pre-remediation, `authorize()` read the role from the signed JWT and never consulted live config. This one omission produced three distinct demonstrations — a forged role was honored (A3.a), a config-revoked role kept working for up to 4h (A5.b), and a token was honored on any node sharing the key (A3.b). A3.a and A5.b were closed (PR #107): `authorize()` re-validates the caller's role against live config on every request via `Role.address_role(address)`. A3.b was further dissolved structurally by PR #111: with `cc-sig-v1`, node-binding is inherent — the signed canonical includes `node_host`, so a signature produced for node A fails verification at node B (`signing.py:_canonical` includes `node_host`; `api.py:authorize()` passes `host_address(NODE_HOST)[0]`).
 
-2. **JWT claim hygiene is partial.** The token now carries `sub`/`rol`/`exp`/`iss`/`aud` — `iss` and `aud` were added by PR #109 (node-binding, closing A3.b). Still absent: `iat`, `nbf`, and `jti`. The remaining consequence: no per-token revocation handle (`jti`); the only revocation lever is rotating `SECRET_KEY`, which logs out everyone.
+2. **JWT claim hygiene — moot (PR #111).** There is no JWT. The `cc-sig-v1` scheme is stateless: the canonical string covers the address, timestamp, and node-host. No issuer/audience/jti machinery is needed; per-token revocation is not a concept in the stateless model — revocation is immediate via the live `Role.address_role(address)` re-check on every request.
 
-3. **An unauthenticated endpoint creates state and runs expensive crypto (A2.c, A7.a; A2.d observation).** `GET/POST /api/token/<address>` is reachable with no auth, yet it persists `ApiToken` rows and runs argon2id (~deliberately expensive) on the first GET (NULL columns) and on every POST verify, with no rate limiting, attempt counter, or row cap. That is both a resource-amplification surface (A7.a) and an address-enumeration surface (A2.c, and the A2.e content-type oracle).
+3. **An unauthenticated endpoint creating state and running expensive crypto (A2.c, A7.a; A2.d observation) — dissolved (PR #111).** The `/api/token` endpoint and the `ApiToken` table are gone. There is no unauthenticated write path, no argon2 amplification, and no address-enumeration oracle (A2.e).
 
-4. **`reset()` runs before the role check (observation).** `TokenView.post` (`api.py:213-216`) verifies the challenge, immediately `reset()`s it, and only *then* checks the role. A legitimate key-holder with no configured role thus burns their challenge and must re-fetch one. Reorder to verify → role-check → reset → issue.
+4. **`reset()` ran before the role check (observation) — moot (PR #111).** `TokenView.post` is removed. The auth flow is now `signing.verify()` → `Role.address_role(address)` with no intermediate state to burn.
 
-5. **The ADMIN tier is decorative (observation).** `authorize_admin` (`api.py:282`) is bound to no endpoint, so ADMIN currently confers nothing beyond MILLER. This *tempers* the practical blast radius of A3.a/A4.a (a forged or escalated ADMIN token is no more powerful than a MILLER one today; A4.a and A3.a are now remediated) but is itself a latent foot-gun: adding an ADMIN-gated endpoint later would silently widen those findings.
+5. **The ADMIN tier is decorative (observation — still standing).** `authorize_admin` is bound to no endpoint, so ADMIN currently confers nothing beyond MILLER. The blast radius is contained while the tier remains unbound, but adding an ADMIN-gated endpoint later without reviewing the `*_ADDRESSES` config would silently widen any misconfiguration. Recommend binding or explicitly documenting the ADMIN tier as reserved.
 
-6. **One symmetric key, no strength gate (A1.a).** A single HS256 `SECRET_KEY` signs every token (and would sign Flask sessions/CSRF if those are ever added), with no startup length/entropy check. Its compromise lets an attacker forge any token — which is precisely why A3.a was rated Medium, not High: the forge-a-role path's precondition (holding `SECRET_KEY`) is already total compromise. A3.a is now remediated; the precondition analysis remains the same (the live re-check is additional hardening, not a precondition removal).
+6. **One symmetric key, no strength gate (A1.a) — dissolved (PR #111).** The `SECRET_KEY` is no longer used for API authentication. `cc-sig-v1` uses per-request RSA wallet signatures; each caller's security is bounded by their own private key, not a shared server secret. `SECRET_KEY` is still used by Flask for session/CSRF infrastructure if those are ever added, but it is no longer an authentication primitive.
 
-7. **A roll-your-own challenge while standard primitives sit unused.** The handshake hand-rolls "encrypt a random UUID secret to the wallet's RSA key, argon2-hash it, compare on redemption," while `Wallet.sign`/`validate_signature` (ordinary RSA signatures) are never used by the auth path. Argon2 — a deliberately slow KDF for *low-entropy passwords* — is being applied to a 122-bit random secret, which is both unnecessary and the root of the A7.a cost-amplification. This is the structural smell that motivates the replacement analysis in Recommendations.
+7. **Roll-your-own challenge while standard primitives sat unused — resolved (PR #111).** The handshake hand-rolled "encrypt a random UUID secret to the wallet's RSA key, argon2-hash it, compare on redemption," while `Wallet.sign`/`validate_signature` (ordinary RSA signatures) were never used by the auth path. That structural smell was the root motivation for the replacement design cycle. `Wallet.sign` is now the authentication primitive: `authorize()` calls `signing.verify()` which calls `wallet.validate_signature()` on every request.
 
 ## Recommendations
 
-### Targeted remediations (do these regardless), grouped by shared fix
+### Targeted remediations — all complete
 
-Ordered by priority. The eight findings collapse to roughly five code changes:
-
-1. ✅ (done — PR #105) **Validated `*_ADDRESSES` at config load — closed A4.a (High).** Was highest priority: it needed no key compromise, was triggered by an ordinary operator config mistake, and the code previously invited it silently. Regex matching was replaced with exact-address membership + a READER-only `"*"` sentinel; `Role.validate_config` rejects non-address entries and out-of-READER `"*"` at `create_app` startup via `InvalidRoleConfigError`.
-2. ✅ (done — PR #107) **Re-validated the role against live config in `authorize()` — closed A3.a + A5.b (Medium), and mitigated the privilege half of A3.b.** After `jwt.decode`, `authorize()` now calls `live = Role.address_role(address)` and `abort(403)` if `live is None or live.value < required_role.value`. One change closed the largest finding cluster.
-3. ✅ (done — PR #109) **Add and verify JWT `iss`/`aud` node-binding — closed A3.b (Medium).** `TokenView.post` now mints `iss`=`aud`=`NODE_HOST`; `authorize()` enforces `issuer=`/`audience=` on `jwt.decode`; a token issued by another node → 401. Remaining claim-hygiene/revocation work (`iat`, `jti`) is not yet done — `jti` would enable a server-side revocation denylist if per-token revocation is ever needed.
-4. **Throttle the token endpoint — closes A2.c + A7.a (Medium), addresses the A2.d observation.** Add a per-address wrong-challenge attempt counter that invalidates the challenge after N failures; cap/evict unredeemed `ApiToken` rows; rate-limit the endpoint at the app or proxy layer; and reorder `TokenView.post` to verify → role-check → `reset()` → issue (fixes the challenge-burn observation). Consider requiring a signed proof before persisting a row at all, which folds into the replacement options below.
-5. **`SECRET_KEY` length check (A1.a) and content-type rejection normalization (A2.e) — Low.** Assert `len(SECRET_KEY) >= 32` at `create_app()`; make the wrong-content-type rejection status independent of whether a token row exists (closes the enumeration oracle).
+1. ✅ (done — PR #105) **Validated `*_ADDRESSES` at config load — closed A4.a (High).** Regex matching was replaced with exact-address membership + a READER-only `"*"` sentinel; `Role.validate_config` rejects non-address entries and out-of-READER `"*"` at `create_app` startup via `InvalidRoleConfigError`.
+2. ✅ (done — PR #107) **Re-validated the role against live config in `authorize()` — closed A3.a + A5.b (Medium).** `authorize()` now calls `live = Role.address_role(address)` and `abort(403)` if `live is None or live.value < required_role.value`. One change closed the largest finding cluster.
+3. ✅ (done — PR #109) **Added JWT `iss`/`aud` node-binding — closed A3.b (Medium).** `TokenView.post` minted `iss`=`aud`=`NODE_HOST`; `authorize()` enforced `issuer=`/`audience=` on `jwt.decode`.
+4. ✅ (done — PR #111) **Replaced the token handshake with per-request wallet signatures — dissolved A1.a + A2.c + A2.e + A7.a + A3.b (structurally).** The `/api/token` endpoint, `ApiToken` table, argon2, and `SECRET_KEY`-as-auth are all gone. `cc-sig-v1` signs each request with the caller's RSA private key and verifies via `Wallet.sign`/`validate_signature`. The unauthenticated amplification surface (A7.a), the row-accumulation surface (A2.c), the content-type oracle (A2.e), and the weak-`SECRET_KEY` forgery risk (A1.a) all vanished with the endpoint.
 
 Housekeeping (not findings): bind or explicitly document `authorize_admin` so the ADMIN tier is meaningful.
 
-### Targeted fixes vs. protocol replacement
+### Targeted fixes vs. protocol replacement — historical record
 
-The findings clustered around two structural roots: **(R1)** the JWT was an unbound bearer token whose `rol` claim was trusted without live re-validation and which lacked issuer/audience/issued-at/jti hygiene; and **(R2)** the handshake is a roll-your-own challenge that hand-rolls RSA-OAEP encryption + argon2-hashing of a high-entropy secret while ordinary RSA *signatures* (`Wallet.sign`) sit unused. The targeted remediations above fully close every individual finding and are low-risk — A4.a, the live-role re-check (A3.a/A5.b), and A3.b's `iss`/`aud` binding are already done; the remaining near-term items are the `SECRET_KEY` length check (A1.a) and the A2.c/A7.a throttling. Targeted fixes address R1's re-validation gap but leave R2 in place. Because the user has flagged the challenge protocol as a known roll-your-own chosen only to reuse the wallet key pairs, it is worth evaluating a replacement of the handshake half. Two candidate directions:
-
-**Candidate (a) — signed-nonce challenge-response, reusing `Wallet.sign`/`validate_signature`.** The server issues a random nonce; the client signs it with its RSA private key; the server verifies with the address's public key. *For:* smallest change — it deletes the RSA-OAEP/AES-GCM encrypt path and the argon2-on-a-random-secret smell (there is no shared secret to hash), reuses primitives already present in `Wallet`, and keeps the rest of the stack intact. *Against:* still stateful (a nonce must be stored and single-used, so the A2.c/A7.a endpoint-abuse surface persists unless paired with the throttling above), and it still issues the same JWT — so the R1 findings (rol re-validation, claim hygiene) must still be fixed separately. Good as a low-risk interim that removes the worst of the hand-rolled crypto.
-
-**Candidate (b) — RFC 9421 HTTP Message Signatures, or an RS256 `private_key_jwt` client assertion.** The client signs each request (or a short-lived self-signed assertion) with its private key; the server verifies with the public key. *For:* stateless — it removes the challenge round-trip, the `ApiToken` table, the argon2 cost, *and* the shared symmetric `SECRET_KEY` for issuance (eliminating the forge-anything-on-leak root behind A1.a/A3.a). With per-request signatures (RFC 9421) it also closes the bearer-replay window structurally. *Against:* the largest change — a new spec/dependency surface and a per-request signing change on every client (`ApiClient` and CLI). Best strategic fit; addresses the most roots at once.
-
-**Recommendation.** A4.a (PR #105), the live-role re-check closing A3.a + A5.b (PR #107), and A3.b's `iss`/`aud` node-binding (PR #109) are done. Land the remaining near-mandatory targeted fixes — the `SECRET_KEY` length check (A1.a) and the A2.c/A7.a throttling — since they are cheap and close the rest of the open cluster. Separately, open a design cycle (its own brainstorm → spec → plan) to either (a) replace the handshake with signed-nonce as a low-risk interim, or (b) move to RFC 9421 / RS256 client-assertion as the strategic target; in either case add remaining JWT claim hygiene (`iat`/`jti`) or move off the symmetric bearer model entirely. This audit does not design that replacement — it scopes the decision.
+The audit originally recommended either targeted fixes or a protocol replacement. The replacement option was chosen (PR #111), implementing a bespoke per-request `cc-sig-v1` scheme rather than RFC 9421 (deferred as an additive `v2` if third-party-client demand arises — the `CC-Sig-Version` header is versioned for this). The targeted-fixes path (SECRET_KEY length check, argon2 throttling) was rendered unnecessary by the replacement. The audit is fully closed at **0 Critical / 0 High / 0 Medium / 0 Low**.

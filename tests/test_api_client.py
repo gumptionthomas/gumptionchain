@@ -1,17 +1,18 @@
 import httpx
 import pytest
 
-from cancelchain.api import API_TOKEN_SECONDS
+from cancelchain import signing
 from cancelchain.api_client import ApiClient
-from cancelchain.miller import Miller
 from cancelchain.wallet import Wallet
 
 
 def test_invalid_wallet(app, host, mill_block, requests_proxy, wallet):
+    # A wallet in no *_ADDRESSES list signs a valid request but has no live
+    # role -> 403 (forbidden), not 401: the signature verifies.
     with app.app_context():
         _m, _b = mill_block(wallet)
         w = Wallet()
-        with pytest.raises(httpx.HTTPStatusError, match='401'):
+        with pytest.raises(httpx.HTTPStatusError, match='403'):
             ApiClient(host, w).get_block()
 
 
@@ -25,25 +26,28 @@ def test_host_address(app, host_netloc, requests_proxy, wallet):
             ApiClient(invalid_host, wallet)
 
 
-def test_expired_token(
-    app, host, mill_block, requests_proxy, time_stepper, wallet
+def test_get_attaches_signature_headers(
+    app, host, mill_block, requests_proxy, wallet
 ):
+    """ApiClient.get signs the request: a round-trip authenticates, and the
+    transmitted request carries the cc-sig-v1 CC-* headers.
+    """
+    sent = {}
     with app.app_context():
-        time_step = time_stepper(delta=API_TOKEN_SECONDS + 1)
-        _ = next(time_step)
+        _m, _b = mill_block(wallet)
         client = ApiClient(host, wallet)
-        _m, b = mill_block(wallet)
+        orig_send = client._client.send
+
+        def _capture(req, *args, **kwargs):
+            sent['headers'] = req.headers
+            return orig_send(req, *args, **kwargs)
+
+        client._client.send = _capture
         response = client.get_block()
         assert response.status_code == httpx.codes.OK
-        _ = next(time_step)
-        response = client.get_block()
-        assert response.status_code == httpx.codes.OK
-        _ = next(time_step)
-        m2 = Miller(milling_wallet=wallet)
-        b = m2.create_block()
-        m2.mill_block(b)
-        response = client.post_block(b)
-        assert response.status_code == httpx.codes.OK
+        assert sent['headers'][signing.H_VERSION] == signing.SIG_VERSION
+        assert sent['headers'][signing.H_ADDRESS] == wallet.address
+        assert signing.H_SIGNATURE in sent['headers']
 
 
 def test_api_client_close_releases_underlying_client(app, host, wallet):

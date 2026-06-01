@@ -76,7 +76,7 @@ Two stacked layers, both read by `create_app()` in `src/cancelchain/__init__.py`
 1. **`FLASK_*` env vars** → injected into `app.config` via `Flask.config.from_prefixed_env()` (strips the `FLASK_` prefix). This is how `SECRET_KEY`, `SQLALCHEMY_DATABASE_URI`, etc. get set.
 2. **`CC_*` env vars** → loaded into `EnvAppSettings` (`src/cancelchain/config.py`, dataclass), then `app.config.from_object`. Values are JSON-parsed when possible, so list/bool settings (`CC_PEERS`, `CC_MILLER_ADDRESSES`, `CC_API_ASYNC_PROCESSING`) must be valid JSON strings in the env.
 
-Key `CC_*` settings: `NODE_HOST`, `PEERS` (list of `http(s)://<peer-address>@host` URLs — username component is the peer's wallet address), `WALLET_DIR`, `DEFAULT_COMMAND_HOST`, `{ADMIN,MILLER,TRANSACTOR,READER}_ADDRESSES` (exact-address allowlists matched against the JWT `sub` in `api.Role.address_role`; `READER_ADDRESSES` may contain the literal `"*"` to grant READER to any authenticated wallet; a non-address entry, or `"*"` outside `READER_ADDRESSES`, is rejected at startup via `Role.validate_config` → `InvalidRoleConfigError`). `WALLET_DIR` is walked at startup; every `*.pem` becomes an in-memory `Wallet` in `app.wallets`, keyed by address.
+Key `CC_*` settings: `NODE_HOST`, `PEERS` (list of `http(s)://<address>@host` URLs — `host` identifies the peer node, but the username `<address>` is the **local** wallet address this node signs requests *as* when talking to that peer: `create_clients` looks it up in `app.wallets`, so this node must hold that wallet's private key and the peer must list the address in its role allowlist), `WALLET_DIR`, `DEFAULT_COMMAND_HOST`, `{ADMIN,MILLER,TRANSACTOR,READER}_ADDRESSES` (exact-address allowlists matched against the authenticated address in `api.Role.address_role`; `READER_ADDRESSES` may contain the literal `"*"` to grant READER to any authenticated wallet; a non-address entry, or `"*"` outside `READER_ADDRESSES`, is rejected at startup via `Role.validate_config` → `InvalidRoleConfigError`). `WALLET_DIR` is walked at startup; every `*.pem` becomes an in-memory `Wallet` in `app.wallets`, keyed by address.
 
 ## Architecture
 
@@ -111,12 +111,18 @@ Domain objects own validation, serialization (Marshmallow schemas in `schema.py`
 
 ### API authentication
 
-`src/cancelchain/api.py` issues short-lived JWTs (`HS256`, `SECRET_KEY`, `API_TOKEN_SECONDS = 4h`) via a two-step handshake:
+Every API request is authenticated by a **per-request wallet signature** (`cc-sig-v1`). There is no token, no challenge/response handshake, and no `SECRET_KEY`-based bearer JWT. The scheme is stateless and node-bound.
 
-1. `GET /api/token/<address>` returns an RSA+AES-encrypted challenge (cipher in `ApiToken`); only the holder of the private key can decrypt it.
-2. `POST /api/token/<address>` with the decrypted challenge yields a JWT containing `sub` (address) and `rol` (role name).
+**How it works:**
 
-`ApiClient` (`api_client.py`) wraps this handshake; it transparently retries once on 401 by resetting the token. `authorize()` re-validates the caller's role against live `*_ADDRESSES` config on every request via `Role.address_role(sub)`; the JWT `rol` claim is informational, not the authorization gate — a revoked address loses access immediately and a forged or over-claimed `rol` is not honored. `Role.address_role` checks the address against the `*_ADDRESSES` exact-match allowlists; an address can appear in multiple allowlists, and the highest matching role wins. The JWT is bound to its issuing node — `iss` and `aud` are both set to `NODE_HOST` at issuance (`TokenView.post`) and enforced via `issuer=`/`audience=` on `jwt.decode`, so a token issued by one node is rejected by another even when both share the same `SECRET_KEY`.
+1. The client constructs a canonical string over `cc-sig-v1 / METHOD / path / query / body-digest / node-host / timestamp / address` and signs it with its RSA private key (`Wallet.sign`).
+2. The signature, public key, address, timestamp, and scheme version are sent as `CC-*` request headers (`CC-Sig-Version`, `CC-Address`, `CC-Public-Key`, `CC-Timestamp`, `CC-Signature`).
+3. `authorize()` in `api.py` calls `signing.verify()` to check the scheme version, request freshness (±300 s), public-key-to-address self-certification, the RSA signature, and node-binding (the canonical includes `NODE_HOST`, so a signature for node A fails verification at node B). Any failure → `401`.
+4. After signature verification, `authorize()` re-validates the caller's role against live `*_ADDRESSES` config via `Role.address_role(address)`. An address with no configured role or an insufficient role → `403`. This live re-check means role revocations take effect immediately.
+
+`ApiClient` (`api_client.py`) signs every outgoing request transparently via `_send()` using `signing.sign_headers()`. `Role.address_role` checks the address against the `*_ADDRESSES` exact-match allowlists; an address can appear in multiple allowlists, and the highest matching role wins.
+
+See `docs/api-auth-protocol.md` for the full versioned protocol specification (canonical string format, header definitions, algorithm, worked example).
 
 ### Async post-processing
 
@@ -124,7 +130,7 @@ When `CC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 
 ## Test conventions
 
-- `tests/.test.env` is loaded by `pytest-dotenv` (see `[tool.pytest.ini_options]`). It defines `FLASK_SECRET_KEY=testkey` and a minimal `CC_READER_ADDRESSES` allowlist; `env_override_existing_values = 1` means it *overrides* anything in your shell.
+- `tests/.test.env` is loaded by `pytest-dotenv` (see `[tool.pytest.ini_options]`). It defines `FLASK_SECRET_KEY` (still required by Flask for session/CSRF infrastructure, but no longer used for JWT auth — API auth is now per-request wallet signatures) and a minimal `CC_READER_ADDRESSES` allowlist; `env_override_existing_values = 1` means it *overrides* anything in your shell.
 - `tests/conftest.py` builds the `app` fixture by writing temporary `.pem` wallet files into a `TemporaryDirectory` and pointing `WALLET_DIR` at it, with a `NamedTemporaryFile` SQLite DB. There are four canonical wallets (`READER_WALLET`, `TRANSACTOR_WALLET`, `MILLER_WALLET`, `MILLER_2_WALLET`) wired to the corresponding `*_ADDRESSES` configs.
 - `requests_proxy` / `remote_requests_proxy` fixtures use `requests_mock` to route HTTP calls into the Flask test client — that's how peer-to-peer gossip is tested without a network.
 - `time_machine` (via `time_stepper`) is used wherever timestamps participate in validation (block ordering, txn expiry).

@@ -56,33 +56,40 @@ Originating audit:
 
 ---
 
-## Audit remediation — API authentication findings (PR #102)
+## ✅ Audit remediation — API authentication findings (fully closed 0/0/0/0)
 
-The 2026-05-31 API authentication audit ([report](audits/2026-05-31-api-authentication-audit.md); design+plan [#101](https://github.com/gumptionthomas/cancelchain/pull/101), findings+tests [#102](https://github.com/gumptionthomas/cancelchain/pull/102)) produced **8 findings: 0 Critical / 0 High (A4.a remediated, PR #105) / 2 Medium (A3.a + A5.b remediated, PR #107; A3.b remediated, PR #109) / 2 Low**, each with a `@pytest.mark.xfail(strict=True)` demonstration test in `tests/test_auth_audit.py`. Each remediation flips its xfail to a real pass. Grouped by shared fix (see the audit's Recommendations for full detail):
+The 2026-05-31 API authentication audit ([report](audits/2026-05-31-api-authentication-audit.md); design+plan [#101](https://github.com/gumptionthomas/cancelchain/pull/101), findings+tests [#102](https://github.com/gumptionthomas/cancelchain/pull/102)) produced **8 findings**. All are now closed — four individually by prior PRs, four dissolved by the protocol replacement (PR #111):
 
-- ✅ **A4.a (High) — exact-match role allowlists** — closed by PR #105. Replaced regex matching with exact-address membership + a READER-only `"*"` sentinel, validated at startup (`Role.validate_config` → `InvalidRoleConfigError`). Test: `test_a4_a_overbroad_admin_regex_does_not_escalate` (flipped from xfail to passing regression) + new exact-match/validation coverage in `tests/test_api.py`.
-- ✅ **A3.a + A5.b (Medium) — live-role re-check in `authorize()`** — closed by PR #107. `authorize()` now calls `Role.address_role(sub)` on every request; the JWT `rol` claim is no longer the authorization gate; insufficient or absent live role → 403. Closed both the forged-role (A3.a) and stale-role-after-revocation (A5.b) demonstrations. Tests: `test_a3_a_forged_role_claim_accepted`, `test_a5_b_stale_role_rejected_after_config_revocation`.
-- ✅ **A3.b (Medium) — JWT iss/aud node-binding** — closed by PR #109. `TokenView.post` mints `iss`=`aud`=`NODE_HOST`; `authorize()` enforces `issuer=`/`audience=` on `jwt.decode`; a token issued by another node → 401. The `remote_app` test fixture was corrected to give it a distinct `NODE_HOST`. Test: `test_a3_b_cross_node_token_replay` (flipped from xfail to passing regression). Remaining claim-hygiene work (`iat`/`jti`) is deferred — see the handshake-replacement design cycle.
-- **A2.c + A7.a (Medium) — throttle the unauthenticated token endpoint.** Wrong-challenge attempt counter + challenge invalidation, unredeemed-row cap/eviction, rate limiting; reorder `TokenView.post` to verify → role-check → reset → issue (closes the challenge-burn observation). Tests: `test_a2_c_unauthenticated_row_creation`, `test_a7_a_repeated_wrong_challenge_invalidates_token`.
-- **A1.a (Low) — `SECRET_KEY` minimum-length check at `create_app()`.** Test: `test_a1_a_weak_secret_key_startup_check`.
-- **A2.e (Low) — normalize the wrong-`Content-Type` rejection** so the status code doesn't reveal whether a token row exists. Test: `test_a2_e_content_type_oracle`.
+- ✅ **A4.a (High) — exact-match role allowlists** — closed by PR #105. Replaced regex matching with exact-address membership + a READER-only `"*"` sentinel, validated at startup (`Role.validate_config` → `InvalidRoleConfigError`). Test: `test_a4_a_overbroad_admin_regex_does_not_escalate` (passing regression).
+- ✅ **A3.a + A5.b (Medium) — live-role re-check in `authorize()`** — closed by PR #107. `authorize()` now calls `Role.address_role(address)` on every request; insufficient or absent live role → 403. Tests: `test_a3_a_forged_role_claim_accepted`, `test_a5_b_stale_role_rejected_after_config_revocation` (passing regressions).
+- ✅ **A3.b (Medium) — node-binding** — closed by PR #109 (JWT `iss`/`aud`); dissolved structurally by PR #111 (`cc-sig-v1` canonical includes `node_host`). Test: `test_a3_b_cross_node_token_replay` (re-expressed as signed-request regression).
+- ✅ **A2.c + A7.a (Medium) + A1.a + A2.e (Low) — dissolved by protocol replacement** — PR #111. The `/api/token` endpoint, `ApiToken` table, argon2, and `SECRET_KEY`-as-auth are all gone. No unauthenticated write path, no argon2 amplification surface, no content-type oracle, no weak-key forgery risk. Demonstration tests removed (gaps no longer exist).
 
-**Observations (no demonstration test; from the audit's Cross-cutting):**
-- `authorize_admin` is bound to no endpoint (ADMIN ≡ MILLER today) — bind it to an ADMIN-only endpoint or document the tier as reserved.
+**Audit is fully closed: 0 Critical / 0 High / 0 Medium / 0 Low.**
+
+**Observation still open (no finding):** `authorize_admin` is bound to no endpoint (ADMIN ≡ MILLER today) — bind it to an ADMIN-only endpoint or document the tier as reserved.
 
 Originating report:
 - [API authentication audit — Findings table + Recommendations](audits/2026-05-31-api-authentication-audit.md)
 
 ---
 
-## API auth protocol replacement (design cycle)
+## ✅ API auth protocol replacement (PR #111)
 
-Beyond the targeted remediations above, the audit's Recommendations flag two structural roots: the JWT is an unbound symmetric bearer token (no `iss`/`aud`/`jti`, `rol` not re-validated), and the handshake is a roll-your-own challenge (RSA-OAEP encrypt + argon2 over a 122-bit random secret, while `Wallet.sign`/`validate_signature` sit unused). Evaluate **replacing the handshake** as its own brainstorm → spec → plan cycle. Two candidate directions named in the audit:
-- **(a) Signed-nonce challenge-response reusing `Wallet.sign`** — low-risk interim; deletes the encrypt/AES-GCM + argon2-on-random-secret path, keeps the rest of the stack.
-- **(b) RFC 9421 HTTP Message Signatures / RS256 client-assertion** — stateless; removes the challenge round-trip, the `ApiToken` table, and the shared symmetric `SECRET_KEY` for issuance. Larger change (per-request signing on every client).
+The audit's Recommendations flagged two structural roots: the JWT was an unbound symmetric bearer token, and the handshake was a roll-your-own challenge (RSA-OAEP encrypt + argon2 over a 122-bit random secret, while `Wallet.sign`/`validate_signature` sat unused). The replacement design cycle evaluated two candidates (signed-nonce and RFC 9421 / RS256 client-assertion) and implemented a bespoke per-request signature scheme: **`cc-sig-v1`** (PR #111).
+
+`cc-sig-v1` signs each request with the caller's RSA private key over a canonical string (version/method/path/query/body-digest/node-host/timestamp/address). The scheme is stateless, node-bound by construction, and documented in `docs/api-auth-protocol.md`. `Wallet.sign` is now the authentication primitive.
+
+RFC 9421 is deferred as an additive `v2` scheme — see forward entry below.
 
 Originating report:
 - [API authentication audit — Recommendations: targeted fixes vs. protocol replacement](audits/2026-05-31-api-authentication-audit.md)
+
+---
+
+## RFC 9421 as an additive `cc-sig-v2` auth scheme
+
+RFC 9421 HTTP Message Signatures is deferred until there is third-party-client demand. The `CC-Sig-Version` header is versioned for this: adding `v2` alongside `v1` requires no breaking change. When implemented, both versions would be accepted side-by-side during a transition window before `v1` is sunset.
 
 ---
 

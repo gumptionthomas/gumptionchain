@@ -1,44 +1,24 @@
 from datetime import timedelta
 
 import httpx
-import jwt
 import pytest
 
-from cancelchain import create_app
-from cancelchain.api import API_TOKEN_SECONDS, Role
+from cancelchain import create_app, signing
+from cancelchain.api import Role
 from cancelchain.api_client import ApiClient
 from cancelchain.block import Block
 from cancelchain.exceptions import InvalidRoleConfigError
 from cancelchain.miller import Miller
+from cancelchain.tasks import post_process
 from cancelchain.transaction import Transaction
-from cancelchain.util import now
+from cancelchain.util import host_address, now
 from cancelchain.wallet import Wallet
 
 TIMEOUT = 60
 
 
-def test_post_token_none(app, requests_proxy, wallet):
-    response = requests_proxy.post(
-        f'/api/token/{wallet.address}', timeout=TIMEOUT
-    )
-    assert response.status_code == httpx.codes.UNAUTHORIZED
-
-
-def test_post_token_invalid(app, requests_proxy, wallet):
-    headers = {'Content-Type': 'application/json'}
-    path = f'/api/token/{wallet.address}'
-    _ = requests_proxy.get(path, timeout=TIMEOUT)
-    response = requests_proxy.post(
-        path, content='foo', headers=headers, timeout=TIMEOUT
-    )
-    assert response.status_code == httpx.codes.BAD_REQUEST
-    response = requests_proxy.post(
-        path,
-        content='{"challenge": "foo"}',
-        headers=headers,
-        timeout=TIMEOUT,
-    )
-    assert response.status_code == httpx.codes.UNAUTHORIZED
+def _node(host):
+    return host_address(host)[0]
 
 
 def test_no_role(app, host, mill_block, requests_proxy, subject, wallet):
@@ -67,12 +47,20 @@ def test_roles(
 ):
     with app.app_context():
         m, b = mill_block(wallet)
-        with pytest.raises(httpx.HTTPStatusError, match='401'):
+        # POST to /api/block has no route (only GET) -> 405, regardless of
+        # role (Flask routing rejects the method before authorize runs).
+        with pytest.raises(httpx.HTTPStatusError, match='405'):
             _ = ApiClient(host, reader_wallet).post('/api/block')
-        with pytest.raises(httpx.HTTPStatusError, match='401'):
-            _ = ApiClient(host, miller_wallet).get_block()
-        with pytest.raises(httpx.HTTPStatusError, match='401'):
-            _ = ApiClient(host, transactor_wallet).get_block()
+        # Signature auth is self-certifying: roled wallets can read even
+        # before they appear on-chain (no token handshake / chain lookup).
+        assert (
+            ApiClient(host, miller_wallet).get_block().status_code
+            == httpx.codes.OK
+        )
+        assert (
+            ApiClient(host, transactor_wallet).get_block().status_code
+            == httpx.codes.OK
+        )
         m, b = mill_block(reader_wallet)
         response = ApiClient(host, reader_wallet).get_block()
         assert response.status_code == httpx.codes.OK
@@ -96,32 +84,20 @@ def test_roles(
 
 
 def test_non_app_wallet(app, host, mill_block, requests_proxy, wallet):
+    # A wallet in no *_ADDRESSES list signs a valid request, but has no live
+    # role -> 403 (forbidden), not 401: the signature itself verifies.
     with app.app_context():
         w = Wallet()
-        with pytest.raises(httpx.HTTPStatusError, match='401'):
+        with pytest.raises(httpx.HTTPStatusError, match='403'):
             ApiClient(host, w).get_block()
         mill_block(wallet)
-        with pytest.raises(httpx.HTTPStatusError, match='401'):
+        with pytest.raises(httpx.HTTPStatusError, match='403'):
             ApiClient(host, w).get_block()
 
 
 def test_no_auth(app, requests_proxy, wallet):
     response = requests_proxy.get('/api/block', timeout=TIMEOUT)
     assert response.status_code == httpx.codes.UNAUTHORIZED
-
-
-def test_expired_auth(
-    app, host, mill_block, requests_proxy, time_stepper, wallet
-):
-    time_step = time_stepper(delta=API_TOKEN_SECONDS + 1)
-    _ = next(time_step)
-    client = ApiClient(host, wallet)
-    with app.app_context():
-        _, _ = mill_block(wallet)
-        _ = client.get('/api/block')
-        _ = next(time_step)
-        response = client.get('/api/block')
-        assert response.status_code == httpx.codes.OK
 
 
 def test_last_block(app, host, mill_block, requests_proxy, wallet):
@@ -389,42 +365,140 @@ def test_authorize_honors_live_downgrade(
             )
 
 
-def test_authorize_rejects_wrong_audience_token(app, requests_proxy, wallet):
-    # A token signed with the live SECRET_KEY but bound to a different node
-    # (wrong `aud`) is rejected at decode -> 401, regardless of the address's
-    # role, proving the audience binding is enforced on the local node.
-    wrong_aud = jwt.encode(
-        {
-            'sub': wallet.address,
-            'rol': 'READER',
-            'iss': 'http://elsewhere:9999',
-            'aud': 'http://elsewhere:9999',
-            'exp': now().timestamp() + API_TOKEN_SECONDS,
-        },
-        app.config['SECRET_KEY'],
-        algorithm='HS256',
-    )
-    r = requests_proxy.get(
-        '/api/block',
-        headers={'Authorization': f'Bearer {wrong_aud}'},
-        timeout=60,
-    )
-    assert r.status_code == httpx.codes.UNAUTHORIZED
+def test_signed_request_accepted(
+    app, host, mill_block, requests_proxy, reader_wallet
+):
+    with app.app_context():
+        mill_block(reader_wallet)  # reader in READER_ADDRESSES, on chain
+        headers = signing.sign_headers(
+            reader_wallet,
+            method='GET',
+            path='/api/block',
+            query='',
+            body=b'',
+            node_host=_node(host),
+        )
+        r = requests_proxy.get('/api/block', headers=headers, timeout=60)
+        assert r.status_code == httpx.codes.OK
 
-    # A token with no `aud` claim at all is likewise rejected (decode
-    # requires the audience claim when `audience=` is passed).
-    no_aud = jwt.encode(
-        {
-            'sub': wallet.address,
-            'rol': 'READER',
-            'exp': now().timestamp() + API_TOKEN_SECONDS,
-        },
-        app.config['SECRET_KEY'],
-        algorithm='HS256',
-    )
-    r2 = requests_proxy.get(
-        '/api/block',
-        headers={'Authorization': f'Bearer {no_aud}'},
-        timeout=60,
-    )
-    assert r2.status_code == httpx.codes.UNAUTHORIZED
+
+def test_unsigned_request_rejected(
+    app, host, mill_block, requests_proxy, reader_wallet
+):
+    with app.app_context():
+        mill_block(reader_wallet)
+        r = requests_proxy.get('/api/block', timeout=60)  # no CC-* headers
+        assert r.status_code == httpx.codes.UNAUTHORIZED
+
+
+def test_tampered_path_rejected(
+    app, host, mill_block, requests_proxy, reader_wallet
+):
+    with app.app_context():
+        mill_block(reader_wallet)
+        headers = signing.sign_headers(
+            reader_wallet,
+            method='GET',
+            path='/api/block',
+            query='',
+            body=b'',
+            node_host=_node(host),
+        )
+        # signed for /api/block, sent to a different protected path
+        r = requests_proxy.get(
+            '/api/transaction/pending', headers=headers, timeout=60
+        )
+        assert r.status_code == httpx.codes.UNAUTHORIZED
+
+
+def test_stale_timestamp_rejected(
+    app, host, mill_block, requests_proxy, reader_wallet
+):
+    with app.app_context():
+        mill_block(reader_wallet)
+        old = int(now().timestamp()) - (signing.FRESHNESS_SECONDS + 5)
+        headers = signing.sign_headers(
+            reader_wallet,
+            method='GET',
+            path='/api/block',
+            query='',
+            body=b'',
+            node_host=_node(host),
+            timestamp=old,
+        )
+        r = requests_proxy.get('/api/block', headers=headers, timeout=60)
+        assert r.status_code == httpx.codes.UNAUTHORIZED
+
+
+def test_future_timestamp_rejected(
+    app, host, mill_block, requests_proxy, reader_wallet
+):
+    with app.app_context():
+        mill_block(reader_wallet)
+        future = int(now().timestamp()) + (signing.FRESHNESS_SECONDS + 1)
+        headers = signing.sign_headers(
+            reader_wallet,
+            method='GET',
+            path='/api/block',
+            query='',
+            body=b'',
+            node_host=_node(host),
+            timestamp=future,
+        )
+        r = requests_proxy.get('/api/block', headers=headers, timeout=60)
+        assert r.status_code == httpx.codes.UNAUTHORIZED
+
+
+def test_missing_one_signature_header_rejected(
+    app, host, mill_block, requests_proxy, reader_wallet
+):
+    with app.app_context():
+        mill_block(reader_wallet)
+        headers = signing.sign_headers(
+            reader_wallet,
+            method='GET',
+            path='/api/block',
+            query='',
+            body=b'',
+            node_host=_node(host),
+        )
+        del headers[signing.H_TIMESTAMP]  # all CC-* present except one
+        r = requests_proxy.get('/api/block', headers=headers, timeout=60)
+        assert r.status_code == httpx.codes.UNAUTHORIZED
+
+
+def test_pubkey_address_mismatch_rejected(
+    app, host, mill_block, requests_proxy, reader_wallet
+):
+    with app.app_context():
+        mill_block(reader_wallet)
+        headers = signing.sign_headers(
+            reader_wallet,
+            method='GET',
+            path='/api/block',
+            query='',
+            body=b'',
+            node_host=_node(host),
+        )
+        headers[signing.H_PUBKEY] = Wallet().public_key_b64  # pubkey != address
+        r = requests_proxy.get('/api/block', headers=headers, timeout=60)
+        assert r.status_code == httpx.codes.UNAUTHORIZED
+
+
+def test_post_process_signs_at_send_time(
+    app, host, mill_block, requests_proxy, wallet
+):
+    # `wallet` is the ADMIN node wallet (in app.wallets); post_process should
+    # sign the outbound /process request at send time and it should verify.
+    with app.app_context():
+        _m, b = mill_block(wallet)
+        # POST the block to its own /process endpoint (miller-gated; wallet is
+        # ADMIN). Raises on non-2xx via ApiClient.post -> proves the signed
+        # request verified.
+        post_process(
+            host,
+            wallet.address,
+            f'/api/block/{b.block_hash}/process',
+            data=b.to_json(),
+            vhosts=None,
+        )

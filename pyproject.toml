@@ -27,7 +27,6 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "argon2-cffi>=23.1",
   "base58check>=1.0.2",
   "blinker>=1.8",
   "celery>=5.4",
@@ -43,7 +42,6 @@ dependencies = [
   "millify>=0.1.1",
   "pg8000>=1.31",
   "pydantic>=2.10",
-  "pyjwt>=2.9",
   "pymerkle>=5",
   "python-dotenv>=1.0",
   "rich>=13.7",

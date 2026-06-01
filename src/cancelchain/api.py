@@ -5,10 +5,8 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from enum import Enum
 from functools import wraps
-from typing import Annotated, Any, NoReturn
-from urllib.parse import urljoin
+from typing import Annotated, Any, NoReturn, cast
 
-import jwt
 from flask import (
     Blueprint,
     Response,
@@ -27,18 +25,17 @@ from pydantic import (
     ValidationError,
 )
 
-from cancelchain.api_client import PEER_HOST_HEADER, ApiClient
+from cancelchain import signing
+from cancelchain.api_client import PEER_HOST_HEADER
 from cancelchain.block import TXN_TIMEOUT, Block
 from cancelchain.cache import cache
 from cancelchain.chain import Chain
-from cancelchain.database import db
 from cancelchain.exceptions import (
     CCError,
     EmptyChainError,
     InvalidRoleConfigError,
     MissingBlockError,
 )
-from cancelchain.models import ApiToken
 from cancelchain.node import Node
 from cancelchain.payload import encode_subject, validate_raw_subject
 from cancelchain.schema import (
@@ -52,8 +49,6 @@ from cancelchain.signals import http_post as http_post_signal
 from cancelchain.tasks import post_process
 from cancelchain.util import ciso_2_dt, host_address, now, now_iso
 from cancelchain.wallet import Wallet
-
-API_TOKEN_SECONDS = 60 * 60 * 4
 
 blueprint = Blueprint('api', __name__)
 
@@ -100,27 +95,35 @@ def queue_post_process(
     vhosts: list[str] | None,
 ) -> None:
     host, address = host_address(current_app.config['NODE_HOST'])
+    if address is None:
+        # NODE_HOST carries no embedded wallet address (e.g. just
+        # http://host:port), so we can't determine which local wallet
+        # signs outbound peer requests. Async post-processing needs
+        # NODE_HOST in http(s)://<address>@host form.
+        current_app.logger.warning(
+            'queue_post_process: NODE_HOST %r has no embedded wallet address '
+            '(expected http(s)://<address>@host); cannot sign async '
+            'post-processing — skipping',
+            current_app.config['NODE_HOST'],
+        )
+        return
     wallet: Wallet | None = current_app.wallets.get(address)  # type: ignore[attr-defined]
     if wallet is None:
-        # No wallet for this node's NODE_HOST address means we can't sign
-        # an outbound peer request. Log and skip rather than crash on a
-        # later ApiClient call.
+        # No local wallet held for this node's NODE_HOST address means we
+        # can't sign an outbound peer request. Log and skip rather than
+        # fail later.
         current_app.logger.warning(
-            'queue_post_process: no wallet for node address %s; skipping',
+            'queue_post_process: no local wallet for node address %s; skipping',
             address,
         )
         return
-    headers: dict[str, str] | None = None
-    if vhosts:
-        headers = {PEER_HOST_HEADER: ','.join(vhosts)}
-    with ApiClient(host, wallet) as c:
-        headers = c.auth_header(headers=headers)
-    url = urljoin(host, path)
     http_post_signal.send(
         current_app._get_current_object(),  # type: ignore[attr-defined]
-        url=url,
+        host=host,
+        address=address,
+        path=path,
         data=data,
-        headers=headers,
+        vhosts=vhosts,
     )
 
 
@@ -138,12 +141,21 @@ def queue_txn_post_process(txn: Any, vhosts: list[str] | None) -> None:
 
 def handle_http_post(
     sender: Any,
-    url: str | None = None,
+    host: str | None = None,
+    address: str | None = None,
+    path: str | None = None,
     data: str | bytes | None = None,
-    headers: dict[str, str] | None = None,
+    vhosts: list[str] | None = None,
 ) -> None:
     if current_app.config.get('CELERY_BROKER_URL'):
-        post_process.delay(url, data, headers=headers)
+        post_process.delay(host, address, path, data, vhosts)
+    else:
+        current_app.logger.warning(
+            'handle_http_post: CC_API_ASYNC_PROCESSING is enabled but '
+            'CELERY_BROKER_URL is unset; dropping async post-processing '
+            'of %s',
+            path,
+        )
 
 
 @blueprint.record
@@ -229,56 +241,6 @@ class Role(Enum):
                     raise InvalidRoleConfigError(msg)
 
 
-class TokenView(MethodView):
-    def get(self, address: str) -> Response:
-        api_token = ApiToken.get(address)
-        if not api_token:
-            if not (wallet := current_app.wallets.get(address)):  # type: ignore[attr-defined]
-                _, _, lc_dao = node_lc_dao()
-                if lc_dao is None:
-                    abort(401)
-                txn = (
-                    db.session.execute(lc_dao.address_transactions(address))
-                    .scalars()
-                    .first()
-                )
-                if txn:
-                    wallet = Wallet(b64ks=txn.public_key)
-            if not wallet:
-                abort(401)
-            api_token = ApiToken.create(wallet)
-        return make_json_response({'cipher': api_token.refreshed_cipher()})
-
-    def post(self, address: str) -> Response:
-        if (api_token := ApiToken.get(address)) is None:
-            abort(401)
-        if not api_token.verify(request.json.get('challenge')):
-            abort(401)
-        api_token.reset()
-        if (role := Role.address_role(address)) is None:
-            abort(403)
-        node_host = current_app.config['NODE_HOST']
-        token = jwt.encode(
-            {
-                'sub': address,
-                'rol': str(role.name),
-                'iss': node_host,
-                'aud': node_host,
-                'exp': now().timestamp() + API_TOKEN_SECONDS,
-            },
-            current_app.config['SECRET_KEY'],
-            algorithm='HS256',
-        )
-        return make_json_response({'token': token})
-
-
-blueprint.add_url_rule(
-    '/token/<address:address>',
-    view_func=TokenView.as_view('token'),
-    methods=['GET', 'POST'],
-)
-
-
 def authorize(
     required_role: Role = Role.READER,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -287,32 +249,26 @@ def authorize(
     ) -> Callable[..., Any]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            address: str | None = None
             try:
-                token = request.headers.get('Authorization')
-                if token and token.startswith('Bearer '):
-                    token = token[7:]
-                else:
-                    token = None
-                if token:
-                    node_host = current_app.config['NODE_HOST']
-                    data = jwt.decode(
-                        token,
-                        current_app.config['SECRET_KEY'],
-                        algorithms=['HS256'],
-                        issuer=node_host,
-                        audience=node_host,
-                    )
-                    address = data['sub']
-            except jwt.exceptions.ExpiredSignatureError:
+                node_host = host_address(current_app.config['NODE_HOST'])[0]
+                # request.headers is Werkzeug's case-insensitive Headers (not
+                # a Mapping subtype, but exposes the .get() verify() uses);
+                # case-insensitivity matters because HTTP transit normalizes
+                # `CC-Sig-Version` to `Cc-Sig-Version`.
+                address = signing.verify(
+                    cast('Mapping[str, Any]', request.headers),
+                    method=request.method,
+                    path=request.path,
+                    query=request.query_string.decode(),
+                    body=request.get_data(),
+                    node_host=node_host,
+                )
+            except signing.SignatureError:
                 abort(401)
             except Exception as e:
                 current_app.logger.exception(e)
                 abort(401)
-            if not address:
-                abort(401)
-            # Live config is the authority — the token's `rol` claim is
-            # informational and is NOT trusted for authorization. Re-checking
+            # Live config is the authority for authorization. Re-checking
             # Role.address_role on every request closes the forged-claim
             # (A3.a) and stale-role-after-revocation (A5.b) gaps.
             role = Role.address_role(address)

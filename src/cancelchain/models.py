@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import datetime
-import uuid
 from collections.abc import Generator
 from typing import Any, ClassVar
 
-from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from sqlalchemy import (
     CTE,
     BigInteger,
@@ -20,7 +17,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from cancelchain.database import Base, db
-from cancelchain.wallet import Wallet
 
 # Chain-factory returns below carry `# type: ignore[no-any-return]` because
 # Flask-SQLAlchemy's `db.select` / `db.aliased` / `db.desc` facade methods
@@ -28,8 +24,6 @@ from cancelchain.wallet import Wallet
 # Remove the ignores when FSA's stubs improve, or when these sites migrate
 # to direct `from sqlalchemy import select, desc` / `from sqlalchemy.orm
 # import aliased` imports.
-
-_PASSWORD_HASHER = PasswordHasher()
 
 
 def rollback_session() -> None:
@@ -964,71 +958,3 @@ class ChainFillBlock(Base):
     def commit(self) -> None:
         self.add()
         db.session.commit()
-
-
-class ApiToken(Base):
-    __tablename__ = 'api_token'
-
-    id: Mapped[int] = mapped_column(
-        Integer, autoincrement=True, primary_key=True
-    )
-    address: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    public_key: Mapped[str] = mapped_column(String(500))
-    hashed: Mapped[str | None] = mapped_column(String(100), unique=True)
-    cipher: Mapped[str | None] = mapped_column(String(500), unique=True)
-    timestamp: Mapped[datetime.datetime | None] = mapped_column(
-        DateTime,
-        default=datetime.datetime.utcnow,
-        onupdate=datetime.datetime.utcnow,
-    )
-
-    @property
-    def expired(self) -> bool:
-        if self.timestamp is None:
-            return True
-        now_dt = datetime.datetime.now(datetime.UTC)
-        now_dt = now_dt.replace(tzinfo=None)
-        return self.timestamp < (now_dt - datetime.timedelta(seconds=60))
-
-    def add(self) -> None:
-        db.session.add(self)
-
-    def commit(self) -> None:
-        self.add()
-        db.session.commit()
-
-    def refreshed_cipher(self) -> str | None:
-        if self.expired or not (self.cipher and self.hashed):
-            secret = str(uuid.uuid4())
-            self.hashed = _PASSWORD_HASHER.hash(secret)
-            wallet = Wallet(b64ks=self.public_key)
-            self.cipher = wallet.encrypt(secret.encode())
-            self.commit()
-        return self.cipher
-
-    def reset(self) -> None:
-        self.cipher = None
-        self.hashed = None
-        self.commit()
-
-    def verify(self, secret: object) -> bool:
-        if self.expired or not self.hashed or not isinstance(secret, str):
-            return False
-        try:
-            return _PASSWORD_HASHER.verify(self.hashed, secret)
-        except (VerifyMismatchError, InvalidHashError):
-            return False
-
-    @classmethod
-    def get(cls, address: str) -> ApiToken | None:
-        return db.session.execute(
-            db.select(cls).filter_by(address=address)
-        ).scalar_one_or_none()
-
-    @classmethod
-    def create(cls, wallet: Wallet) -> ApiToken:
-        api_token = cls(
-            address=wallet.address, public_key=wallet.public_key_b64
-        )
-        api_token.commit()
-        return api_token

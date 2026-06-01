@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import datetime
-import json
 from types import TracebackType
 from typing import Self
 
 import httpx
 
+from cancelchain import signing
 from cancelchain.block import Block
 from cancelchain.transaction import Transaction
 from cancelchain.util import dt_2_ciso, host_address
 from cancelchain.wallet import Wallet
 
-OK = httpx.codes.OK
-UNAUTHORIZED = httpx.codes.UNAUTHORIZED
 PEER_HOST_HEADER = 'Peer-Hosts'
 ADDRESS_MISMATCH_MSG = 'Address/wallet mismatch'
 
@@ -54,7 +52,6 @@ class ApiClient:
             raise ValueError(ADDRESS_MISMATCH_MSG)
         self.host = host
         self.wallet = wallet
-        self.token: str | None = None
         self.timeout: int | float = timeout if timeout is not None else 10
         self._client = _make_client(self.host, float(self.timeout))
 
@@ -72,45 +69,42 @@ class ApiClient:
     ) -> None:
         self.close()
 
-    def request_token(self, rfs: bool = True) -> str | None:  # noqa: FBT001
-        r = self._client.get(
-            f'/api/token/{self.wallet.address}', timeout=self.timeout
-        )
-        if rfs:
-            r.raise_for_status()
-        if r.status_code == OK:
-            secret = self.wallet.decrypt(r.json().get('cipher')).decode()
-            r = self._client.post(
-                f'/api/token/{self.wallet.address}',
-                headers=json_header(),
-                content=json.dumps({'challenge': secret}),
-                timeout=self.timeout,
-            )
-            if rfs:
-                r.raise_for_status()
-            if r.status_code == OK:
-                token: str | None = r.json().get('token')
-                return token
-        return None
-
-    def get_token(self, rfs: bool = True) -> str | None:  # noqa: FBT001
-        if self.token is None:
-            self.token = self.request_token(rfs=rfs)
-        return self.token
-
-    def reset_token(self) -> None:
-        self.token = None
-
-    def auth_header(
+    def _send(
         self,
+        method: str,
+        path: str,
+        *,
         headers: dict[str, str] | None = None,
-        rfs: bool = True,  # noqa: FBT001
-    ) -> dict[str, str]:
-        headers = headers or {}
-        token = self.get_token(rfs=rfs)
-        if token:
-            headers['Authorization'] = f'Bearer {token}'
-        return headers
+        params: dict[str, str] | None = None,
+        content: str | bytes | None = None,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,
+    ) -> httpx.Response:
+        timeout_v: int | float = self.timeout if timeout is None else timeout
+        body = (
+            content.encode() if isinstance(content, str) else (content or b'')
+        )
+        req = self._client.build_request(
+            method,
+            path,
+            headers=headers,
+            params=params,
+            content=content,
+            timeout=timeout_v,
+        )
+        sig_headers = signing.sign_headers(
+            self.wallet,
+            method=method,
+            path=req.url.path,
+            query=req.url.query.decode(),
+            body=body,
+            node_host=self.host,
+        )
+        req.headers.update(sig_headers)
+        r = self._client.send(req)
+        if raise_for_status:
+            r.raise_for_status()
+        return r
 
     def get(
         self,
@@ -120,23 +114,14 @@ class ApiClient:
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
     ) -> httpx.Response:
-        timeout_v: int | float = self.timeout if timeout is None else timeout
-        r: httpx.Response
-        for _i in range(2):
-            headers = self.auth_header(headers=headers, rfs=raise_for_status)
-            r = self._client.get(
-                path,
-                headers=headers,
-                params=params,
-                timeout=timeout_v,
-            )
-            if r.status_code == UNAUTHORIZED:
-                self.reset_token()
-            else:
-                break
-        if raise_for_status:
-            r.raise_for_status()
-        return r
+        return self._send(
+            'GET',
+            path,
+            headers=headers,
+            params=params,
+            timeout=timeout,
+            raise_for_status=raise_for_status,
+        )
 
     def post(
         self,
@@ -146,23 +131,14 @@ class ApiClient:
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
     ) -> httpx.Response:
-        timeout_v: int | float = self.timeout if timeout is None else timeout
-        r: httpx.Response
-        for _i in range(2):
-            headers = self.auth_header(headers=headers, rfs=raise_for_status)
-            r = self._client.post(
-                path,
-                headers=headers,
-                content=data,
-                timeout=timeout_v,
-            )
-            if r.status_code == UNAUTHORIZED:
-                self.reset_token()
-            else:
-                break
-        if raise_for_status:
-            r.raise_for_status()
-        return r
+        return self._send(
+            'POST',
+            path,
+            headers=headers,
+            content=data,
+            timeout=timeout,
+            raise_for_status=raise_for_status,
+        )
 
     def get_transfer_transaction(
         self,
