@@ -120,9 +120,25 @@ from cancelchain.exceptions import InvalidRoleConfigError
 Append these tests to `tests/test_api.py`:
 
 ```python
+# NOTE: the `app` fixture pre-loads all four *_ADDRESSES (the `wallet`
+# fixture's address is in ADMIN_ADDRESSES). Each matching test below
+# resets all four lists first so it controls the role config exactly —
+# otherwise an unrelated pre-loaded entry (e.g. ADMIN) would win.
+
+def _clear_role_config(app):
+    for key in (
+        'READER_ADDRESSES',
+        'TRANSACTOR_ADDRESSES',
+        'MILLER_ADDRESSES',
+        'ADMIN_ADDRESSES',
+    ):
+        app.config[key] = []
+
+
 def test_address_role_exact_match(app, wallet):
     other = Wallet()
     with app.app_context():
+        _clear_role_config(app)
         app.config['MILLER_ADDRESSES'] = [wallet.address]
         assert Role.address_role(wallet.address) is Role.MILLER
         assert Role.address_role(other.address) is None
@@ -130,6 +146,7 @@ def test_address_role_exact_match(app, wallet):
 
 def test_address_role_reader_wildcard(app, wallet):
     with app.app_context():
+        _clear_role_config(app)
         app.config['READER_ADDRESSES'] = ['*']
         assert Role.address_role(wallet.address) is Role.READER
         assert Role.address_role(Wallet().address) is Role.READER
@@ -137,6 +154,7 @@ def test_address_role_reader_wildcard(app, wallet):
 
 def test_address_role_highest_wins(app, wallet):
     with app.app_context():
+        _clear_role_config(app)
         app.config['READER_ADDRESSES'] = [wallet.address]
         app.config['MILLER_ADDRESSES'] = [wallet.address]
         assert Role.address_role(wallet.address) is Role.MILLER

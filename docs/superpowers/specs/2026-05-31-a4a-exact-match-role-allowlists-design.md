@@ -96,7 +96,7 @@ Matching itself is total (no exceptions): `address_roles` returns `[]` for an un
 - a non-address junk entry (`"CC.*CC"`, `"notanaddress"`) in any role list → raises.
 - multi-role precedence preserved: an address in both `READER_ADDRESSES` and `MILLER_ADDRESSES` → `address_role` returns `MILLER`.
 
-**Regression baseline.** `tests/conftest.py` and `tests/.test.env` already use exact addresses, so existing tests are unaffected. Suite moves from `256 passed, 8 xfailed, 1 skipped` to `257 passed, 7 xfailed, 1 skipped` (the A4.a xfail flips to a pass), plus the new positive/negative tests. `--runxfail tests/test_auth_audit.py` then shows `7 failed` (A4.a no longer among them). All five CI gates (`ruff check`, `ruff format`, `pytest`, `mypy`, `db check`) stay green; `mypy --strict` over `src/` must accept the new classmethod and exception.
+**Regression baseline.** `tests/conftest.py` and `tests/.test.env` already use exact addresses, so existing tests are unaffected. Suite moves from `256 passed, 8 xfailed, 1 skipped` to `264 passed, 7 xfailed, 1 skipped` — the A4.a xfail flips to a pass (8→7 xfailed) and the 7 new positive/negative role-config tests are added (256+7+1 = 264 passed). `--runxfail tests/test_auth_audit.py` then shows `7 failed` (A4.a no longer among them). All five CI gates (`ruff check`, `ruff format`, `pytest`, `mypy`, `db check`) stay green; `mypy --strict` over `src/` must accept the new classmethod and exception.
 
 ## Documentation updates
 
@@ -118,5 +118,5 @@ Matching itself is total (no exceptions): `address_roles` returns `[]` for an un
 - `Role.validate_config` rejects, at `create_app` time, any non-address entry and any `'*'` outside `READER_ADDRESSES`, raising `InvalidRoleConfigError`; `create_app` calls it and does not swallow the exception.
 - `test_a4_a_*` passes as a real regression test (xfail marker removed); new positive/negative role-config tests pass.
 - `ADMIN_ADDRESSES=["CC.*CC"]` can no longer grant ADMIN to any wallet — it fails the node at startup.
-- All five CI gates green; suite `257 passed, 7 xfailed, 1 skipped` (+ new tests).
+- All five CI gates green; suite `264 passed, 7 xfailed, 1 skipped` (256 baseline + 7 new role-config tests + the flipped A4.a xfail).
 - CLAUDE.md, the audit report (A4.a marked remediated, headline `0/0/5/2`), and the roadmap are updated.
