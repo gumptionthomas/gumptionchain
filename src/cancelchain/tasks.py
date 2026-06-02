@@ -13,6 +13,16 @@ celery = Celery(__name__)
 
 
 def init_tasks(app: Flask) -> Celery:
+    # Bounded publish defaults (audit N4): on a down/slow broker, the
+    # synchronous post_process.delay() publish must fail fast (~2s) rather
+    # than stalling the web-request thread ~16s on Celery's default
+    # publish-retry policy. Applied before app.config so an operator can
+    # still override.
+    celery.conf.update(
+        task_publish_retry=False,
+        broker_connection_timeout=2.0,
+        broker_connection_max_retries=0,
+    )
     celery.conf.update(app.config)
 
     class ContextTask(celery.Task):

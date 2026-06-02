@@ -126,7 +126,7 @@ See `docs/api-auth-protocol.md` for the full versioned protocol specification (c
 
 ### Async post-processing
 
-When `CC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing the gossip work synchronously. Instead `api.queue_post_process` emits an `http_post` blinker signal, and the `handle_http_post` handler enqueues a Celery task (`tasks.post_process`) that POSTs back to `/api/<...>/process` to finish the work. The Celery broker URL must come from Flask config (`CELERY_BROKER_URL`); `tasks.init_tasks` copies `app.config` into `celery.conf` and wraps tasks with an `app_context`.
+When `CC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing the gossip work synchronously. Instead `api.queue_post_process` emits an `http_post` blinker signal, and the `handle_http_post` handler enqueues a Celery task (`tasks.post_process`) that POSTs back to `/api/<...>/process` to finish the work. The Celery broker URL must come from Flask config (`CELERY_BROKER_URL`); `tasks.init_tasks` copies `app.config` into `celery.conf` and wraps tasks with an `app_context`. The broker publish is bounded: `init_tasks` sets `task_publish_retry=False` and a short `broker_connection_timeout` (with `broker_connection_max_retries=0`) before calling `celery.conf.update(app.config)`, so a degraded broker fast-fails the enqueue in ~2 s rather than stalling the request thread for the ~16 s Celery-default window; operators can override these defaults via `app.config`.
 
 ## Test conventions
 

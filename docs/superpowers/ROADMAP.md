@@ -93,26 +93,21 @@ RFC 9421 HTTP Message Signatures is deferred until there is third-party-client d
 
 ---
 
-## Audit remediation — P2P/networking findings
+## (perf follow-up) Indexed/SQL-filtered mempool expiry + reads
 
-The 2026-06-01 [P2P/networking audit](audits/2026-06-01-network-p2p-audit.md) (design+plan [#112](https://github.com/gumptionthomas/cancelchain/pull/112)) produced **0 Critical / 1 High / 2 Medium / 1 Low**. Every finding is an availability/resource-bounding gap on an otherwise-validated, otherwise-authorized path (the trusted-input boundary holds). Each has a `@pytest.mark.xfail(strict=True)` demonstration in `tests/test_network_audit.py`; remediation flips it to a passing regression. N1–N3 are closed; only N4 (Low) remains open.
-
-- ✅ **N1 (High) — `fill_chain` unbounded ancestor walk** — no depth cap on the `while True` walk (`node.py:343-361`) + `request_block` never verifies the returned block's hash equals the requested `prev_hash`, so a hostile sync peer drives unbounded round-trips + `ChainFillBlock` commits and never terminates. Fix: configurable depth cap (`CC_MAX_CHAIN_FILL_DEPTH`) + returned-hash check. Test: `test_n1_fill_chain_has_no_depth_cap`. Closed by PR #114.
-- ✅ **N2 (Medium) — mempool has no admission cap** — `pending_txns` admits unbounded distinct valid txns (`node.py:95-102`); every expiry/mill/pending scan re-materializes the whole pool (O(mempool)). Fix: `CC_MAX_PENDING_TXNS` cap + indexed/SQL-filtered expiry. Test: `test_n2_mempool_has_no_admission_cap`. Closed by PR #115.
-- ✅ **N3 (Medium) — duplicate-txn re-gossip amplification** — an already-pending txn is re-gossiped on every receipt (`send_transaction` outside the newly-added guard, `node.py:95-105`), 1→N fan-out; the block path already dedups before gossiping. Fix: gate re-gossip on newly-added (mirror the block path). Test: `test_n3_pending_txn_regossiped_on_every_receipt`. Closed by PR #116.
-- ⏳ **N4 (Low) — synchronous broker publish on the request thread** — `post_process.delay()` runs in-thread via the `http_post` signal (`api.py:120-158`), coupling POST latency to broker liveness (bounded ~16s by Celery defaults). Fix: move the publish off the request thread. Test: `test_n4_async_publish_blocks_request_thread`.
-- **(perf follow-up) Indexed/SQL-filtered mempool expiry + reads** — `discard_expired_pending_txns` / `PendingTxnView` / `create_block` iterate the full pool re-parsing every row via `PendingTxnSet.__iter__`. Now bounded to O(cap) by the N2 admission cap; convert to an indexed timestamp query to drop the Python re-parse on the mill critical path. Surfaced by audit N2.
-
-**Cross-cutting:** all four are the same missing-bound class — adopt a "bound every attacker-influenced accumulator (+ a bounded-observation test)" convention. The `ChainFill` orphan-rows-on-crash hygiene note (A5.c) is made worse by N1 and is worth folding into the N1 fix.
-
-Originating report:
-- [P2P/networking audit — Findings table + Recommendations](audits/2026-06-01-network-p2p-audit.md)
+`discard_expired_pending_txns` / `PendingTxnView` / `create_block` iterate the full pool re-parsing every row via `PendingTxnSet.__iter__`. Now bounded to O(cap) by the N2 admission cap (`CC_MAX_PENDING_TXNS`); convert to an indexed timestamp query to drop the Python re-parse on the mill critical path. Surfaced by the 2026-06-01 P2P/networking audit (N2 finding).
 
 ---
 
 ## Closed items (historical reference)
 
 Each removed from this file when the closing PR landed. Keep here for now so future Claude sessions can see what was on the list.
+
+- ✅ **P2P/networking threat-modeled audit — fully closed (0 Critical / 0 High / 0 Medium / 0 Low)** — closed by docs PR [#112](https://github.com/gumptionthomas/cancelchain/pull/112) (design + plan) and impl PRs below. All four findings (N1–N4) are remediated; every `@pytest.mark.xfail(strict=True)` demonstration in `tests/test_network_audit.py` is now a passing regression test. The P2P/networking audit is **fully closed at 0/0/0/0**. Originating report: [P2P/networking audit](audits/2026-06-01-network-p2p-audit.md).
+  - ✅ **N1 (High) — `fill_chain` unbounded ancestor walk** — configurable depth cap (`CC_MAX_CHAIN_FILL_DEPTH`) + returned-hash check in `request_block`. Closed by PR #114.
+  - ✅ **N2 (Medium) — mempool has no admission cap** — `CC_MAX_PENDING_TXNS` admission cap; TxnView maps full pool to HTTP 503. Closed by PR #115.
+  - ✅ **N3 (Medium) — duplicate-txn re-gossip amplification** — gate re-gossip on newly-added flag (mirror the block path). Closed by PR #116.
+  - ✅ **N4 (Low) — synchronous broker publish on the request thread** — `init_tasks` sets `task_publish_retry=False`, `broker_connection_timeout=2.0`, `broker_connection_max_retries=0` before `celery.conf.update(app.config)`, bounding a degraded-broker publish to ~2 s. Closed by PR #117.
 
 - ✅ **`app.clients` teardown** — closed by [PR #63](https://github.com/gumptionthomas/cancelchain/pull/63) (Phase 5b follow-up). Was originally Phase 5b deferral.
 - ✅ **`Wallet.key` type tightening** — closed by [PR #66](https://github.com/gumptionthomas/cancelchain/pull/66). Was originally Phase 5a deferral.

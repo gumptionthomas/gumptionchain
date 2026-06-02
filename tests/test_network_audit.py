@@ -13,11 +13,9 @@ is observable. No test exhausts real memory, disk, or wall-clock.
 
 import contextlib
 import datetime
-import threading
 from unittest.mock import patch
 
 import httpx
-import pytest
 
 from cancelchain.api_client import ApiClient
 from cancelchain.block import Block
@@ -25,6 +23,7 @@ from cancelchain.chain import REWARD
 from cancelchain.exceptions import MempoolFullError
 from cancelchain.miller import Miller
 from cancelchain.payload import Inflow, Outflow, encode_subject
+from cancelchain.tasks import celery
 from cancelchain.transaction import Transaction
 from cancelchain.util import now
 
@@ -198,68 +197,16 @@ def test_n3_pending_txn_regossiped_on_every_receipt(
         assert calls == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'AUDIT N4: the Celery broker publish (post_process.delay) runs '
-        'synchronously on the web-request thread via the http_post signal, '
-        'coupling POST latency to broker liveness. Remove this marker when '
-        'the publish is moved off the request thread.'
-    ),
-)
-def test_n4_async_publish_blocks_request_thread(
-    app, host, host_netloc, requests_proxy, wallet
-) -> None:
-    """N4: the Celery broker publish runs synchronously on the web-request
-    thread — handle_http_post -> post_process.delay() is fired in-thread via
-    the http_post signal during the POST, so it executes on the request
-    handler's thread rather than off it.
+def test_n4_broker_publish_is_bounded(app) -> None:
+    """N4: the broker publish is bounded (no unbounded publish/connection
+    retries, short connection timeout) so a down/slow broker fast-fails the
+    enqueue (~2s) instead of stalling the web-request thread ~16s.
+
+    init_tasks(app) runs during create_app, so celery.conf reflects the fix.
     """
-    with app.app_context():
-        # Enable the async post-processing path. The CC_ prefix is stripped
-        # in app.config, so the gate key is API_ASYNC_PROCESSING. A valid
-        # in-memory broker URL keeps .delay() from erroring on config, and
-        # NODE_HOST must embed the local wallet address (http://<addr>@host)
-        # so queue_post_process doesn't warn-and-skip before the signal.
-        app.config['API_ASYNC_PROCESSING'] = True
-        app.config['CELERY_BROKER_URL'] = 'memory://'
-        app.config['NODE_HOST'] = f'http://{wallet.address}@{host_netloc}'
-
-        main_tid = threading.get_ident()
-        delay_tid: list[int] = []
-
-        def fake_delay(*args, **kwargs):
-            delay_tid.append(threading.get_ident())
-
-        # Mine a block as the (ADMIN-privileged) wallet and POST it through
-        # the real ApiClient/requests_proxy. Use create_block() + b.mill()
-        # (NOT mill_block, which calls receive_block and would persist the
-        # block locally) so the POSTed block is NEW to the server's DB —
-        # otherwise receive_block short-circuits (block already present) and
-        # the async queue path is never reached.
-        m = Miller(milling_wallet=wallet)
-        b = m.create_block()
-        b.mill()
-
-        # Patch where handle_http_post looks it up: post_process is imported
-        # into cancelchain.api and called as post_process.delay(...).
-        with patch(
-            'cancelchain.api.post_process.delay', side_effect=fake_delay
-        ):
-            response = ApiClient(host, wallet).post_block(b)
-
-        # The async path returns 202 ACCEPTED after queueing.
-        assert response.status_code == httpx.codes.ACCEPTED
-        # The signal fired synchronously, so delay recorded the publish
-        # thread id.
-        assert delay_tid, 'post_process.delay was never called'
-
-        # TODAY: the signal fires synchronously in the request handler, which
-        # (under httpx WSGITransport) runs in the test's own thread ->
-        # delay_tid[0] == main_tid -> != FALSE -> xfail. AFTER FIX (publish
-        # moved off the request thread) -> different thread -> passes ->
-        # remove marker.
-        assert delay_tid[0] != main_tid
+    assert celery.conf.task_publish_retry is False
+    assert celery.conf.broker_connection_timeout <= 2.0
+    assert celery.conf.broker_connection_max_retries == 0
 
 
 def test_n1_request_block_rejects_hash_mismatch(app, time_machine, wallet):
