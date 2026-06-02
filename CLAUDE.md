@@ -98,7 +98,7 @@ Domain objects own validation, serialization (Marshmallow schemas in `schema.py`
 
 `Node` (`node.py`) is the per-request coordinator instantiated inside views and CLI commands from `app.config` + `app.clients` (a dict of `ApiClient`s, one per configured peer). It owns:
 
-- `receive_transaction` / `receive_block`: validate → persist → optionally forward to peers
+- `receive_transaction` / `receive_block`: validate → persist → optionally forward to peers. `receive_transaction` gossips only when the txn is newly admitted to the pool (`if process and added`) — mirroring `receive_block`/`send_block`, which skips gossip for an already-known block — so an already-pending txn is not re-gossiped on duplicate receipt.
 - `send_transaction` / `send_block`: gossip to peers, skipping any host listed in the `Peer-Hosts` header (loop guard)
 - `fill_chain`: walk backwards from a peer's tip, staging blocks in a `ChainFill` row, then applying them in forward order (this is how `cancelchain sync` works). The backward walk is bounded by `MAX_CHAIN_FILL_DEPTH` (env `CC_MAX_CHAIN_FILL_DEPTH`, default 50000) — exceeding it aborts the walk and cleans up the `ChainFill`. `request_block` verifies the returned block's *computed* header hash (`get_header_hash()`, not the peer-controlled self-reported `block_hash` field) equals the requested hash before staging, preventing a hostile peer from steering the walk with forged/mismatched blocks.
 - `fill_peer`: the inverse — when a peer 404s on our block's parent, push ancestors until it accepts
