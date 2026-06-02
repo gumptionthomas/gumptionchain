@@ -839,7 +839,7 @@ class PendingTxnDAO(Base):
         Integer, autoincrement=True, primary_key=True
     )
     txid: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime)
+    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime, index=True)
     json_data: Mapped[str] = mapped_column(Text)
     received: Mapped[datetime.datetime | None] = mapped_column(
         DateTime, default=datetime.datetime.utcnow
@@ -882,6 +882,32 @@ class PendingTxnDAO(Base):
         stmt = stmt.order_by(cls.timestamp, cls.txid)
         for (json_data,) in db.session.execute(stmt):
             yield json_data
+
+    @classmethod
+    def delete_expired(cls, cutoff: datetime.datetime) -> int:
+        """Delete every pending txn strictly older than `cutoff`
+        (timestamp < cutoff) in a single commit, returning the count
+        removed. Uses an indexed SQL filter to fetch only the expired
+        rows (no whole-pool re-parse) and ORM `session.delete()` per row
+        so the `ioflows` relationship cascade removes companion
+        PendingIOflowDAO rows — a Core bulk DELETE would orphan them, as
+        the FK carries no ON DELETE CASCADE. Open boundary: a txn exactly
+        at the cutoff is kept (mirrors block.txn_is_expired / json_datas).
+        """
+        rows = (
+            db.session.execute(db.select(cls).where(cls.timestamp < cutoff))
+            .scalars()
+            .all()
+        )
+        if not rows:
+            # Nothing expired: skip the commit so an empty pass stays a
+            # true no-op and never flushes unrelated in-flight session
+            # state (matches the pre-refactor per-eviction behavior).
+            return 0
+        for row in rows:
+            db.session.delete(row)
+        db.session.commit()
+        return len(rows)
 
     @classmethod
     def get(cls, txid: str) -> PendingTxnDAO | None:

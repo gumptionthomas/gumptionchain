@@ -446,6 +446,14 @@ class PendingTxnSet(MutableSet[Transaction]):
         if dao is not None:
             dao.delete()
 
+    def discard_expired(self, cutoff: datetime) -> int:
+        # Bulk-evict every pending txn strictly older than `cutoff` in a
+        # single SQL-filtered, single-commit pass (and cascade their
+        # ioflow rows). Returns the count removed. Far cheaper than
+        # iterating self and calling discard() per txn, which re-parses
+        # the whole pool and commits once per eviction.
+        return PendingTxnDAO.delete_expired(cutoff)
+
     def query_json(
         self,
         earliest: datetime | None = None,

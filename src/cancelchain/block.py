@@ -51,15 +51,27 @@ TXN_TIMEOUT = timedelta(hours=4)
 MISSED_TARGET_MSG = 'Missed target'
 
 
+def expiry_cutoff(reference_dt: datetime) -> datetime:
+    """The expiry boundary datetime relative to reference_dt: a pending
+    txn is expired iff its timestamp is strictly older than this cutoff
+    (timestamp < cutoff). This is the SQL-filterable form of the
+    `txn_is_expired` rule — callers pass `expiry_cutoff(now())` as the
+    `expired` cutoff to PendingTxnDAO.json_datas / delete_expired, which
+    keep `timestamp >= cutoff` so the boundary txn stays alive.
+    """
+    return reference_dt - TXN_TIMEOUT
+
+
 def txn_is_expired(txn_timestamp_dt: datetime, reference_dt: datetime) -> bool:
     """A txn is expired iff its timestamp is strictly older than
     TXN_TIMEOUT relative to reference_dt. Open boundary: a txn exactly
     TXN_TIMEOUT old (txn_timestamp_dt == reference_dt - TXN_TIMEOUT) is
     NOT expired. Single source of truth for the expiry boundary — every
     other site (Node.discard_expired_pending_txns, Miller.pending_chain_txns,
-    and the PendingTxnDAO.json_datas SQL query) applies this same rule.
+    and the PendingTxnDAO.json_datas SQL query) applies this same rule
+    via `expiry_cutoff`.
     """
-    return txn_timestamp_dt < reference_dt - TXN_TIMEOUT
+    return txn_timestamp_dt < expiry_cutoff(reference_dt)
 
 
 def validate_hash_diff(block_hash: str, target: str) -> bool:

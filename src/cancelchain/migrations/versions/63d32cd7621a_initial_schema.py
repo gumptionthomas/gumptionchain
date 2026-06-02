@@ -50,6 +50,7 @@ def upgrade():
     sa.PrimaryKeyConstraint('id', name=op.f('pk_pending_txn'))
     )
     with op.batch_alter_table('pending_txn', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_pending_txn_timestamp'), ['timestamp'], unique=False)
         batch_op.create_index(batch_op.f('ix_pending_txn_txid'), ['txid'], unique=True)
 
     op.create_table('transaction',
@@ -172,6 +173,7 @@ def downgrade():
     op.drop_table('transaction')
     with op.batch_alter_table('pending_txn', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_pending_txn_txid'))
+        batch_op.drop_index(batch_op.f('ix_pending_txn_timestamp'))
 
     op.drop_table('pending_txn')
     op.drop_table('chain_fill')

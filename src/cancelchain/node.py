@@ -10,7 +10,7 @@ import httpx
 from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
 
-from cancelchain.block import Block, txn_is_expired
+from cancelchain.block import Block, expiry_cutoff
 from cancelchain.chain import Chain, is_genesis_block
 from cancelchain.database import db
 from cancelchain.exceptions import (
@@ -109,12 +109,7 @@ class Node:
         return txn if added else None
 
     def discard_expired_pending_txns(self) -> None:
-        reference_dt = now()
-        for txn in self.pending_txns:
-            if txn.timestamp_dt is not None and txn_is_expired(
-                txn.timestamp_dt, reference_dt
-            ):
-                self.pending_txns.discard(txn)
+        self.pending_txns.discard_expired(expiry_cutoff(now()))
 
     def send_block(
         self,

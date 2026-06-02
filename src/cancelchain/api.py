@@ -27,7 +27,7 @@ from pydantic import (
 
 from cancelchain import signing
 from cancelchain.api_client import PEER_HOST_HEADER
-from cancelchain.block import TXN_TIMEOUT, Block
+from cancelchain.block import Block, expiry_cutoff
 from cancelchain.cache import cache
 from cancelchain.chain import Chain
 from cancelchain.exceptions import (
@@ -606,7 +606,7 @@ class PendingTxnView(MethodView):
             node, _, _ = node_lc_dao()
             node.discard_expired_pending_txns()
             earliest = args.get('earliest')
-            expired = now() - TXN_TIMEOUT
+            expired = expiry_cutoff(now())
             pending_json = node.pending_txns.query_json(
                 earliest=earliest, expired=expired
             )

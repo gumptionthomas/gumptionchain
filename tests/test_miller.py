@@ -2,6 +2,7 @@ import datetime
 from unittest.mock import patch
 
 import pytest
+from _sa_helpers import _count
 
 from cancelchain.block import TXN_TIMEOUT
 from cancelchain.chain import CURMUDGEON_PER_GRUMBLE as CPG
@@ -11,6 +12,7 @@ from cancelchain.exceptions import (
     InsufficientFundsError,
 )
 from cancelchain.miller import Miller
+from cancelchain.models import PendingIOflowDAO, PendingTxnDAO
 from cancelchain.payload import Inflow, Outflow
 from cancelchain.transaction import Transaction
 from cancelchain.util import now
@@ -78,6 +80,35 @@ def test_expired_transaction(app, time_machine, wallet):
         assert len(m.pending_txns) == 0
         m.mill_block(b1)
         assert len(b1.txns) == 1
+
+
+def test_discard_expired_removes_ioflow_children(app, time_machine, wallet):
+    """discard_expired_pending_txns evicts expired pending txns AND their
+    companion PendingIOflowDAO rows. The bulk SQL-filtered delete uses
+    ORM session.delete() per row precisely so the `ioflows` cascade fires
+    — a Core bulk DELETE would orphan the children (the FK has no ON
+    DELETE CASCADE)."""
+    with app.app_context():
+        m = Miller(milling_wallet=wallet)
+        b0 = m.create_block()
+        m.mill_block(b0)
+        now_dt = now()
+        # Build a transfer spending the mined coinbase; the inflow
+        # references an existing (mined) outflow, so add() creates a
+        # PendingIOflowDAO companion row.
+        when_dt = now_dt - TXN_TIMEOUT - datetime.timedelta(seconds=1)
+        time_machine.move_to(when_dt)
+        t0 = m.longest_chain.create_transfer(
+            wallet, m.longest_chain.balance(wallet.address), wallet.address
+        )
+        t0.sign()
+        time_machine.move_to(now_dt)
+        m.receive_transaction(t0.txid, t0.to_json())
+        assert PendingTxnDAO.count() == 1
+        assert _count(PendingIOflowDAO) == 1
+        m.discard_expired_pending_txns()
+        assert PendingTxnDAO.count() == 0
+        assert _count(PendingIOflowDAO) == 0
 
 
 def test_duplicate_transaction(app, time_machine, wallet):
