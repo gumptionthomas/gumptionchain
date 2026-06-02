@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import binascii
+import contextlib
 import json
 import os
 from base64 import standard_b64decode, standard_b64encode
@@ -227,12 +228,21 @@ class Wallet:
         # O_EXCL refuses to follow a pre-planted symlink or clobber an
         # existing key; the 0o600 mode means the key is never momentarily
         # group/world-readable (a plain open('wb') inherits the umask,
-        # commonly 0o644). The mode is masked by umask, but 0o600 has no
-        # group/other bits for umask to clear, so the result is 0o600
-        # regardless of the umask in effect.
+        # commonly 0o644). umask can only clear bits, never set them, so it
+        # can never widen 0o600 to group/world access — a pathological umask
+        # could at most further restrict the owner bits, never expand them.
         fd = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, 'wb') as f:
-            f.write(pem)
+        try:
+            with os.fdopen(fd, 'wb') as f:
+                f.write(pem)
+        except BaseException:
+            # The file was newly created (O_EXCL): don't leave a partial or
+            # empty key behind (read_wallets would try to load it). os.fdopen
+            # closes the fd on its own failure; the with-block closes it on a
+            # write failure — so here we only remove the orphaned file.
+            with contextlib.suppress(OSError):
+                os.unlink(filename)
+            raise
         return filename
 
     def __repr__(self) -> str:
