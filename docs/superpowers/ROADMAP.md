@@ -93,6 +93,22 @@ RFC 9421 HTTP Message Signatures is deferred until there is third-party-client d
 
 ---
 
+## Audit remediation — P2P/networking findings
+
+The 2026-06-01 [P2P/networking audit](audits/2026-06-01-network-p2p-audit.md) (design+plan [#112](https://github.com/gumptionthomas/cancelchain/pull/112)) produced **0 Critical / 1 High / 2 Medium / 1 Low**. Every finding is an availability/resource-bounding gap on an otherwise-validated, otherwise-authorized path (the trusted-input boundary holds). Each has a `@pytest.mark.xfail(strict=True)` demonstration in `tests/test_network_audit.py`; remediation flips it to a passing regression. Open items:
+
+- ⏳ **N1 (High) — `fill_chain` unbounded ancestor walk** — no depth cap on the `while True` walk (`node.py:343-361`) + `request_block` never verifies the returned block's hash equals the requested `prev_hash`, so a hostile sync peer drives unbounded round-trips + `ChainFillBlock` commits and never terminates. Fix: configurable depth cap (`CC_MAX_CHAIN_FILL_DEPTH`) + returned-hash check. Test: `test_n1_fill_chain_has_no_depth_cap`.
+- ⏳ **N2 (Medium) — mempool has no admission cap** — `pending_txns` admits unbounded distinct valid txns (`node.py:95-102`); every expiry/mill/pending scan re-materializes the whole pool (O(mempool)). Fix: `CC_MAX_PENDING_TXNS` cap + indexed/SQL-filtered expiry. Test: `test_n2_mempool_has_no_admission_cap`.
+- ⏳ **N3 (Medium) — duplicate-txn re-gossip amplification** — an already-pending txn is re-gossiped on every receipt (`send_transaction` outside the newly-added guard, `node.py:95-105`), 1→N fan-out; the block path already dedups before gossiping. Fix: gate re-gossip on newly-added (mirror the block path). Test: `test_n3_pending_txn_regossiped_on_every_receipt`.
+- ⏳ **N4 (Low) — synchronous broker publish on the request thread** — `post_process.delay()` runs in-thread via the `http_post` signal (`api.py:120-158`), coupling POST latency to broker liveness (bounded ~16s by Celery defaults). Fix: move the publish off the request thread. Test: `test_n4_async_publish_blocks_request_thread`.
+
+**Cross-cutting:** all four are the same missing-bound class — adopt a "bound every attacker-influenced accumulator (+ a bounded-observation test)" convention. The `ChainFill` orphan-rows-on-crash hygiene note (A5.c) is made worse by N1 and is worth folding into the N1 fix.
+
+Originating report:
+- [P2P/networking audit — Findings table + Recommendations](audits/2026-06-01-network-p2p-audit.md)
+
+---
+
 ## Closed items (historical reference)
 
 Each removed from this file when the closing PR landed. Keep here for now so future Claude sessions can see what was on the list.
