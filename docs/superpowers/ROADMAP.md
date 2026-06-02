@@ -48,7 +48,9 @@ Originating spec:
 The [CLI / operator-surface threat-model audit](audits/2026-06-02-cli-audit.md) (the fifth audit; design+plan PR #126) found **0 Critical / 0 High / 1 Medium / 1 Low** — 9 of 11 candidates refuted (cross-references to the closed verification/auth audits, operator self-harm, or UX nits), 10 confirmed strengths. The two findings have strict-xfail demonstrations in `tests/test_cli_audit.py`:
 
 - ✅ **CLI1 (Medium) — `wallet create` writes the private key world-readable & unencrypted** — closed. `Wallet.to_file` now creates the PEM via `os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)` — owner-only (never momentarily group/world-readable, umask-independent) and exclusive (refuses to follow a pre-planted symlink or clobber an existing key); `test_cli1_wallet_create_writes_private_key_0600` is now a passing regression. (Optional `--passphrase` for at-rest encryption was not added — the load-bearing exposure was the file mode.)
-- **CLI4 (Low) — `import` buffers an unbounded single line.** `import_blocks_command` reads each line with no length bound before `Block.from_json`; a crafted `.jsonl` with one multi-GB line OOM-kills the one-shot import (bounded, recoverable, idempotent-resumable). Fix: bound per-line input before parsing. Test: `test_cli4_import_bounds_line_length`.
+- ✅ **CLI4 (Low) — `import` buffers an unbounded single line** — closed. New `bounded_lines` helper caps each line at `MAX_IMPORT_LINE_BYTES` (4 MiB, ≫ any legitimate block) via `readline(cap + 1)` so a single line is never buffered whole, aborting on overflow with a clear error; applied to BOTH the count pass and the parse pass. `test_cli4_import_bounds_line_length` is now a passing regression.
+
+**Both findings remediated — the CLI / operator-surface audit is fully closed (0/0/0/0 open).**
 
 Originating report:
 - [CLI / operator-surface audit](audits/2026-06-02-cli-audit.md) — findings table, strengths, recommendations.
