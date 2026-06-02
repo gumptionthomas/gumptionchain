@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Generator
 from datetime import timedelta
 from http.client import responses
 from typing import Any
@@ -43,6 +44,10 @@ from cancelchain.wallet import Wallet
 
 REFRESH_PER_SECOND = 8
 CHAIN_MISMATCH_MSG = 'Chain/file mismatch'
+# Cap a single JSONL line during `import` so a crafted file with one enormous
+# line can't OOM the import (audit CLI4). 4 MiB is far larger than any
+# legitimate block (~100 transactions), so real data is never rejected.
+MAX_IMPORT_LINE_BYTES = 4 * 1024 * 1024
 
 
 def grumble_to_curmudgeons(grumble: float) -> int:
@@ -114,6 +119,22 @@ def address_wallet(address: str, wallet_file: str | None = None) -> Wallet:
         msg = f'No wallet for {address}'
         raise Exception(msg)
     return wallet
+
+
+def bounded_lines(
+    f: Any, max_bytes: int = MAX_IMPORT_LINE_BYTES
+) -> Generator[str, None, None]:
+    """Yield lines from `f`, refusing any line longer than `max_bytes`.
+
+    `f.readline(max_bytes + 1)` reads at most `max_bytes + 1` characters, so a
+    single unbounded line is never buffered whole; a line over the cap aborts
+    with a clear error instead of exhausting memory (audit CLI4).
+    """
+    for line in iter(lambda: f.readline(max_bytes + 1), ''):
+        if len(line) > max_bytes:
+            msg = f'Import line exceeds the {max_bytes}-byte limit'
+            raise ValueError(msg)
+        yield line
 
 
 def read_last_line(file: str) -> str:
@@ -475,10 +496,12 @@ def import_blocks_command(file: str) -> None:
         node = Node(logger=current_app.logger)
         with open(file, encoding='utf-8') as f:
             progress_bar = ProgressBar(
-                'Importing Blocks', console=console, total=sum(1 for line in f)
+                'Importing Blocks',
+                console=console,
+                total=sum(1 for _ in bounded_lines(f)),
             )
         with open(file, encoding='utf-8') as f, progress_bar as progress:
-            for line in f:
+            for line in bounded_lines(f):
                 block = Block.from_json(line)
                 if Block.from_db(block.block_hash) is None:  # type: ignore[arg-type]
                     node.add_block(block)

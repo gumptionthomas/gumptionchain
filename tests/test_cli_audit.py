@@ -14,7 +14,7 @@ mirrors tests/test_command.py.
 import os
 import stat
 
-import pytest
+from cancelchain.command import MAX_IMPORT_LINE_BYTES
 
 
 def test_cli1_wallet_create_writes_private_key_0600(app, runner, tmp_path):
@@ -43,30 +43,23 @@ def test_cli1_wallet_create_writes_private_key_0600(app, runner, tmp_path):
         os.umask(old_umask)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='CLI4: `import` buffers an unbounded single line — in BOTH the '
-    'count pass (sum(1 for line in f)) and the parse pass (Block.from_json). '
-    'A full fix must bound the line in both; this test observes the parse '
-    'pass and flips once the oversized line no longer reaches Block.from_json.',
-)
 def test_cli4_import_bounds_line_length(app, runner, tmp_path, monkeypatch):
-    """CLI4 (Low) — `cancelchain import` reads the file line-by-line with no
-    length bound and hands the whole line to `Block.from_json`, so a crafted
-    `.jsonl` with one enormous line is buffered whole (OOM risk). Desired: the
-    import bounds per-line input, so `Block.from_json` never receives the full
-    oversized line. Bounded-observation: an 8 MiB line — far larger than any
-    legitimate block (~hundreds of KB at MAX_TRANSACTIONS) so any sane cap
-    rejects it — with no real exhaustion.
+    """CLI4 (Low) — REMEDIATED. `cancelchain import` used to read each line
+    with no length bound and hand the whole line to `Block.from_json`, so a
+    crafted `.jsonl` with one enormous line was buffered whole (OOM risk).
+    `bounded_lines` now caps each line at `MAX_IMPORT_LINE_BYTES` in BOTH the
+    count and parse passes, aborting on overflow before the full line is
+    buffered or parsed. Bounded-observation: one line just over the cap (no
+    real exhaustion); assert the import rejects it and the full line never
+    reaches `Block.from_json`.
     """
-    oversize = 8 * 1024 * 1024  # 8 MiB, >> any legitimate block line
     seen_lengths: list[int] = []
 
     # Block.from_json is a @classmethod; monkeypatch.setattr replaces it with
-    # this plain function, stripping the classmethod descriptor. The import's
-    # `Block.from_json(line)` call therefore passes `line` as `data` (no `cls`
-    # is injected), so len(data) is the line length. The *args tail is purely
-    # defensive.
+    # this plain function, stripping the classmethod descriptor, so the
+    # import's `Block.from_json(line)` passes `line` as `data` (no `cls`). The
+    # *args tail is purely defensive. (Post-fix the oversized line is rejected
+    # in the count pass before from_json is reached, so this records nothing.)
     def recording_from_json(data, *args, **kwargs):
         seen_lengths.append(len(data))
         msg = 'stop after recording'
@@ -77,13 +70,13 @@ def test_cli4_import_bounds_line_length(app, runner, tmp_path, monkeypatch):
     )
 
     big = tmp_path / 'big.jsonl'
-    big.write_text('x' * oversize + '\n')
+    big.write_text('x' * (MAX_IMPORT_LINE_BYTES + 1024) + '\n')
     with app.app_context():
-        runner.invoke(args=['import', str(big)])
+        result = runner.invoke(args=['import', str(big)])
 
-    # Desired post-fix: the full oversized line never reaches Block.from_json
-    # (either bounded below `oversize`, or rejected before the call).
-    assert not seen_lengths or max(seen_lengths) < oversize, (
-        f'import delivered an unbounded {max(seen_lengths)}-byte line to '
-        'Block.from_json'
+    # The over-cap line is rejected (import aborts) and is never delivered to
+    # Block.from_json beyond the cap.
+    assert 'Import failed' in result.output
+    assert not seen_lengths or max(seen_lengths) <= MAX_IMPORT_LINE_BYTES, (
+        f'import delivered a {max(seen_lengths)}-byte line to Block.from_json'
     )
