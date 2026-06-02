@@ -22,17 +22,12 @@ from cancelchain.exceptions import InvalidKeyError
 from cancelchain.wallet import KEY_SIZE, Wallet, b64encode
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='WC1: the bespoke encrypt/decrypt hybrid is dead (zero src callers '
-    'post-#111) and should be removed; flips to passing once it is gone.',
-)
 def test_wc1_bespoke_encrypt_decrypt_removed():
-    """WC1 (Low) — the RSA-OAEP + AES-GCM hybrid `Wallet.encrypt` /
-    `Wallet.decrypt` has no production caller after PR #111 replaced the
-    challenge/response handshake (only tests reference it). Unreachable
-    bespoke crypto is a re-introduction hazard and standing surface; the
-    recommended remediation is removal. This asserts the end state.
+    """WC1 (Low) — REMEDIATED. The RSA-OAEP + AES-GCM hybrid `Wallet.encrypt`
+    / `Wallet.decrypt` had no production caller after PR #111 replaced the
+    challenge/response handshake (only tests referenced it). Unreachable
+    bespoke crypto is a re-introduction hazard and standing surface; it was
+    removed. This regression asserts it stays gone.
     """
     assert not hasattr(Wallet, 'encrypt')
     assert not hasattr(Wallet, 'decrypt')

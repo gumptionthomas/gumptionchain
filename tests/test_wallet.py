@@ -32,16 +32,6 @@ def test_create_invalid_key():
         Wallet(ks='foo')
 
 
-def test_crypto(wallet):
-    s = 'This is a secret'
-    msg = wallet.encrypt(s.encode())
-    assert msg != s
-    wallet2 = Wallet()
-    with pytest.raises(ValueError):
-        wallet2.decrypt(msg)
-    assert wallet.decrypt(msg).decode() == s
-
-
 def test_create_from_key(
     wallet_private_key_b58,
     wallet_public_key_b64,
@@ -133,13 +123,6 @@ def test_wallet_verify_rejects_mutated_payload():
 def test_wallet_verify_rejects_garbage_signature():
     w = Wallet()
     assert w.validate_signature(b'data', 'garbagebase64==') is False
-
-
-def test_wallet_encrypt_decrypt_round_trip():
-    w = Wallet()
-    plaintext = b'session-challenge-payload'
-    ciphertext = w.encrypt(plaintext)
-    assert w.decrypt(ciphertext) == plaintext
 
 
 def test_wallet_encrypted_pem_round_trip(tmp_path):

@@ -7,7 +7,7 @@
 
 ## Executive summary
 
-**0 Critical / 0 High / 0 Medium / 2 Low.**
+**0 Critical / 0 High / 0 Medium / 2 Low** (at audit time). **Remediation progress: WC1 closed; 1 Low (WC2) open.**
 
 The fan-out produced **no exploitable cryptographic findings**. The crypto root of trust is well-constructed: identity is bound to the public key by a sound double-hash, that binding is re-certified before every signature check on both the transaction and the request-signing paths, signature verification delegates to pyca's strict full-width PKCS#1 v1.5 verifier (foreclosing small-exponent forgery), and key import is fail-closed (malformed material becomes `InvalidKeyError`, never a silent fresh key). Twelve such controls are recorded as **confirmed strengths** below.
 
@@ -20,7 +20,7 @@ Adversarial verification refuted all eight de-duplicated candidates as exploitab
 
 | id | adversary | severity | description | status | demonstration test |
 |---|---|---|---|---|---|
-| WC1 | confused-primitive / dead-code | Low | `Wallet.encrypt`/`Wallet.decrypt` (bespoke RSA-OAEP + AES-GCM hybrid) have **zero `src/` callers** after PR #111 removed the challenge/response handshake — only tests exercise them. Unreachable bespoke crypto is a re-introduction hazard and standing maintenance/attack surface. Not exploitable (unreachable). | Open (Low) | `test_wc1_bespoke_encrypt_decrypt_removed` (xfail) |
+| WC1 | confused-primitive / dead-code | Low | `Wallet.encrypt`/`Wallet.decrypt` (bespoke RSA-OAEP + AES-GCM hybrid) have **zero `src/` callers** after PR #111 removed the challenge/response handshake — only tests exercise them. Unreachable bespoke crypto is a re-introduction hazard and standing maintenance/attack surface. Not exploitable (unreachable). | ✅ Remediated — methods + `AESGCM`/nonce-size constants removed; `test_wc1_bespoke_encrypt_decrypt_removed` is now a passing regression. | `test_wc1_bespoke_encrypt_decrypt_removed` (regression) |
 | WC2 | malicious key supplier | Low | `Wallet.__init__` validates `isinstance(RSA*)` + `key_size == 3072` but **does not validate the public exponent**. A 3072-bit `e=3` key loads and is accepted (pyca does not enforce a minimum exponent). Not exploitable today — pyca's strict PKCS#1 v1.5 verifier forecloses cube-root forgery, and a self-chosen weak key derives its own distinct address (no cross-address/cross-node impact) — but accepting non-standard exponents is unnecessary and inconsistent with the node's own `e=65537` generation. | Open (Low) | `test_wc2_import_rejects_degenerate_exponent` (xfail) |
 
 ## Adversary traces

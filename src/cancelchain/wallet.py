@@ -14,7 +14,6 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
     RSAPrivateKey,
     RSAPublicKey,
 )
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from cancelchain.exceptions import InvalidKeyError, NoPrivateKeyError
 from cancelchain.milling import mill_hash_bin
@@ -23,8 +22,6 @@ RSAKey = RSAPrivateKey | RSAPublicKey
 
 ADDRESS_TAG = 'CC'
 KEY_SIZE = 3072
-GCM_NONCE_SIZE = 12
-AES_SESSION_KEY_SIZE = 16
 
 
 def b58decode(s: str) -> bytes:
@@ -205,38 +202,6 @@ class Wallet:
             # TypeError: wrong types from caller.
             return False
         return True
-
-    def encrypt(self, data: bytes) -> str:
-        session_key = os.urandom(AES_SESSION_KEY_SIZE)
-        enc_session_key = self.public_key.encrypt(
-            session_key,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
-        nonce = os.urandom(GCM_NONCE_SIZE)
-        ciphertext_with_tag = AESGCM(session_key).encrypt(nonce, data, None)
-        return b64encode(enc_session_key + nonce + ciphertext_with_tag)
-
-    def decrypt(self, msg: str) -> bytes:
-        if self.private_key is None:
-            raise NoPrivateKeyError()
-        raw = b64decode(msg)
-        key_size_bytes = self.private_key.key_size // 8
-        enc_session_key = raw[:key_size_bytes]
-        nonce = raw[key_size_bytes : key_size_bytes + GCM_NONCE_SIZE]
-        ciphertext = raw[key_size_bytes + GCM_NONCE_SIZE :]
-        session_key = self.private_key.decrypt(
-            enc_session_key,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
-        return AESGCM(session_key).decrypt(nonce, ciphertext, None)
 
     def to_dict(self) -> dict[str, str]:
         return {'private_key': self.private_key_b58}
