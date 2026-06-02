@@ -35,20 +35,14 @@ def test_wc1_bespoke_encrypt_decrypt_removed():
     assert not hasattr(Wallet, 'decrypt')
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='WC2: Wallet.__init__ validates key_size but not the public '
-    'exponent, so a degenerate e=3 key is accepted; flips to passing once an '
-    'exponent check (e == 65537) rejects it.',
-)
 def test_wc2_import_rejects_degenerate_exponent():
-    """WC2 (Low) — `Wallet.__init__` checks `isinstance(RSA*)` + `key_size ==
-    3072` but not the public exponent (pyca does not enforce a minimum). A
-    3072-bit `e=3` key loads and is accepted. Not exploitable today (pyca's
-    strict PKCS#1 v1.5 verifier forecloses cube-root forgery, and a weak
-    self-chosen key derives its own distinct address), but accepting
-    non-standard exponents is unnecessary and inconsistent with the node's own
-    e=65537 generation. The desired behavior is rejection on import.
+    """WC2 (Low) — REMEDIATED. `Wallet.__init__` previously checked
+    `isinstance(RSA*)` + `key_size == 3072` but not the public exponent (pyca
+    does not enforce a minimum), so a 3072-bit `e=3` key loaded and was
+    accepted. It now rejects any imported key whose exponent is not 65537
+    (matching the node's own generation). Not a live vulnerability (pyca's
+    strict PKCS#1 v1.5 verifier forecloses cube-root forgery) — defense-in-
+    depth + key-profile consistency. This regression asserts the rejection.
     """
     weak_key = rsa.generate_private_key(public_exponent=3, key_size=KEY_SIZE)
     pub_b64 = b64encode(

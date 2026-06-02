@@ -22,6 +22,7 @@ RSAKey = RSAPrivateKey | RSAPublicKey
 
 ADDRESS_TAG = 'CC'
 KEY_SIZE = 3072
+PUBLIC_EXPONENT = 65537
 
 
 def b58decode(s: str) -> bytes:
@@ -122,11 +123,17 @@ class Wallet:
             key = import_key(ks, passphrase=passphrase)
         else:
             key = rsa.generate_private_key(
-                public_exponent=65537, key_size=KEY_SIZE
+                public_exponent=PUBLIC_EXPONENT, key_size=KEY_SIZE
             )
         if not isinstance(key, (RSAPrivateKey, RSAPublicKey)):
             raise InvalidKeyError()
         if key.key_size != KEY_SIZE:
+            raise InvalidKeyError()
+        # Reject non-standard public exponents on import (audit WC2). pyca's
+        # loader accepts degenerate exponents (e.g. e=3); pin e to the same
+        # value this node generates so every accepted key shares one profile.
+        pub = key.public_key() if isinstance(key, RSAPrivateKey) else key
+        if pub.public_numbers().e != PUBLIC_EXPONENT:
             raise InvalidKeyError()
         self.key: RSAKey = key
 
