@@ -46,7 +46,11 @@ REFRESH_PER_SECOND = 8
 CHAIN_MISMATCH_MSG = 'Chain/file mismatch'
 # Cap a single JSONL line during `import` so a crafted file with one enormous
 # line can't OOM the import (audit CLI4). 4 MiB is far larger than any
-# legitimate block (~100 transactions), so real data is never rejected.
+# legitimate block (~100 transactions), so real data is never rejected. The
+# import opens the file in text mode, so this is enforced as a character count
+# (== bytes for the ASCII-dominant block JSON; at most ~4x bytes for
+# pathological all-multibyte-UTF-8 input — still bounded, well short of the
+# GB-scale exhaustion this guards against).
 MAX_IMPORT_LINE_BYTES = 4 * 1024 * 1024
 
 
