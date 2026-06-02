@@ -107,7 +107,7 @@ Each removed from this file when the closing PR landed. Keep here for now so fut
   - ✅ **N1 (High) — `fill_chain` unbounded ancestor walk** — configurable depth cap (`CC_MAX_CHAIN_FILL_DEPTH`) + returned-hash check in `request_block`. Closed by PR #114.
   - ✅ **N2 (Medium) — mempool has no admission cap** — `CC_MAX_PENDING_TXNS` admission cap; TxnView maps full pool to HTTP 503. Closed by PR #115.
   - ✅ **N3 (Medium) — duplicate-txn re-gossip amplification** — gate re-gossip on newly-added flag (mirror the block path). Closed by PR #116.
-  - ✅ **N4 (Low) — synchronous broker publish on the request thread** — `init_tasks` sets `task_publish_retry=False`, `broker_connection_timeout=2.0`, `broker_connection_max_retries=0` before `celery.conf.update(app.config)`, bounding a degraded-broker publish to ~2 s. Closed by PR #PRNUM.
+  - ✅ **N4 (Low) — synchronous broker publish on the request thread** — `init_tasks` sets `task_publish_retry=False`, `broker_connection_timeout=2.0`, `broker_connection_max_retries=0` before `celery.conf.update(app.config)`, bounding a degraded-broker publish to ~2 s. Closed by PR #117.
 
 - ✅ **`app.clients` teardown** — closed by [PR #63](https://github.com/gumptionthomas/cancelchain/pull/63) (Phase 5b follow-up). Was originally Phase 5b deferral.
 - ✅ **`Wallet.key` type tightening** — closed by [PR #66](https://github.com/gumptionthomas/cancelchain/pull/66). Was originally Phase 5a deferral.
