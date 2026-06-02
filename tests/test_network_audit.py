@@ -197,7 +197,7 @@ def test_n3_pending_txn_regossiped_on_every_receipt(
         assert calls == []
 
 
-def test_n4_broker_publish_is_bounded(app):
+def test_n4_broker_publish_is_bounded(app) -> None:
     """N4: the broker publish is bounded (no unbounded publish/connection
     retries, short connection timeout) so a down/slow broker fast-fails the
     enqueue (~2s) instead of stalling the web-request thread ~16s.
