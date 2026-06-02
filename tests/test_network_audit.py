@@ -21,9 +21,7 @@ import pytest
 from cancelchain.api_client import ApiClient
 from cancelchain.block import Block
 from cancelchain.chain import REWARD
-from cancelchain.database import db
 from cancelchain.miller import Miller
-from cancelchain.models import ChainFillBlock
 from cancelchain.payload import Inflow, Outflow, encode_subject
 from cancelchain.transaction import Transaction
 from cancelchain.util import now
@@ -37,25 +35,6 @@ TEST_TARGET = 'F' * 64
 # appended below this scaffold. Shared fixtures (app, *_wallet,
 # requests_proxy, remote_requests_proxy, mill_block, host, time_stepper) come
 # from tests/conftest.py.
-
-
-def staged_chain_fill_count(app):
-    """Count ChainFillBlock rows currently staged -- used by availability
-    tests that assert fill_chain stages an attacker-controlled number of
-    blocks with no depth cap.
-
-    NB: this project uses SQLAlchemy 2.0 with a plain ``DeclarativeBase``
-    (``SQLAlchemy(model_class=Base)``), NOT ``db.Model`` -- so the legacy
-    ``Model.query`` attribute does NOT exist here (it raises AttributeError).
-    Use the 2.0 count idiom (mirrors ``tests/_sa_helpers._count``).
-    """
-    with app.app_context():
-        return (
-            db.session.scalar(
-                db.select(db.func.count()).select_from(ChainFillBlock)
-            )
-            or 0
-        )
 
 
 def _hostile_block(prev_block: Block, wallet, idx_offset: int = 1) -> Block:
@@ -83,7 +62,7 @@ def _hostile_block(prev_block: Block, wallet, idx_offset: int = 1) -> Block:
         'hostile peer drives an attacker-controlled number of request_block '
         'round-trips + ChainFillBlock commits. Remove this marker when '
         'fill_chain honors a configurable depth cap (contract: '
-        "app.config['CC_MAX_CHAIN_FILL_DEPTH']) and aborts the walk at the "
+        "app.config['MAX_CHAIN_FILL_DEPTH']) and aborts the walk at the "
         'threshold.'
     ),
 )
@@ -93,7 +72,7 @@ def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
     request_block calls + ChainFillBlock commits.
 
     The remediation contract is a configurable depth cap read from
-    app.config['CC_MAX_CHAIN_FILL_DEPTH']; the walk must abort once it has
+    app.config['MAX_CHAIN_FILL_DEPTH']; the walk must abort once it has
     requested that many ancestors. Today there is no such cap, so the walk
     runs until our patched request_block hits its own SAFETY bound.
     """
@@ -112,7 +91,7 @@ def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
         assert Block.from_db(tip2.block_hash) is None
 
         # Remediation contract: cap the ancestor walk at this depth.
-        app.config['CC_MAX_CHAIN_FILL_DEPTH'] = 3
+        app.config['MAX_CHAIN_FILL_DEPTH'] = 3
 
         call_count = [0]
         # SAFETY: cap our fake peer so today's uncapped walk terminates
@@ -133,8 +112,9 @@ def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
         with patch.object(m, 'request_block', side_effect=counting_fake):
             m.fill_chain(tip2)
 
-        # TODAY: no cap -> walk runs to SAFETY=8 -> call_count == 8 ->
-        # 8 <= 3 is FALSE -> xfail. AFTER FIX: walk stops at the cap ->
+        # TODAY: no cap -> walk runs to the SAFETY bound -> call_count == 9
+        # (8 served + 1 terminating None) -> 9 <= 3 is FALSE -> xfail.
+        # AFTER FIX: walk stops at the cap ->
         # call_count <= 3 -> passes -> remove the marker.
         assert call_count[0] <= 3
 
@@ -145,7 +125,7 @@ def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
         'AUDIT N2: pending_txns mempool has no admission cap; an '
         'authenticated TRANSACTOR floods unbounded distinct valid txns. '
         'Remove this marker when receive_transaction enforces a configurable '
-        "cap (contract: app.config['CC_MAX_PENDING_TXNS']) and "
+        "cap (contract: app.config['MAX_PENDING_TXNS']) and "
         'rejects/evicts past it.'
     ),
 )
@@ -154,7 +134,7 @@ def test_n2_mempool_has_no_admission_cap(app, time_machine, wallet) -> None:
     admission validation is shape+sig+txid only (no balance), so one
     transactor floods unbounded distinct valid txns.
 
-    Remediation contract: a configurable cap app.config['CC_MAX_PENDING_TXNS'].
+    Remediation contract: a configurable cap app.config['MAX_PENDING_TXNS'].
     """
     with app.app_context():
         now_dt = now()
@@ -162,7 +142,7 @@ def test_n2_mempool_has_no_admission_cap(app, time_machine, wallet) -> None:
         m = Miller(milling_wallet=wallet)
 
         # Remediation contract: cap the mempool BEFORE submitting.
-        app.config['CC_MAX_PENDING_TXNS'] = 3
+        app.config['MAX_PENDING_TXNS'] = 3
 
         # Submit 6 DISTINCT structurally-valid signed txns. Each varies the
         # subject so its txid differs; validate() is shape+sig+txid only
