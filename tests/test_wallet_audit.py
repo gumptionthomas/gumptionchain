@@ -1,11 +1,13 @@
 """Demonstration tests for the 2026-06-02 wallet/crypto threat-model audit.
 
-Each test below demonstrates one audit finding and is marked
+Each test below demonstrates one audit finding and asserts the DESIRED
+post-fix behavior. While a finding is still open it carries
 ``@pytest.mark.xfail(strict=True)`` — strict mode means the test MUST fail
-today (the gap is real) and forces the marker's removal when the finding is
-remediated (the xfail would otherwise "unexpectedly pass" and error the
-suite). Each test asserts the DESIRED post-fix behavior, so it flips to a
-passing regression when the fix lands. See
+today (the gap is real) and forces the marker's removal at remediation (the
+xfail would otherwise "unexpectedly pass" and error the suite). Once a finding
+is remediated the marker is dropped and the test becomes a passing
+regression; tests below may therefore be a mix of strict-xfail (open) and
+plain regression (closed). See
 docs/superpowers/audits/2026-06-02-wallet-crypto-audit.md.
 
 The audit found 0 exploitable findings (0 Critical / 0 High / 0 Medium); the
