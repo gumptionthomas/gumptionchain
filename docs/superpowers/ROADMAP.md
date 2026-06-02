@@ -43,6 +43,18 @@ Originating spec:
 
 ---
 
+## Audit remediation — CLI findings (2026-06-02)
+
+The [CLI / operator-surface threat-model audit](audits/2026-06-02-cli-audit.md) (the fifth audit; design+plan PR #126) found **0 Critical / 0 High / 1 Medium / 1 Low** — 9 of 11 candidates refuted (cross-references to the closed verification/auth audits, operator self-harm, or UX nits), 10 confirmed strengths. The two findings have strict-xfail demonstrations in `tests/test_cli_audit.py`:
+
+- **CLI1 (Medium) — `wallet create` writes the private key world-readable & unencrypted.** `Wallet.to_file` → `open(filename, 'wb')` lands at the process umask (no `chmod 0o600`, no `O_EXCL`, no passphrase); a co-located local user reads a live signing identity. Fix: create the PEM atomically owner-only (`os.open(..., O_EXCL, 0o600)` or temp-file + `chmod 0o600` + rename); optionally add `--passphrase`. Test: `test_cli1_wallet_create_writes_private_key_0600`.
+- **CLI4 (Low) — `import` buffers an unbounded single line.** `import_blocks_command` reads each line with no length bound before `Block.from_json`; a crafted `.jsonl` with one multi-GB line OOM-kills the one-shot import (bounded, recoverable, idempotent-resumable). Fix: bound per-line input before parsing. Test: `test_cli4_import_bounds_line_length`.
+
+Originating report:
+- [CLI / operator-surface audit](audits/2026-06-02-cli-audit.md) — findings table, strengths, recommendations.
+
+---
+
 ## Audit remediation — wallet/crypto findings (2026-06-02)
 
 The [wallet/crypto threat-model audit](audits/2026-06-02-wallet-crypto-audit.md) (the fourth audit; design+plan PR #120) found **0 Critical / 0 High / 0 Medium / 2 Low** — no exploitable findings, 12 confirmed strengths. The two Low items are non-exploitable defense-in-depth / hygiene residuals, each with a demonstration in `tests/test_wallet_audit.py` (strict-xfail while open, a passing regression once remediated):
