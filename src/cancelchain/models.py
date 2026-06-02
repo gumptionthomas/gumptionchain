@@ -54,8 +54,8 @@ class TransactionDAO(Base):
     version: Mapped[str] = mapped_column(String(10))
     timestamp: Mapped[datetime.datetime] = mapped_column(DateTime)
     address: Mapped[str | None] = mapped_column(String(100))
-    public_key: Mapped[str | None] = mapped_column(String(500))
-    signature: Mapped[str | None] = mapped_column(String(500))
+    public_key: Mapped[str | None] = mapped_column(String(700))
+    signature: Mapped[str | None] = mapped_column(String(700))
     prev_hash: Mapped[str | None] = mapped_column(String(100))
     blocks: Mapped[list[BlockDAO]] = relationship(
         secondary=block_transactions, back_populates='transactions'

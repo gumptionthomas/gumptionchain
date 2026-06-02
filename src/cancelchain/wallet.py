@@ -22,7 +22,7 @@ from cancelchain.milling import mill_hash_bin
 RSAKey = RSAPrivateKey | RSAPublicKey
 
 ADDRESS_TAG = 'CC'
-KEY_SIZE = 2048
+KEY_SIZE = 3072
 GCM_NONCE_SIZE = 12
 AES_SESSION_KEY_SIZE = 16
 
