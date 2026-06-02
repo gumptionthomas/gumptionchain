@@ -82,13 +82,21 @@ from cancelchain.wallet import Wallet, b64encode
 - [ ] **Step 2:** Persist the synthesized finding set to `/tmp/wallet-crypto-audit-findings.json` (scratch; not committed). Each entry carries enough to write both the report row and the demonstration test.
 
 **Pre-seeded candidates to ensure the fan-out covers** (the Workflow must confirm or refute each, not assume it):
-- Dead `encrypt`/`decrypt` hybrid — zero `src/` callers post-PR #111.
-- Imported-key parameter validation — degenerate public exponent / oversized modulus on `import_key`.
+- Dead `encrypt`/`decrypt` hybrid — zero `src/` callers post-PR #111 (and `encrypt` needs no private key; GCM nonce reuse risk is *deferred by deadness*, not proven sound).
+- Imported-key parameter validation — degenerate public exponent (`e=1`/`e=3`/even `e`) / oversized modulus on `import_key`.
 - Unpinned KDF behind `BestAvailableEncryption` for exported encrypted wallets.
 - `decrypt` framing length-confusion (folds into dead-code if removal chosen).
 - `validate_signature` broad-`except` false-`True` reachability; PKCS1v15 soundness.
 - `validate_address_format` (structure) vs `validate_address` (key-backed) gap.
+- **`schema.validate_signature` key↔address binding** — does every signature-validation caller also enforce the key backs the claimed address? (Assign to category 3; this audit owns the seam — both adjacent audits are closed.)
+- **`Wallet.from_dict`/`from_json` with a missing `private_key` field → silent fresh-key generation** (not an error).
+- **Wire base64 alignment** — `validate_base64` / `validate_signature` use standard (not URL-safe) b64; confirm URL-safe input is rejected fail-closed.
 - Private-key exposure via `__repr__` / logging / `to_dict`/`to_json`.
+
+**Refuter ground rules (for the Verify phase — prevents false refutations):**
+- **pyca does NOT enforce a minimum public exponent.** `load_*_key` accepts `e=1`/`e=3`. The only post-load validation is `isinstance(key, RSA*)` + `key.key_size == KEY_SIZE` (`wallet.py:130-133`). Refuters must NOT treat "the loader accepted it" as proof of exponent safety.
+- A degenerate-key finding survives if the key is **third-party-forgeable** (see design rubric exclusion 1) — do not kill it as "self-harm."
+- `signing.verify`'s `isinstance`-before-`key_size` ordering and the `address == wallet.address` self-cert are real controls; confirm them rather than assuming.
 
 ---
 
@@ -116,7 +124,9 @@ from cancelchain.wallet import Wallet, b64encode
 
 - [ ] Append one `@pytest.mark.xfail(strict=True)` test per finding to `tests/test_wallet_audit.py`:
   - **Correctness findings:** assert the buggy behavior under xfail (e.g. `Wallet(b64ks=degenerate_e_key)` constructs and `validate_signature` accepts a forged sig; or `validate_signature` returns `True` on a malleated/non-canonical input). Flips to a passing regression on remediation.
-  - **Hygiene / dead-code / unpinned-default findings:** assert the present observable state deterministically (e.g. no `src/` module references `Wallet.encrypt`/`.decrypt`; an exported encrypted PEM carries the unpinned default-KDF marker). No real cracking.
+  - **Hygiene / dead-code / unpinned-default findings:** assert the present observable state deterministically. No real cracking. Make the assertion robust, not fragile:
+    - *Dead-code reachability:* parse each `src/cancelchain/*.py` with `ast` and walk for `Attribute` nodes named `encrypt`/`decrypt` (or `import`/`importlib` graph analysis) — **not** a `grep`/`subprocess` shell-out (PATH- and CWD-fragile, matches comments/strings). Assert zero in-`src` call sites.
+    - *Unpinned KDF:* export an encrypted PEM and assert against a **named, explicit byte/OID marker** of the current pyca default (document which OID, e.g. the PBKDF2/scrypt AlgorithmIdentifier), so the test states precisely what "unpinned default" means and won't pass vacuously or break opaquely if pyca changes its default — if it does, the test should fail loudly and be re-pinned.
 - [ ] Run `uv run pytest tests/test_wallet_audit.py -q` — every test must `xfail` (strict). A test that *passes* means the gap isn't real → drop or re-classify the finding.
 - [ ] Run the full suite, ruff, and mypy. Commit (`test: wallet/crypto audit demonstration tests (strict xfail per finding)`).
 
@@ -135,5 +145,6 @@ from cancelchain.wallet import Wallet, b64encode
 - [ ] Each surviving finding survived adversarial refutation against the listed trusted-boundary controls.
 - [ ] "Self-owned weak wallet" candidates are killed unless they cross an address boundary (forge for / impersonate a *different* address) in the permissioned model.
 - [ ] Every finding has a deterministic strict-xfail demonstration that performs **no** real key cracking or cryptanalysis.
-- [ ] Confirmed strengths are recorded in the report's cross-cutting section (the audit documents what is sound, not only what is broken).
+- [ ] Confirmed strengths are recorded in the report's cross-cutting section (the audit documents what is sound, not only what is broken) — incl. the `base58check` checksum on address decode.
+- [ ] Category 6 has grepped call sites for `Wallet` used as a dict key / set member (`__hash__ = None` makes that a `TypeError`); record as a non-finding if no such site exists.
 - [ ] Full suite + ruff + mypy green before the PR.
