@@ -64,19 +64,29 @@ def test_verify_rejects_wrong_node():
 
 
 def test_verify_rejects_stale_timestamp():
+    # Pin a single `now` for both the signed timestamp and verify(): using
+    # int(time.time()) independently on each side lets a 1-second tick land
+    # between them, collapsing the boundary check (the just-past-boundary
+    # offset + truncation can net to exactly FRESHNESS_SECONDS, which the
+    # strict `>` does not reject) — a real flake. verify() exposes `now`
+    # precisely for this.
     w = Wallet()
-    old = int(time.time()) - (signing.FRESHNESS_SECONDS + 1)
+    now = int(time.time())
+    old = now - (signing.FRESHNESS_SECONDS + 1)
     headers = signing.sign_headers(w, timestamp=old, **REQ)
     with pytest.raises(signing.SignatureError):
-        signing.verify(headers, **REQ)
+        signing.verify(headers, now=now, **REQ)
 
 
 def test_verify_rejects_future_timestamp():
+    # See test_verify_rejects_stale_timestamp: pin one `now` for both sides
+    # so the int(time.time()) truncation race cannot collapse the boundary.
     w = Wallet()
-    future = int(time.time()) + (signing.FRESHNESS_SECONDS + 1)
+    now = int(time.time())
+    future = now + (signing.FRESHNESS_SECONDS + 1)
     headers = signing.sign_headers(w, timestamp=future, **REQ)
     with pytest.raises(signing.SignatureError):
-        signing.verify(headers, **REQ)
+        signing.verify(headers, now=now, **REQ)
 
 
 def test_verify_rejects_pubkey_address_mismatch():
