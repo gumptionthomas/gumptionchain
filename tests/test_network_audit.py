@@ -55,26 +55,16 @@ def _hostile_block(prev_block: Block, wallet, idx_offset: int = 1) -> Block:
     return b
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        'AUDIT N1: fill_chain has no depth cap on its ancestor walk; a '
-        'hostile peer drives an attacker-controlled number of request_block '
-        'round-trips + ChainFillBlock commits. Remove this marker when '
-        'fill_chain honors a configurable depth cap (contract: '
-        "app.config['MAX_CHAIN_FILL_DEPTH']) and aborts the walk at the "
-        'threshold.'
-    ),
-)
 def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
-    """N1: fill_chain's `while True` ancestor walk (node.py:343-361) has no
-    depth cap, so a hostile peer drives an attacker-controlled number of
-    request_block calls + ChainFillBlock commits.
+    """N1 (depth-cap half): fill_chain's ancestor walk is now bounded by
+    app.config['MAX_CHAIN_FILL_DEPTH']. A hostile peer that drives the walk
+    past max_depth causes fill_chain to abort (returning False and cleaning up
+    the ChainFill staging rows) rather than requesting an unbounded number of
+    ancestors.
 
-    The remediation contract is a configurable depth cap read from
-    app.config['MAX_CHAIN_FILL_DEPTH']; the walk must abort once it has
-    requested that many ancestors. Today there is no such cap, so the walk
-    runs until our patched request_block hits its own SAFETY bound.
+    Regression test: with MAX_CHAIN_FILL_DEPTH=3, a fake peer returning
+    ever-extending blocks must result in at most 3 request_block calls before
+    abort, so call_count <= 3.
     """
     with app.app_context():
         now_dt = now()

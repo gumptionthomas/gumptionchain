@@ -7,6 +7,7 @@ from time import sleep
 from typing import Any
 
 import httpx
+from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
 
 from cancelchain.block import Block, txn_is_expired
@@ -348,6 +349,8 @@ class Node:
             ).commit()
             progress_next()
             block: Block | None = last_block
+            max_depth = current_app.config['MAX_CHAIN_FILL_DEPTH']
+            requested = 0
             while True:
                 assert block is not None
                 is_genesis = is_genesis_block(block)
@@ -356,6 +359,15 @@ class Node:
                     prev_hash is None or Block.from_db(prev_hash)
                 ) or is_genesis:
                     break
+                requested += 1
+                if requested > max_depth:
+                    self.logger.warning(
+                        'fill_chain: exceeded MAX_CHAIN_FILL_DEPTH (%d) '
+                        'walking back from tip %s; aborting',
+                        max_depth,
+                        last_block.block_hash,
+                    )
+                    return False
                 block = self.request_block(prev_hash)
                 if block is None:
                     self.logger.error(f'Block request failed: {prev_hash}')
