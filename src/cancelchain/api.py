@@ -34,6 +34,7 @@ from cancelchain.exceptions import (
     CCError,
     EmptyChainError,
     InvalidRoleConfigError,
+    MempoolFullError,
     MissingBlockError,
 )
 from cancelchain.node import Node
@@ -388,6 +389,8 @@ class TxnView(MethodView):
             )
             if process is False and txn is not None:
                 queue_txn_post_process(txn, vhosts)
+        except MempoolFullError:
+            return make_json_response({'error': 'mempool full'}, 503)
         except CCError as err:
             return make_error_response(err)
         except Exception as e:

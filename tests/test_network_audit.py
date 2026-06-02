@@ -350,3 +350,38 @@ def test_n1_request_block_rejects_forged_block_hash_field(
         # not -> rejected (without the computed-hash check this would have
         # let a hostile peer steer fill_chain with no PoW).
         assert m.request_block(requested) is None
+
+
+def test_n2_full_mempool_returns_503(
+    app, host, time_machine, requests_proxy, wallet
+):
+    """N2 (view layer): a valid txn submitted to a full mempool returns a
+    retryable 503, not a 400 -- the txn is well-formed and authorized; the
+    node is temporarily at capacity.
+    """
+    with app.app_context():
+        time_machine.move_to(now() - datetime.timedelta(hours=1))
+        app.config['MAX_PENDING_TXNS'] = 1
+        client = ApiClient(host, wallet)
+
+        def make_txn(i):
+            t = Transaction()
+            t.add_inflow(Inflow(outflow_txid='0' * 64, outflow_idx=0))
+            t.add_outflow(
+                Outflow(amount=1, subject=encode_subject(f's503-{i}'))
+            )
+            t.set_wallet(wallet)
+            t.seal()
+            t.sign()
+            return t
+
+        # Cap = 1: the first valid txn is admitted.
+        r1 = client.post_transaction(make_txn(0), raise_for_status=False)
+        assert r1.status_code in (
+            httpx.codes.OK,
+            httpx.codes.CREATED,
+            httpx.codes.ACCEPTED,
+        )
+        # The pool is now full -> the next valid txn is rejected with 503.
+        r2 = client.post_transaction(make_txn(1), raise_for_status=False)
+        assert r2.status_code == httpx.codes.SERVICE_UNAVAILABLE
