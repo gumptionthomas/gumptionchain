@@ -12,8 +12,6 @@ The `app`, `test_client` fixtures come from tests/conftest.py; route
 invocation mirrors tests/test_browser.py.
 """
 
-import pytest
-
 
 def test_web1_security_headers_present(app, test_client):
     """WEB1 (Low) — REMEDIATED. HTML responses used to ship no
@@ -34,19 +32,13 @@ def test_web1_security_headers_present(app, test_client):
     assert 'Strict-Transport-Security' in resp.headers
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='WEB2: browser views `return e` (a raw Exception), which is not a '
-    'valid Flask response; flips once they return abort(500) / a real '
-    'response.',
-)
 def test_web2_view_error_yields_clean_500(app, test_client, monkeypatch):
-    """WEB2 (Low) — when a view's business logic raises an unexpected
-    exception, the generic handler does `return e` (`browser.py`), returning a
-    raw `Exception` that is not a valid Flask response. Desired: the view
-    yields a clean 500 response (via `abort(500)`) with no internal detail in
-    the body. A sentinel-bearing exception is injected via the `longest_chain`
-    helper used by `index_view`.
+    """WEB2 (Low) — REMEDIATED. The browser views' generic handler used to do
+    `return e`, returning a raw `Exception` that is not a valid Flask response
+    (`make_response` TypeError). It now logs the traceback and `abort(500)`s,
+    yielding a clean 500 response with no internal detail in the body. A
+    sentinel-bearing exception is injected via the `longest_chain` helper used
+    by `index_view`; this regression asserts the controlled 500 with no leak.
     """
 
     def boom():

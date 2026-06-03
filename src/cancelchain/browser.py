@@ -27,8 +27,12 @@ def index_view() -> Any:
     except HTTPException as e:
         return e
     except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
         current_app.logger.exception(e)
-        return e
+        abort(500)
     return render_template('index.html', title='Home', lc=lc)
 
 
@@ -39,8 +43,12 @@ def chains_view() -> Any:
     except HTTPException as e:
         return e
     except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
         current_app.logger.exception(e)
-        return e
+        abort(500)
     return render_template(
         'chains.html', title='Chains', chains_page=chains_page
     )
@@ -63,8 +71,12 @@ def block_view(block_hash: str | None = None) -> Any:
     except HTTPException as e:
         return e
     except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
         current_app.logger.exception(e)
-        return e
+        abort(500)
     return render_template(
         'block.html',
         title=f'Block #{block.idx}: {block.block_hash}',
@@ -96,8 +108,12 @@ def transaction_view(txid: str) -> Any:
     except HTTPException as e:
         return e
     except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
         current_app.logger.exception(e)
-        return e
+        abort(500)
     return render_template(
         'transaction.html',
         title=f'Transaction: {transaction.txid}',
