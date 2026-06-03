@@ -50,7 +50,7 @@ A minimal ``.env`` configuration file:
   FLASK_SECRET_KEY=0b6ceaa3b10d3e7a5dc53194
 
   # Flask-SQLAlchemy Settings
-  FLASK_SQLALCHEMY_DATABASE_URI=sqlite:///cc.sqlite
+  FLASK_SQLALCHEMY_DATABASE_URI=sqlite:///gc.sqlite
 
 The `FLASK_SECRET_KEY`_ value should be a unique random string.
 
@@ -66,15 +66,15 @@ Create a local database by running the `init command`_:
 
   $ gumptionchain init
 
-The `FLASK_SQLALCHEMY_DATABASE_URI`_ value in the example configuration above specifies a `SQLite`_ database called ``cc.sqlite`` with a file path relative to the ``gumptionchain`` `instance folder`_.
+The `FLASK_SQLALCHEMY_DATABASE_URI`_ value in the example configuration above specifies a `SQLite`_ database called ``gc.sqlite`` with a file path relative to the ``gumptionchain`` `instance folder`_.
 
 
 Import
 ------
 
-Download the most recent export of `GumptionChain data`_. This `JSON Lines`_ file is updated at every blockchain epoch (2016 blocks or approximately every two weeks).
+The ``import`` command bulk-loads blocks from a `JSON Lines`_ export — for example, a file produced by the ``gumptionchain export`` command on another node.
 
-Run the `import command`_, passing it the location of the downloaded file:
+Run the `import command`_, passing it the location of the export file:
 
 .. code-block:: console
 
@@ -122,23 +122,17 @@ Joining The GumptionChain Network
 
 The GumptionChain is run by a permissioned network of nodes. A GumptionChain instance requires `miller`_ or `transactor`_ role `API access`_ to a node in the network in order to have locally milled blocks or submitted transactions propagate to the official GumptionChain.
 
-`The Cancel Button`_ allows `reader`_ role `API access`_ to any account that completes at least one transaction on the blockchain:
+`API access`_ to a node is granted by that node's operator. Once your wallet address is on a node's role allowlist (see below to request access), configure your instance to use that node as a peer. Replace ``CCYourWalletAddressCC`` with your wallet address, ``peer.example.com`` with the host of the node you've been granted access to, and ``/path/to/wallets`` with the path to a directory containing your key (`PEM`_) file:
 
-1) `Register for an account`_.
-2) Submit a successful transaction for any subject. Access won't be granted until the sentiment transaction successfully completes.
-3) Click `Download Account Key`_ on the `account page`_ to download the account's key (`PEM`_) file.
-4) Create a directory called ``wallets`` and copy the downloaded key file into it.
-5) Add the following settings to the ``.env`` configuration file. Replace ``CCTheCancelButtonAddressCC`` with the address on the `account page`_ and ``/path/to/wallet`` with the path to the ``wallets`` directory created above:
-
-  .. code-block:: console
+.. code-block:: console
 
     # GumptionChain Settings
-    CC_NODE_HOST=http://CCTheCancelButtonAddressCC@localhost:5000
-    CC_PEERS=["https://CCTheCancelButtonAddressCC@thecancelbutton.com"]
-    CC_DEFAULT_COMMAND_HOST=https://CCTheCancelButtonAddressCC@thecancelbutton.com
+    CC_NODE_HOST=http://CCYourWalletAddressCC@localhost:5000
+    CC_PEERS=["https://CCYourWalletAddressCC@peer.example.com"]
+    CC_DEFAULT_COMMAND_HOST=https://CCYourWalletAddressCC@peer.example.com
     CC_WALLET_DIR=/path/to/wallets
 
-6) Restart to load the new configuration.
+Restart to load the new configuration.
 
 See `Configuration Documentation`_ for more detailed information about these settings.
 
@@ -157,11 +151,9 @@ If you would like to be granted other `API access`_ to a node in the GumptionCha
 See the `documentation`_ for some potential development ideas.
 
 
-.. _account page: https://thecancelbutton.com/account
 .. _API access: https://gumption.com/chain/docs/en/latest/api.html#api-roles
 .. _API Documentation: https://gumption.com/chain/docs/en/latest/api.html
 .. _Blog: https://gumption.com/chain/blog
-.. _GumptionChain data: https://storage.googleapis.com/blocks.gumption.com/gumptionchain.jsonl
 .. _FLASK_SECRET_KEY: https://gumption.com/chain/docs/en/latest/usage.html#SECRET_KEY
 .. _FLASK_SQLALCHEMY_DATABASE_URI: https://gumption.com/chain/docs/en/latest/usage.html#SQLALCHEMY_DATABASE_URI
 .. _Command Line Interface Documentation: https://gumption.com/chain/docs/en/latest/usage.html#command-line-interface
@@ -169,7 +161,6 @@ See the `documentation`_ for some potential development ideas.
 .. _documentation: https://gumption.com/chain/docs
 .. _Documentation: https://gumption.com/chain/docs
 .. _dotenv documentation: https://gumption.com/chain/docs/en/latest/usage.html#dotenv
-.. _Download Account Key: https://thecancelbutton.com/pem
 .. _import command: https://gumption.com/chain/docs/en/latest/usage.html#import
 .. _init command: https://gumption.com/chain/docs/en/latest/usage.html#init
 .. _instance folder: https://flask.palletsprojects.com/en/2.2.x/config/#instance-folders
@@ -180,9 +171,7 @@ See the `documentation`_ for some potential development ideas.
 .. _python virtual environment: https://docs.python.org/3/library/venv.html
 .. _python-dotenv: https://pypi.org/project/python-dotenv/
 .. _reader: https://gumption.com/chain/docs/en/latest/api.html#reader
-.. _Register for an account: https://thecancelbutton.com/register
 .. _SQLite: https://sqlite.org/index.html
 .. _sync command: https://gumption.com/chain/docs/en/latest/usage.html#sync
-.. _The Cancel Button: https://thecancelbutton.com
 .. _transactor: https://gumption.com/chain/docs/en/latest/api.html#transactor
 .. _uv: https://docs.astral.sh/uv/
