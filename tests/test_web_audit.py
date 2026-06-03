@@ -15,18 +15,13 @@ invocation mirrors tests/test_browser.py.
 import pytest
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='WEB1: no response-hardening headers (CSP/X-Frame-Options/'
-    'X-Content-Type-Options/Referrer-Policy) are wired yet.',
-)
 def test_web1_security_headers_present(app, test_client):
-    """WEB1 (Low) — HTML responses ship no security-hardening headers
-    (`application.py` wires no `after_request`/Talisman). Desired: every HTML
-    response carries CSP, X-Frame-Options, X-Content-Type-Options, and
-    Referrer-Policy, and (on HTTPS) HSTS. Issued over an https base_url so
-    HSTS — which should only be set on secure requests — is exercised
-    alongside the always-on headers. Served entirely in-process — no external
+    """WEB1 (Low) — REMEDIATED. HTML responses used to ship no
+    security-hardening headers; an `@app.after_request` hook
+    (`application.py` `set_security_headers`) now sets CSP, X-Frame-Options,
+    X-Content-Type-Options, Referrer-Policy, and HSTS (set unconditionally —
+    browsers honor it only over HTTPS, but emitting it always keeps it working
+    behind a TLS-terminating proxy). Served entirely in-process — no external
     network.
     """
     with app.app_context():
