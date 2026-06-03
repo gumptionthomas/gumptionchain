@@ -48,7 +48,9 @@ Originating spec:
 The [web / browser-UI threat-model audit](audits/2026-06-02-web-audit.md) (the sixth and final audit; design+plan PR #130) found **0 Critical / 0 High / 0 Medium / 2 Low** — 2 of 4 candidates refuted (a cosmetic SRI nit that HTML5 error recovery still enforces, and an N+1 cross-referenced to the perf roadmap), 10 confirmed strengths. The two Low findings have strict-xfail demonstrations in `tests/test_web_audit.py`:
 
 - ✅ **WEB1 (Low) — no HTTP security-hardening headers** — closed. An `@app.after_request` hook (`application.py` `set_security_headers`) now sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a `Content-Security-Policy` (origin-pinned to the CDNs used in `base.html`; carries `'unsafe-inline'` for the templates' inline `onclick`/`style`, so it is defense-in-depth atop the existing autoescape), and `Strict-Transport-Security` (HTTPS-only) on every response via `setdefault`. `test_web1_security_headers_present` is now a passing regression. (The CSP origin-pins the SRI-less icon-font/Google-Fonts stylesheets; adding `integrity` to those `<link>`s remains an optional template-level hardening.)
-- **WEB2 (Low) — browser views `return e`.** All four views' generic handler returns a raw `Exception` (not a valid Flask response → `make_response` TypeError → generic 500) and logs a full traceback. Fix: `abort(500)` / a real error response (keep `except HTTPException: return e`). Test: `test_web2_view_error_yields_clean_500`.
+- ✅ **WEB2 (Low) — browser views `return e`** — closed. All four views' generic handler now logs the traceback and `abort(500)`s (a controlled 500 response, not a raw `Exception`), keeping `except HTTPException: return e`. `test_web2_view_error_yields_clean_500` is now a passing regression.
+
+**Both findings remediated — the web / browser-UI audit is fully closed (0/0/0/0 open). All six threat-model audits are now closed at 0/0/0/0.**
 
 Originating report:
 - [Web / browser-UI audit](audits/2026-06-02-web-audit.md) — findings table, strengths, recommendations.
