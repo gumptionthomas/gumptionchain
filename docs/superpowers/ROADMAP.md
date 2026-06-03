@@ -43,6 +43,18 @@ Originating spec:
 
 ---
 
+## Audit remediation — web findings (2026-06-02)
+
+The [web / browser-UI threat-model audit](audits/2026-06-02-web-audit.md) (the sixth and final audit; design+plan PR #130) found **0 Critical / 0 High / 0 Medium / 2 Low** — 2 of 4 candidates refuted (a cosmetic SRI nit that HTML5 error recovery still enforces, and an N+1 cross-referenced to the perf roadmap), 10 confirmed strengths. The two Low findings have strict-xfail demonstrations in `tests/test_web_audit.py`:
+
+- **WEB1 (Low) — no HTTP security-hardening headers.** HTML responses ship no CSP/X-Frame-Options/X-Content-Type-Options/Referrer-Policy/HSTS (`application.py` wires no `after_request`/Talisman). Defense-in-depth gap (read-only/cookieless caps it at Low). Fix: an `@app.after_request` hook (or Flask-Talisman) setting them on HTML responses. Test: `test_web1_security_headers_present`.
+- **WEB2 (Low) — browser views `return e`.** All four views' generic handler returns a raw `Exception` (not a valid Flask response → `make_response` TypeError → generic 500) and logs a full traceback. Fix: `abort(500)` / a real error response (keep `except HTTPException: return e`). Test: `test_web2_view_error_yields_clean_500`.
+
+Originating report:
+- [Web / browser-UI audit](audits/2026-06-02-web-audit.md) — findings table, strengths, recommendations.
+
+---
+
 ## Audit remediation — CLI findings (2026-06-02)
 
 The [CLI / operator-surface threat-model audit](audits/2026-06-02-cli-audit.md) (the fifth audit; design+plan PR #126) found **0 Critical / 0 High / 1 Medium / 1 Low** — 9 of 11 candidates refuted (cross-references to the closed verification/auth audits, operator self-harm, or UX nits), 10 confirmed strengths. The two findings have strict-xfail demonstrations in `tests/test_cli_audit.py`:
