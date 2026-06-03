@@ -6,7 +6,7 @@ import os
 import weakref
 from typing import Any
 
-from flask import Flask
+from flask import Flask, Response, request
 from werkzeug.routing import BaseConverter, ValidationError
 
 from cancelchain import __version__, api, browser, command
@@ -76,6 +76,38 @@ def init_app(
     @app.template_filter('human_subject')
     def human_subject(value: str | None) -> str | None:
         return decode_subject(value) if value is not None else None
+
+    @app.after_request
+    def set_security_headers(response: Response) -> Response:
+        # Response-hardening headers on every response (audit WEB1). The CSP
+        # carries 'unsafe-inline' because the templates use inline onclick
+        # handlers and style attributes (e.g. block.html:65,
+        # transaction.html:56); a stricter policy would require refactoring
+        # those out. XSS is already prevented by Jinja autoescape, so the CSP
+        # here is defense-in-depth (it still pins source origins, frame
+        # ancestors, base-uri, and object-src). HSTS is set only on secure
+        # (HTTPS) requests. setdefault() never overrides a header a view set.
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-Frame-Options', 'DENY')
+        response.headers.setdefault('Referrer-Policy', 'no-referrer')
+        response.headers.setdefault(
+            'Content-Security-Policy',
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net "
+            'https://code.jquery.com; '
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net "
+            'https://fonts.googleapis.com; '
+            "font-src 'self' https://cdn.jsdelivr.net "
+            'https://fonts.gstatic.com; '
+            "img-src 'self' data:; "
+            "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+        )
+        if request.is_secure:
+            response.headers.setdefault(
+                'Strict-Transport-Security',
+                'max-age=31536000; includeSubDomains',
+            )
+        return response
 
 
 def read_wallets(app: Flask) -> dict[str, Wallet]:
