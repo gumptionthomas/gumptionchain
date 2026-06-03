@@ -120,6 +120,12 @@ The four role wallets in `conftest.py` (`Wallet()` with random keys, injected in
 
 **Verification gate:** full `uv run pytest`; residual grep for `CC[…]CC` address-shaped literals returns only historical-doc hits; manual `gumptionchain wallet create` shows a `GC…GC` address.
 
+### Phase 6 — Residual `cc_` identifiers (independent; any time after Phase 1)
+
+Lowercase `cc_` CancelChain stragglers surfaced during Phase 2 review — not the `CC_` env prefix, not owned by any other phase: the `cc_check.db` CI temp-DB filename (`tests.yml`), and the `cc_version` / `inject_cc_version` Flask template-context identifier (`application.py` + `templates/base.html`). Renamed to `gc_check.db` / `gc_version` / `inject_gc_version`. (`cc_signature` in `api-auth-protocol.md` is renamed with the signing scheme in Phase 3, not here.) Shares no files with Phases 3–5.
+
+**Verification gate:** full `uv run pytest`; residual grep `cc_version`/`cc_check` returns no live hits.
+
 ## Cross-phase risk & mitigation
 
 The dominant risk is a **missed import or string literal** — a rename that compiles but leaves a stale reference. Mitigation is a **residual grep sweep as each phase's completion gate**: after each phase, grepping the relevant token (`cancelchain`, `CC_`, `cc-sig`/`CC-`, `CCG`/`grumble`/`curmudgeon`) over tracked files must return **only** historical-doc hits (`docs/superpowers/{plans,specs,audits}`, `ROADMAP.md`). Any hit in `src/`, `tests/`, or live docs is an incomplete rename and blocks the phase.
@@ -132,4 +138,4 @@ No new behavior is introduced — this is a rename — so the existing suite is 
 
 ## Deliverable shape
 
-Five PRs: Phase 1 first; 2–4 in any order after; Phase 5 after Phase 2. Each is green on the full gate before merge, each followed by the standing Copilot-review backstop per project convention. External-infrastructure items are handed off as a checklist for the owner to execute outside the repo.
+Six PRs, executed sequentially each from freshly-merged `main` (Phases 2–6 all edit some shared docs/files — e.g. `CLAUDE.md`, `command.py` — so running them in parallel off one `main` would conflict; one-at-a-time avoids rebasing). Order: Phase 1 first; then 2, 3, 4 (env prefix / signing scheme / units); Phase 5 (address tag) after Phase 2; Phase 6 (residual `cc_`) any time after Phase 1. Each is green on the full gate before merge, each followed by the standing Copilot-review backstop per project convention. External-infrastructure items are handed off as a checklist for the owner to execute outside the repo.

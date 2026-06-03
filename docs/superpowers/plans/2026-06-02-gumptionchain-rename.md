@@ -329,7 +329,7 @@ git grep -n "cc-sig\|CC-Sig\|CC-Address\|CC-Public\|CC-Timestamp\|CC-Signature" 
 
 Update throughout: the scheme id `cc-sig-v1` → `gc-sig-v1` (title, canonical-string blocks, header table, worked example), the `CC-*` header names → `GC-*`, and the document's `CancelChain` branding → `GumptionChain`. (This file's branding is folded here, per the spec, to avoid touching it in Phase 1.)
 ```bash
-sed -i 's/cc-sig-v1/gc-sig-v1/g; s/CC-Sig-Version/GC-Sig-Version/g; s/CC-Address/GC-Address/g; s/CC-Public-Key/GC-Public-Key/g; s/CC-Timestamp/GC-Timestamp/g; s/CC-Signature/GC-Signature/g; s/CancelChain/GumptionChain/g' docs/api-auth-protocol.md
+sed -i 's/cc-sig-v1/gc-sig-v1/g; s/CC-Sig-Version/GC-Sig-Version/g; s/CC-Address/GC-Address/g; s/CC-Public-Key/GC-Public-Key/g; s/CC-Timestamp/GC-Timestamp/g; s/CC-Signature/GC-Signature/g; s/cc_signature/gc_signature/g; s/CancelChain/GumptionChain/g' docs/api-auth-protocol.md
 ```
 Then read the file once to confirm the worked example still reads coherently.
 
@@ -561,6 +561,73 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 git push -u origin refactor/rename-phase-5-address-tag
 ```
 Open PR `refactor(rename): wallet address tag CC → GC (Phase 5)`; CI green + Copilot backstop; squash-merge `--delete-branch`.
+
+---
+
+## Task 6: Phase 6 — Residual `cc_` identifiers (after any earlier phase)
+
+Lowercase `cc_` CancelChain stragglers discovered during Phase 2 review that aren't the `CC_` env prefix and don't belong to any other phase. Independent of Phases 3–5 (no shared files). Pure rename — no behavior change.
+
+**Files:**
+- Modify: `.github/workflows/tests.yml` (the `cc_check.db` CI temp-DB filename, 2 occurrences)
+- Modify: `src/gumptionchain/application.py` (`inject_cc_version` context processor + the `'cc_version'` dict key)
+- Modify: `src/gumptionchain/templates/base.html` (`{{ cc_version }}`)
+
+> Note: `cc_signature` in `docs/api-auth-protocol.md` is NOT handled here — it's part of the signing worked example and is renamed in Phase 3 (Step 4).
+
+- [ ] **Step 1: Branch from updated main**
+
+```bash
+git checkout main && git pull --ff-only
+git checkout -b refactor/rename-phase-6-residual-cc
+```
+
+- [ ] **Step 2: Rename the CI temp-DB filename**
+
+`.github/workflows/tests.yml` — both the comment and the `FLASK_SQLALCHEMY_DATABASE_URI` value:
+```bash
+sed -i 's/cc_check\.db/gc_check.db/g' .github/workflows/tests.yml
+```
+
+- [ ] **Step 3: Rename the template version context processor**
+
+`src/gumptionchain/application.py` — rename the function and the dict key:
+```python
+    @app.context_processor
+    def inject_gc_version() -> dict[str, str]:
+        return {'gc_version': __version__}
+```
+`src/gumptionchain/templates/base.html` — update the interpolation:
+```html
+    Version {{ gc_version }} | <a href="https://gumption.com/chain" class="link-dark">gumption.com/chain</a>
+```
+
+- [ ] **Step 4: Completion gate**
+
+```bash
+uv run pytest
+uv run ruff check src tests && uv run ruff format --check src tests
+uv run mypy 2>&1 | tail -1
+```
+Expected: pytest all-green (browser/footer tests render the version); ruff clean; mypy 0 errors. The `cc_check.db` change is exercised by the `gumptionchain db check` CI gate when this PR runs.
+
+- [ ] **Step 5: Residual-grep gate**
+
+```bash
+git grep -in 'cc_version\|cc_check' -- . ':!docs/superpowers'
+```
+Expected: no output. (`cc_signature` may still appear until Phase 3 lands — that's expected and owned by Phase 3.)
+
+- [ ] **Step 6: Commit, push, PR**
+
+```bash
+git add -A
+git commit -m "refactor(rename): residual cc_ identifiers → gc_ (Phase 6)
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git push -u origin refactor/rename-phase-6-residual-cc
+```
+Open PR `refactor(rename): residual cc_ identifiers → gc_ (Phase 6)`; CI green + Copilot backstop; squash-merge `--delete-branch`.
 
 ---
 
