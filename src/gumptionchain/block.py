@@ -15,7 +15,7 @@ from pydantic import (
 )
 from pymerkle import InmemoryTree, InvalidProof, verify_inclusion
 
-from cancelchain.exceptions import (
+from gumptionchain.exceptions import (
     ExpiredTransactionError,
     FutureTransactionError,
     InvalidBlockError,
@@ -29,21 +29,21 @@ from cancelchain.exceptions import (
     SealedBlockError,
     UnlinkedBlockError,
 )
-from cancelchain.milling import mill_hash_str, milling_generator
-from cancelchain.models import BlockDAO
-from cancelchain.schema import (
+from gumptionchain.milling import mill_hash_str, milling_generator
+from gumptionchain.models import BlockDAO
+from gumptionchain.schema import (
     MillHashType,
     TimestampType,
     asdict_sans_none,
     pydantic_errors_to_messages,
 )
-from cancelchain.transaction import (
+from gumptionchain.transaction import (
     Transaction,
     TransactionModel,
     txn_from_model_data,
 )
-from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
-from cancelchain.wallet import Wallet
+from gumptionchain.util import dt_2_iso, iso_2_dt, now_iso
+from gumptionchain.wallet import Wallet
 
 VERSION_1 = '1'
 MAX_TRANSACTIONS = 100

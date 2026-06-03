@@ -33,10 +33,10 @@ from unittest.mock import patch
 
 import pytest
 
-from cancelchain.block import TXN_TIMEOUT, Block
-from cancelchain.chain import GENESIS_HASH, REWARD
-from cancelchain.database import db
-from cancelchain.exceptions import (
+from gumptionchain.block import TXN_TIMEOUT, Block
+from gumptionchain.chain import GENESIS_HASH, REWARD
+from gumptionchain.database import db
+from gumptionchain.exceptions import (
     DuplicateGenesisError,
     DuplicateMinedTransactionError,
     InvalidCoinbaseError,
@@ -44,11 +44,11 @@ from cancelchain.exceptions import (
     MismatchedCoinbaseError,
     MissingBlockError,
 )
-from cancelchain.miller import Miller
-from cancelchain.models import ChainDAO
-from cancelchain.payload import Inflow, Outflow, encode_subject
-from cancelchain.transaction import Transaction
-from cancelchain.util import dt_2_iso, now, now_iso
+from gumptionchain.miller import Miller
+from gumptionchain.models import ChainDAO
+from gumptionchain.payload import Inflow, Outflow, encode_subject
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import dt_2_iso, now, now_iso
 
 # Matches the `easy_mill_chain` session-scoped fixture's patched
 # MAX_TARGET — every target in tests is the 64-character all-F hex

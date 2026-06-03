@@ -5,12 +5,12 @@ from typing import Any
 from flask import Blueprint, abort, current_app, render_template
 from werkzeug.exceptions import HTTPException
 
-from cancelchain.block import Block
-from cancelchain.chain import Chain
-from cancelchain.database import db
-from cancelchain.models import BlockDAO, ChainDAO, TransactionDAO
-from cancelchain.node import Node
-from cancelchain.transaction import Transaction
+from gumptionchain.block import Block
+from gumptionchain.chain import Chain
+from gumptionchain.database import db
+from gumptionchain.models import BlockDAO, ChainDAO, TransactionDAO
+from gumptionchain.node import Node
+from gumptionchain.transaction import Transaction
 
 
 def longest_chain() -> Chain | None:

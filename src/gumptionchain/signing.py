@@ -5,8 +5,8 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-from cancelchain.exceptions import InvalidKeyError
-from cancelchain.wallet import Wallet
+from gumptionchain.exceptions import InvalidKeyError
+from gumptionchain.wallet import Wallet
 
 SIG_VERSION = '1'  # CC-Sig-Version header value (dispatch key)
 SIG_SCHEME = 'cc-sig-v1'  # scheme id bound into the signed canonical

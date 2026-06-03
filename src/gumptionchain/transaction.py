@@ -15,28 +15,28 @@ from pydantic import (
     model_validator,
 )
 
-from cancelchain.exceptions import (
+from gumptionchain.exceptions import (
     InvalidSignatureError,
     InvalidTransactionError,
     InvalidTransactionIdError,
     MissingWalletError,
     UnsealedTransactionError,
 )
-from cancelchain.milling import mill_hash_str
-from cancelchain.models import (
+from gumptionchain.milling import mill_hash_str
+from gumptionchain.models import (
     InflowDAO,
     OutflowDAO,
     PendingIOflowDAO,
     PendingTxnDAO,
     TransactionDAO,
 )
-from cancelchain.payload import (
+from gumptionchain.payload import (
     Inflow,
     InflowModel,
     Outflow,
     OutflowModel,
 )
-from cancelchain.schema import (
+from gumptionchain.schema import (
     AddressType,
     Base64Type,
     MillHashType,
@@ -47,8 +47,8 @@ from cancelchain.schema import (
     validate_address,
     validate_signature,
 )
-from cancelchain.util import dt_2_iso, iso_2_dt, now_iso
-from cancelchain.wallet import Wallet
+from gumptionchain.util import dt_2_iso, iso_2_dt, now_iso
+from gumptionchain.wallet import Wallet
 
 VERSION_1 = '1'
 MAX_FLOWS = 50

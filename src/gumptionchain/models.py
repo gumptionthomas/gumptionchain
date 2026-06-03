@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from cancelchain.database import Base, db
+from gumptionchain.database import Base, db
 
 # Chain-factory returns below carry `# type: ignore[no-any-return]` because
 # Flask-SQLAlchemy's `db.select` / `db.aliased` / `db.desc` facade methods

@@ -27,5 +27,5 @@ jobs:
       - env:
           FLASK_SQLALCHEMY_DATABASE_URI: sqlite:////${{ runner.temp }}/cc_check.db
         run: |
-          uv run cancelchain db upgrade
-          uv run cancelchain db check
+          uv run gumptionchain db upgrade
+          uv run gumptionchain db check

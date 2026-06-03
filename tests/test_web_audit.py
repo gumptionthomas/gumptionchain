@@ -45,7 +45,7 @@ def test_web2_view_error_yields_clean_500(app, test_client, monkeypatch):
         msg = 'web2-sentinel-internal-detail'
         raise ValueError(msg)
 
-    monkeypatch.setattr('cancelchain.browser.longest_chain', boom)
+    monkeypatch.setattr('gumptionchain.browser.longest_chain', boom)
     with app.app_context():
         resp = test_client.get('/')
     assert resp.status_code == 500

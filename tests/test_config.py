@@ -1,6 +1,6 @@
 import os
 
-from cancelchain.config import EnvAppSettings
+from gumptionchain.config import EnvAppSettings
 
 
 def test_environ_settings():

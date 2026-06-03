@@ -17,15 +17,15 @@ from unittest.mock import patch
 
 import httpx
 
-from cancelchain.api_client import ApiClient
-from cancelchain.block import Block
-from cancelchain.chain import REWARD
-from cancelchain.exceptions import MempoolFullError
-from cancelchain.miller import Miller
-from cancelchain.payload import Inflow, Outflow, encode_subject
-from cancelchain.tasks import celery
-from cancelchain.transaction import Transaction
-from cancelchain.util import now
+from gumptionchain.api_client import ApiClient
+from gumptionchain.block import Block
+from gumptionchain.chain import REWARD
+from gumptionchain.exceptions import MempoolFullError
+from gumptionchain.miller import Miller
+from gumptionchain.payload import Inflow, Outflow, encode_subject
+from gumptionchain.tasks import celery
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import now
 
 # Matches the `easy_mill_chain` session-scoped fixture's patched
 # MAX_TARGET — every target in tests is the 64-character all-F hex string

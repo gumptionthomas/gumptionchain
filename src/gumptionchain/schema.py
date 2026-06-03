@@ -7,9 +7,9 @@ from typing import Annotated, Any, Protocol
 from pydantic import AfterValidator
 from pydantic_core import ErrorDetails
 
-from cancelchain.exceptions import InvalidKeyError
-from cancelchain.util import iso_2_dt
-from cancelchain.wallet import (
+from gumptionchain.exceptions import InvalidKeyError
+from gumptionchain.util import iso_2_dt
+from gumptionchain.wallet import (
     ADDRESS_TAG,
     Wallet,
     b58decode,

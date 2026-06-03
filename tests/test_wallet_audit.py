@@ -20,8 +20,8 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from cancelchain.exceptions import InvalidKeyError
-from cancelchain.wallet import KEY_SIZE, Wallet, b64encode
+from gumptionchain.exceptions import InvalidKeyError
+from gumptionchain.wallet import KEY_SIZE, Wallet, b64encode
 
 
 def test_wc1_bespoke_encrypt_decrypt_removed():

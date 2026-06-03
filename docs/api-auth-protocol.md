@@ -1,6 +1,6 @@
-# CancelChain API Authentication Protocol: `cc-sig-v1`
+# GumptionChain API Authentication Protocol: `cc-sig-v1`
 
-Every CancelChain API request (excluding the unauthenticated browser views) must
+Every GumptionChain API request (excluding the unauthenticated browser views) must
 be authenticated with a per-request wallet signature. The server verifies the
 signature on each request, so there are no tokens, no sessions, and no server-side
 credential state. Role authorization (READER / TRANSACTOR / MILLER / ADMIN) is
@@ -86,7 +86,7 @@ same encoding. Do not re-order, re-quote, or normalize the query string.
 The request target (path and query) must be ASCII — any non-ASCII characters
 must be consistently percent-encoded on the wire, and the signed `<path>`/`<query>`
 must use that same percent-encoded form. Sign what goes on the wire, not a decoded
-intermediate. (CancelChain's own endpoints keep path segments ASCII — subjects
+intermediate. (GumptionChain's own endpoints keep path segments ASCII — subjects
 embedded in a path are urlsafe-base64 — so this only concerns clients constructing
 arbitrary targets.)
 

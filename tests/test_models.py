@@ -3,12 +3,12 @@ from unittest.mock import patch
 
 from _sa_helpers import _count, _count_select
 
-from cancelchain.block import Block
-from cancelchain.chain import Chain
-from cancelchain.database import db
-from cancelchain.models import BlockDAO, ChainDAO, LongestChainBlockDAO
-from cancelchain.payload import Inflow, Outflow
-from cancelchain.transaction import Transaction
+from gumptionchain.block import Block
+from gumptionchain.chain import Chain
+from gumptionchain.database import db
+from gumptionchain.models import BlockDAO, ChainDAO, LongestChainBlockDAO
+from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.transaction import Transaction
 
 
 def test_unspent_outflows(app, subject, time_stepper, wallet):

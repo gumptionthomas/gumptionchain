@@ -1,16 +1,16 @@
 import pytest
 
-from cancelchain.chain import GENESIS_HASH
-from cancelchain.exceptions import (
+from gumptionchain.chain import GENESIS_HASH
+from gumptionchain.exceptions import (
     InvalidSignatureError,
     InvalidTransactionError,
     MissingWalletError,
     UnsealedTransactionError,
 )
-from cancelchain.payload import Inflow, Outflow
-from cancelchain.transaction import PendingTxnSet, Transaction
-from cancelchain.util import dt_2_iso
-from cancelchain.wallet import Wallet
+from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.transaction import PendingTxnSet, Transaction
+from gumptionchain.util import dt_2_iso
+from gumptionchain.wallet import Wallet
 
 
 def test_txn_from(valid_txn):

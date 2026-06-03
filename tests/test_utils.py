@@ -1,4 +1,4 @@
-from cancelchain.util import host_address
+from gumptionchain.util import host_address
 
 
 def test_host_address(wallet):

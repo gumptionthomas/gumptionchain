@@ -15,10 +15,10 @@ matching the audit document's per-adversary sections.
 
 import httpx
 
-from cancelchain import signing
-from cancelchain.api_client import ApiClient
-from cancelchain.miller import Miller
-from cancelchain.util import host_address
+from gumptionchain import signing
+from gumptionchain.api_client import ApiClient
+from gumptionchain.miller import Miller
+from gumptionchain.util import host_address
 
 
 def _node(host):

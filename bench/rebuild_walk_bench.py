@@ -27,7 +27,7 @@ import tempfile
 import time
 from pathlib import Path
 
-# Module-level env setup: must run before cancelchain imports so the
+# Module-level env setup: must run before gumptionchain imports so the
 # Flask app factory reads our test secret + SQLite URI rather than
 # whatever's in the shell. Mkstemp returns a file descriptor + path;
 # we close the fd immediately and let SQLAlchemy own the file.
@@ -43,9 +43,9 @@ os.environ['FLASK_SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{_TMPDB_PATH}'
 # alongside the explicit cleanup in main()'s finally block.
 atexit.register(lambda: Path(_TMPDB_PATH).unlink(missing_ok=True))
 
-from cancelchain import create_app  # noqa: E402
-from cancelchain.database import db  # noqa: E402
-from cancelchain.models import (  # noqa: E402
+from gumptionchain import create_app  # noqa: E402
+from gumptionchain.database import db  # noqa: E402
+from gumptionchain.models import (  # noqa: E402
     BlockDAO,
     ChainDAO,
     LongestChainBlockDAO,

@@ -16,8 +16,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
     RSAPublicKey,
 )
 
-from cancelchain.exceptions import InvalidKeyError, NoPrivateKeyError
-from cancelchain.milling import mill_hash_bin
+from gumptionchain.exceptions import InvalidKeyError, NoPrivateKeyError
+from gumptionchain.milling import mill_hash_bin
 
 RSAKey = RSAPrivateKey | RSAPublicKey
 

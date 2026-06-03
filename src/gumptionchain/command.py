@@ -30,17 +30,17 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from cancelchain.api_client import ApiClient
-from cancelchain.block import Block
-from cancelchain.chain import CURMUDGEON_PER_GRUMBLE
-from cancelchain.console import console
-from cancelchain.database import db
-from cancelchain.miller import Miller
-from cancelchain.node import Node
-from cancelchain.payload import encode_subject
-from cancelchain.transaction import Transaction
-from cancelchain.util import host_address, now_iso
-from cancelchain.wallet import Wallet
+from gumptionchain.api_client import ApiClient
+from gumptionchain.block import Block
+from gumptionchain.chain import CURMUDGEON_PER_GRUMBLE
+from gumptionchain.console import console
+from gumptionchain.database import db
+from gumptionchain.miller import Miller
+from gumptionchain.node import Node
+from gumptionchain.payload import encode_subject
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import host_address, now_iso
+from gumptionchain.wallet import Wallet
 
 REFRESH_PER_SECOND = 8
 CHAIN_MISMATCH_MSG = 'Chain/file mismatch'

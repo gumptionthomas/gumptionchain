@@ -2,9 +2,9 @@ import logging
 
 import pytest
 
-from cancelchain.exceptions import InvalidKeyError, NoPrivateKeyError
-from cancelchain.schema import validate_address_format
-from cancelchain.wallet import Wallet
+from gumptionchain.exceptions import InvalidKeyError, NoPrivateKeyError
+from gumptionchain.schema import validate_address_format
+from gumptionchain.wallet import Wallet
 
 PASSPHRASE = 'fourty-two'
 
