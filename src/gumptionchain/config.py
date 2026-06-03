@@ -29,7 +29,7 @@ class EnvironSettings:
 
 @dataclass
 class EnvAppSettings(EnvironSettings):
-    _prefix: ClassVar[str] = 'CC_'
+    _prefix: ClassVar[str] = 'GC_'
 
     NODE_HOST: str | None = field(default=None)
     PEERS: list[str] = field(default_factory=list)
