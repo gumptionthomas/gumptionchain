@@ -2,12 +2,12 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
-from gumptionchain.chain import CURMUDGEON_PER_GRUMBLE, REWARD
+from gumptionchain.chain import GRAIN_PER_GRIT, REWARD
 from gumptionchain.database import db
 from gumptionchain.wallet import Wallet
 
-REWARD_CCG = int(REWARD / CURMUDGEON_PER_GRUMBLE)
-SUBJECT_CCG = 2
+REWARD_GRIT = int(REWARD / GRAIN_PER_GRIT)
+SUBJECT_GRIT = 2
 
 
 def get_wallet_file(address, walletdir=None, app=None):
@@ -114,7 +114,7 @@ def run_txn_subject(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
             'txn',
             'subject',
             txn_wallet.address,
-            str(SUBJECT_CCG),
+            str(SUBJECT_GRIT),
             subject,
             '--txn-wallet',
             txn_wallet_file,
@@ -164,7 +164,7 @@ def run_txn_forgive(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
             'txn',
             'forgive',
             txn_wallet.address,
-            str(SUBJECT_CCG),
+            str(SUBJECT_GRIT),
             subject,
             '--txn-wallet',
             txn_wallet_file,
@@ -213,7 +213,7 @@ def run_txn_support(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
             'txn',
             'support',
             txn_wallet.address,
-            str(SUBJECT_CCG),
+            str(SUBJECT_GRIT),
             subject,
             '--txn-wallet',
             txn_wallet_file,
@@ -267,22 +267,23 @@ def test_wallet_balance(
     with app.app_context():
         mill_block(wallet)
         result = runner.invoke(args=['wallet', 'balance', wallet.address])
-        assert f'{REWARD_CCG} CCG' in result.output
+        assert f'{REWARD_GRIT} GRIT' in result.output
         wf = get_wallet_file(wallet.address, app=app)
         run_txn_subject(runner, subject_raw, wallet, wf)
         w = Wallet()
         mill_block(w)
         result = runner.invoke(args=['wallet', 'balance', wallet.address])
-        assert f'{REWARD_CCG - SUBJECT_CCG} CCG' in result.output
+        assert f'{REWARD_GRIT - SUBJECT_GRIT} GRIT' in result.output
         to_wallet = Wallet()
         run_txn_transfer(runner, wallet, to_wallet, wf)
         mill_block(w)
         result = runner.invoke(args=['wallet', 'balance', wallet.address])
-        assert f'{REWARD_CCG - 2 * SUBJECT_CCG} CCG' in result.output
+        assert f'{REWARD_GRIT - 2 * SUBJECT_GRIT} GRIT' in result.output
         result = runner.invoke(args=['wallet', 'balance', to_wallet.address])
-        assert f'{SUBJECT_CCG} CCG' in result.output
+        assert f'{SUBJECT_GRIT} GRIT' in result.output
         result = runner.invoke(args=['wallet', 'balance', w.address])
-        assert f'{int(2 * REWARD_CCG + 0.5 * SUBJECT_CCG)} CCG' in result.output
+        expected = int(2 * REWARD_GRIT + 0.5 * SUBJECT_GRIT)
+        assert f'{expected} GRIT' in result.output
         result = runner.invoke(args=['wallet', 'balance', 'foo'])
         assert 'Not Found' in result.output
 
@@ -293,16 +294,16 @@ def test_subject_balance(
     with app.app_context():
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'balance', subject_raw])
-        assert '0 CCG' in result.output
+        assert '0 GRIT' in result.output
         wf = get_wallet_file(wallet.address, app=app)
         run_txn_subject(runner, subject_raw, wallet, wf)
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'balance', subject_raw])
-        assert f'{SUBJECT_CCG} CCG' in result.output
+        assert f'{SUBJECT_GRIT} GRIT' in result.output
         run_txn_subject(runner, subject_raw, wallet, wf)
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'balance', subject_raw])
-        assert f'{2 * SUBJECT_CCG} CCG' in result.output
+        assert f'{2 * SUBJECT_GRIT} GRIT' in result.output
 
 
 def test_subject_support(
@@ -311,16 +312,16 @@ def test_subject_support(
     with app.app_context():
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'support', subject_raw])
-        assert '0 CCG' in result.output
+        assert '0 GRIT' in result.output
         wf = get_wallet_file(wallet.address, app=app)
         run_txn_support(runner, subject_raw, wallet, wf)
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'support', subject_raw])
-        assert f'{SUBJECT_CCG} CCG' in result.output
+        assert f'{SUBJECT_GRIT} GRIT' in result.output
         run_txn_support(runner, subject_raw, wallet, wf)
         mill_block(wallet)
         result = runner.invoke(args=['subject', 'support', subject_raw])
-        assert f'{2 * SUBJECT_CCG} CCG' in result.output
+        assert f'{2 * SUBJECT_GRIT} GRIT' in result.output
 
 
 def test_mill(app, runner, wallet):

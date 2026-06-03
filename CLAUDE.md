@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GumptionChain is a custom proof-of-work blockchain (Flask + SQLAlchemy) where tokens are assigned to *subjects* (UTF-8 strings, 1–79 chars) as **opposition** (`subject`, rescindable via `forgive`) or **support** (`support`, permanent). It runs as both a Flask web app (browser views + JSON API) and a `gumptionchain` CLI. The chain is permissioned: API access is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`) keyed off wallet addresses listed in config.
 
-Units: 1 **CCG / grumble** = 100 **curmudgeons** (`CURMUDGEON_PER_GRUMBLE` in `gumptionchain.chain`). Float CLI amounts are converted via `grumble_to_curmudgeons`.
+Units: 1 **GRIT / grit** = 100 **grains** (`GRAIN_PER_GRIT` in `gumptionchain.chain`). Float CLI amounts are converted via `grit_to_grains`.
 
 ## Common commands
 

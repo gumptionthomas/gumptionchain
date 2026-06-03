@@ -32,7 +32,7 @@ from rich.text import Text
 
 from gumptionchain.api_client import ApiClient
 from gumptionchain.block import Block
-from gumptionchain.chain import CURMUDGEON_PER_GRUMBLE
+from gumptionchain.chain import GRAIN_PER_GRIT
 from gumptionchain.console import console
 from gumptionchain.database import db
 from gumptionchain.miller import Miller
@@ -54,12 +54,12 @@ CHAIN_MISMATCH_MSG = 'Chain/file mismatch'
 MAX_IMPORT_LINE_BYTES = 4 * 1024 * 1024
 
 
-def grumble_to_curmudgeons(grumble: float) -> int:
-    return int(CURMUDGEON_PER_GRUMBLE * float(grumble))
+def grit_to_grains(grit: float) -> int:
+    return int(GRAIN_PER_GRIT * float(grit))
 
 
-def human_curmudgeons(curmudgeons: int | float) -> str:
-    balance = int(curmudgeons) / CURMUDGEON_PER_GRUMBLE
+def human_grains(grains: int | float) -> str:
+    balance = int(grains) / GRAIN_PER_GRIT
     return f'{balance:.2f}'.rstrip('0').rstrip('.')
 
 
@@ -677,7 +677,7 @@ def create_transfer(
 
     \b
     FROM_ADDRESS is the transaction source address.
-    AMOUNT is the amount (as a float) of CCG to transfer.
+    AMOUNT is the amount (as a float) of GRIT to transfer.
     TO_ADDRESS is the transaction destination address.
     """
     try:
@@ -685,7 +685,7 @@ def create_transfer(
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_transfer_transaction(
             txn_wallet_obj.public_key_b64,
-            grumble_to_curmudgeons(amount),
+            grit_to_grains(amount),
             to_address,
         )
         txn = Transaction.from_json(r.text)
@@ -754,7 +754,7 @@ def create_subject(
 
     \b
     ADDRESS is the transaction source address.
-    AMOUNT is the amount (as a float) of CCG to apply.
+    AMOUNT is the amount (as a float) of GRIT to apply.
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
@@ -762,7 +762,7 @@ def create_subject(
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_subject_transaction(
             txn_wallet_obj.public_key_b64,
-            grumble_to_curmudgeons(amount),
+            grit_to_grains(amount),
             subject,
         )
         txn = Transaction.from_json(r.text)
@@ -829,7 +829,7 @@ def create_forgive(
 
     \b
     ADDRESS is the transaction source address.
-    AMOUNT is the amount (as a float) of CCG to apply.
+    AMOUNT is the amount (as a float) of GRIT to apply.
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
@@ -837,7 +837,7 @@ def create_forgive(
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_forgive_transaction(
             txn_wallet_obj.public_key_b64,
-            grumble_to_curmudgeons(amount),
+            grit_to_grains(amount),
             subject,
         )
         txn = Transaction.from_json(r.text)
@@ -904,7 +904,7 @@ def create_support(
 
     \b
     ADDRESS is the transaction source address.
-    AMOUNT is the amount (as a float) of CCG to apply.
+    AMOUNT is the amount (as a float) of GRIT to apply.
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
@@ -912,7 +912,7 @@ def create_support(
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_support_transaction(
             txn_wallet_obj.public_key_b64,
-            grumble_to_curmudgeons(amount),
+            grit_to_grains(amount),
             subject,
         )
         txn = Transaction.from_json(r.text)
@@ -971,7 +971,7 @@ def create_wallet(walletdir: str | None) -> None:
 )
 @with_appcontext
 def wallet_balance(address: str, host: str | None, wallet: str | None) -> None:
-    """Get the wallet balance in CCG for an address.
+    """Get the wallet balance in GRIT for an address.
 
     \b
     ADDRESS is the wallet address.
@@ -980,7 +980,7 @@ def wallet_balance(address: str, host: str | None, wallet: str | None) -> None:
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_wallet_balance(address)
         balance = r.json().get('balance')
-        console.print(f'{human_curmudgeons(balance)} CCG', style='success')
+        console.print(f'{human_grains(balance)} GRIT', style='success')
     except httpx.HTTPStatusError as e:
         console.print(f'Balance failed: {http_error_message(e)}', style='error')
     except Exception as e:
@@ -1008,7 +1008,7 @@ subject_cli = AppGroup('subject', help='Command group to work with subjects.')
 @with_appcontext
 def subject_balance(subject: str, host: str | None, wallet: str | None) -> None:
     """Get the balance (i.e. subject transactions minus forgiveness
-       transactions) in CCG for a subject.
+       transactions) in GRIT for a subject.
 
     \b
     SUBJECT is the raw (unencoded) subject string.
@@ -1017,7 +1017,7 @@ def subject_balance(subject: str, host: str | None, wallet: str | None) -> None:
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_subject_balance(encode_subject(subject))
         balance = r.json().get('balance')
-        console.print(f'{human_curmudgeons(balance)} CCG', style='success')
+        console.print(f'{human_grains(balance)} GRIT', style='success')
     except httpx.HTTPStatusError as e:
         console.print(
             f'Subject balance failed: {http_error_message(e)}', style='error'
@@ -1043,7 +1043,7 @@ def subject_balance(subject: str, host: str | None, wallet: str | None) -> None:
 )
 @with_appcontext
 def support_balance(subject: str, host: str | None, wallet: str | None) -> None:
-    """Get the support total in CCG for a subject.
+    """Get the support total in GRIT for a subject.
 
     \b
     SUBJECT is the raw (unencoded) subject string.
@@ -1052,7 +1052,7 @@ def support_balance(subject: str, host: str | None, wallet: str | None) -> None:
         client = host_api_client(host=host, wallet_file=wallet)
         r = client.get_subject_support(encode_subject(subject))
         support = r.json().get('support')
-        console.print(f'{human_curmudgeons(support)} CCG', style='success')
+        console.print(f'{human_grains(support)} GRIT', style='success')
     except httpx.HTTPStatusError as e:
         console.print(
             f'Support balance failed: {http_error_message(e)}', style='error'

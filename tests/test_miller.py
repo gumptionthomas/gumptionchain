@@ -5,7 +5,7 @@ import pytest
 from _sa_helpers import _count
 
 from gumptionchain.block import TXN_TIMEOUT
-from gumptionchain.chain import CURMUDGEON_PER_GRUMBLE as CPG
+from gumptionchain.chain import GRAIN_PER_GRIT as GPG
 from gumptionchain.chain import REWARD
 from gumptionchain.exceptions import (
     DuplicateMinedTransactionError,
@@ -38,7 +38,7 @@ def test_miller_create_block(app, time_machine, time_stepper, wallet):
         cb0 = b0.coinbase
         cb0_amount = next(iter(cb0.outflows)).amount
         w2 = Wallet()
-        remit = 2 * CPG
+        remit = 2 * GPG
         t0 = Transaction()
         t0.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
         t0.add_outflow(Outflow(amount=remit, address=w2.address))
@@ -54,9 +54,9 @@ def test_miller_create_block(app, time_machine, time_stepper, wallet):
         _ = next(time_step)
         assert m.longest_chain.length == 3
         assert m.longest_chain.balance(wallet.address) == (3 * REWARD) - (
-            2 * CPG
+            2 * GPG
         )
-        assert m.longest_chain.balance(w2.address) == 2 * CPG
+        assert m.longest_chain.balance(w2.address) == 2 * GPG
         time_machine.move_to(now_dt)
         assert m.longest_chain.get_block(b2.block_hash)
 

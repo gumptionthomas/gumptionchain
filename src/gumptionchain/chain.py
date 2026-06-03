@@ -38,10 +38,10 @@ from gumptionchain.transaction import Transaction
 from gumptionchain.util import dt_2_iso, now
 from gumptionchain.wallet import Wallet
 
-CURMUDGEON_PER_GRUMBLE = 100
+GRAIN_PER_GRIT = 100
 GENESIS_HASH = mill_hash_str('GENESIS')
 MAX_TARGET = '0' * 6 + 'F' * 58
-REWARD = 100 * CURMUDGEON_PER_GRUMBLE
+REWARD = 100 * GRAIN_PER_GRIT
 TARGET_GOAL_SECONDS = 600
 TARGET_INTERVAL = 2016
 TARGET_INTERVAL_SECONDS = TARGET_GOAL_SECONDS * TARGET_INTERVAL

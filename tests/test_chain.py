@@ -6,8 +6,8 @@ from _sa_helpers import _count_select
 
 from gumptionchain.block import TXN_TIMEOUT, Block
 from gumptionchain.chain import (
-    CURMUDGEON_PER_GRUMBLE,
     GENESIS_HASH,
+    GRAIN_PER_GRIT,
     REWARD,
     Chain,
 )
@@ -254,7 +254,7 @@ def test_db(add_chain_block, app, time_machine, wallet):
         assert block == block_copy
         cb = block.coinbase
         cb_amount = next(iter(block.coinbase.outflows)).amount
-        remit = 2 * CURMUDGEON_PER_GRUMBLE
+        remit = 2 * GRAIN_PER_GRIT
         then_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(then_dt)
         t = Transaction()
