@@ -11,7 +11,7 @@ from typing import Any
 Message = str | bytes | list[Any] | dict[str, Any]
 
 
-class CCError(Exception):
+class GCError(Exception):
     def __init__(self, message: Message | None = None) -> None:
         # Use `is None` instead of truthy check so empty containers
         # ({}, [], "", b"") aren't silently replaced with the class name —
@@ -26,7 +26,7 @@ class CCError(Exception):
             self.messages = msg
 
 
-class InvalidWalletError(CCError):
+class InvalidWalletError(GCError):
     pass
 
 
@@ -38,7 +38,7 @@ class NoPrivateKeyError(InvalidWalletError):
     pass
 
 
-class InvalidTransactionError(CCError):
+class InvalidTransactionError(GCError):
     pass
 
 
@@ -110,7 +110,7 @@ class MismatchedCoinbaseError(InvalidCoinbaseError):
     pass
 
 
-class InvalidBlockError(CCError):
+class InvalidBlockError(GCError):
     pass
 
 
@@ -166,7 +166,7 @@ class MissingBlockError(InvalidBlockError):
     pass
 
 
-class InvalidChainError(CCError):
+class InvalidChainError(GCError):
     pass
 
 
@@ -178,9 +178,9 @@ class MissingPreviousBlockError(InvalidChainError):
     pass
 
 
-class InvalidRoleConfigError(CCError):
+class InvalidRoleConfigError(GCError):
     pass
 
 
-class MempoolFullError(CCError):
+class MempoolFullError(GCError):
     pass
