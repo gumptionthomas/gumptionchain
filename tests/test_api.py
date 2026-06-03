@@ -3,16 +3,16 @@ from datetime import timedelta
 import httpx
 import pytest
 
-from cancelchain import create_app, signing
-from cancelchain.api import Role
-from cancelchain.api_client import ApiClient
-from cancelchain.block import Block
-from cancelchain.exceptions import InvalidRoleConfigError
-from cancelchain.miller import Miller
-from cancelchain.tasks import post_process
-from cancelchain.transaction import Transaction
-from cancelchain.util import host_address, now
-from cancelchain.wallet import Wallet
+from gumptionchain import create_app, signing
+from gumptionchain.api import Role
+from gumptionchain.api_client import ApiClient
+from gumptionchain.block import Block
+from gumptionchain.exceptions import InvalidRoleConfigError
+from gumptionchain.miller import Miller
+from gumptionchain.tasks import post_process
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import host_address, now
+from gumptionchain.wallet import Wallet
 
 TIMEOUT = 60
 

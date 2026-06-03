@@ -3,7 +3,7 @@ from base64 import b64encode, urlsafe_b64encode
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from cancelchain.payload import (
+from gumptionchain.payload import (
     INVALID_DESTINATION_MSG,
     Inflow,
     InflowModel,

@@ -4,19 +4,19 @@ from unittest.mock import patch
 import pytest
 from _sa_helpers import _count
 
-from cancelchain.block import TXN_TIMEOUT
-from cancelchain.chain import CURMUDGEON_PER_GRUMBLE as CPG
-from cancelchain.chain import REWARD
-from cancelchain.exceptions import (
+from gumptionchain.block import TXN_TIMEOUT
+from gumptionchain.chain import CURMUDGEON_PER_GRUMBLE as CPG
+from gumptionchain.chain import REWARD
+from gumptionchain.exceptions import (
     DuplicateMinedTransactionError,
     InsufficientFundsError,
 )
-from cancelchain.miller import Miller
-from cancelchain.models import PendingIOflowDAO, PendingTxnDAO
-from cancelchain.payload import Inflow, Outflow
-from cancelchain.transaction import Transaction
-from cancelchain.util import now
-from cancelchain.wallet import Wallet
+from gumptionchain.miller import Miller
+from gumptionchain.models import PendingIOflowDAO, PendingTxnDAO
+from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import now
+from gumptionchain.wallet import Wallet
 
 
 def test_miller_create_block(app, time_machine, time_stepper, wallet):
@@ -171,7 +171,7 @@ def test_duplicate_transaction(app, time_machine, wallet):
         assert len(m.pending_txns) == 1
 
 
-@patch('cancelchain.miller.MAX_TRANSACTIONS', 10)
+@patch('gumptionchain.miller.MAX_TRANSACTIONS', 10)
 def test_max_txns(app, time_machine, wallet):
     with app.app_context():
         max_txns = 10

@@ -9,9 +9,9 @@ from typing import Any, Self
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from cancelchain.block import Block
-from cancelchain.database import db
-from cancelchain.exceptions import (
+from gumptionchain.block import Block
+from gumptionchain.database import db
+from gumptionchain.exceptions import (
     DuplicateGenesisError,
     EmptyChainError,
     FutureBlockError,
@@ -31,12 +31,12 @@ from cancelchain.exceptions import (
     OutOfOrderBlockError,
     SpentTransactionError,
 )
-from cancelchain.milling import mill_hash_str
-from cancelchain.models import BlockDAO, ChainDAO
-from cancelchain.payload import Inflow, Outflow
-from cancelchain.transaction import Transaction
-from cancelchain.util import dt_2_iso, now
-from cancelchain.wallet import Wallet
+from gumptionchain.milling import mill_hash_str
+from gumptionchain.models import BlockDAO, ChainDAO
+from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import dt_2_iso, now
+from gumptionchain.wallet import Wallet
 
 CURMUDGEON_PER_GRUMBLE = 100
 GENESIS_HASH = mill_hash_str('GENESIS')

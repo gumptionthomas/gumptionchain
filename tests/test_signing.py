@@ -2,8 +2,8 @@ import time
 
 import pytest
 
-from cancelchain import signing
-from cancelchain.wallet import Wallet
+from gumptionchain import signing
+from gumptionchain.wallet import Wallet
 
 REQ = {
     'method': 'POST',

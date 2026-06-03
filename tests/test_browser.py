@@ -1,6 +1,6 @@
 import httpx
 
-from cancelchain.block import Block
+from gumptionchain.block import Block
 
 
 def test_index(app, mill_block, test_client, wallet):

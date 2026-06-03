@@ -2,9 +2,9 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
-from cancelchain.chain import CURMUDGEON_PER_GRUMBLE, REWARD
-from cancelchain.database import db
-from cancelchain.wallet import Wallet
+from gumptionchain.chain import CURMUDGEON_PER_GRUMBLE, REWARD
+from gumptionchain.database import db
+from gumptionchain.wallet import Wallet
 
 REWARD_CCG = int(REWARD / CURMUDGEON_PER_GRUMBLE)
 SUBJECT_CCG = 2
@@ -33,14 +33,14 @@ def test_init(app, runner):
 #     app, remote_app, remote_requests_proxy, runner, remote_chain
 # ):
 #     with app.app_context():
-#         from cancelchain.miller import Miller
+#         from gumptionchain.miller import Miller
 #         m = Miller(milling_wallet=Wallet())
 #         assert m.longest_chain is None
 #     with remote_app.app_context():
 #         result = runner.invoke(args=['sync'])
 #         assert 'Synchronized the block chain.' in result.output
 #     with app.app_context():
-#         from cancelchain.miller import Miller
+#         from gumptionchain.miller import Miller
 #         m = Miller(milling_wallet=Wallet())
 #         assert m.longest_chain.block_hash == remote_chain.block_hash
 

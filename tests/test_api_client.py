@@ -1,9 +1,9 @@
 import httpx
 import pytest
 
-from cancelchain import signing
-from cancelchain.api_client import ApiClient
-from cancelchain.wallet import Wallet
+from gumptionchain import signing
+from gumptionchain.api_client import ApiClient
+from gumptionchain.wallet import Wallet
 
 
 def test_invalid_wallet(app, host, mill_block, requests_proxy, wallet):

@@ -4,14 +4,14 @@ build-backend = "uv_build"
 
 # PROJECT
 [project]
-name = "cancelchain"
+name = "gumptionchain"
 version = "1.4.1"
 description = "A Blockchain of Accountability, Forgiveness, and Support"
 readme = "README.rst"
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
-  { name = "Thomas Bohmbach Jr", email = "tom@cancelchain.org" }
+  { name = "Thomas Bohmbach Jr", email = "tom@gumption.com" }
 ]
 keywords = [
   "blockchain",
@@ -50,13 +50,14 @@ dependencies = [
 ]
 
 [project.scripts]
-cancelchain = "cancelchain:cli"
+gumptionchain = "gumptionchain:cli"
+gc = "gumptionchain:cli"
 
 [project.urls]
-Homepage = "https://cancelchain.org"
-Documentation = "https://docs.cancelchain.org"
-Source = "https://github.com/gumptionthomas/cancelchain"
-Tracker = "https://github.com/gumptionthomas/cancelchain/issues"
+Homepage = "https://gumption.com/chain"
+Documentation = "https://gumption.com/chain/docs"
+Source = "https://github.com/gumptionthomas/gumptionchain"
+Tracker = "https://github.com/gumptionthomas/gumptionchain/issues"
 
 # DEPENDENCY GROUPS (PEP 735)
 [dependency-groups]
@@ -75,7 +76,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 80
-extend-exclude = ["src/cancelchain/migrations/versions"]
+extend-exclude = ["src/gumptionchain/migrations/versions"]
 
 [tool.ruff.lint]
 select = [
@@ -156,8 +157,8 @@ exclude_lines = [
 # MYPY
 [tool.mypy]
 python_version = "3.12"
-files = ["src/cancelchain"]
-exclude = ["src/cancelchain/migrations/"]
+files = ["src/gumptionchain"]
+exclude = ["src/gumptionchain/migrations/"]
 strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true

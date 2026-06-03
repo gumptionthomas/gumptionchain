@@ -7,14 +7,14 @@ from typing import Any
 
 import httpx
 
-from cancelchain.block import MAX_TRANSACTIONS, Block, expiry_cutoff
-from cancelchain.chain import Chain
-from cancelchain.milling import milling_generator
-from cancelchain.node import Node
-from cancelchain.signals import txn_failed as txn_failed_signal
-from cancelchain.transaction import Transaction
-from cancelchain.util import host_address, now
-from cancelchain.wallet import Wallet
+from gumptionchain.block import MAX_TRANSACTIONS, Block, expiry_cutoff
+from gumptionchain.chain import Chain
+from gumptionchain.milling import milling_generator
+from gumptionchain.node import Node
+from gumptionchain.signals import txn_failed as txn_failed_signal
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import host_address, now
+from gumptionchain.wallet import Wallet
 
 
 class Miller(Node):

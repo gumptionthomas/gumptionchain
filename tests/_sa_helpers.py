@@ -1,6 +1,6 @@
 """Test-only SA 2.0 helpers — keep the verbose 2.0 patterns out of asserts."""
 
-from cancelchain.database import db
+from gumptionchain.database import db
 
 
 def _count(model: type) -> int:

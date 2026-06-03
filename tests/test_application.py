@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from cancelchain.application import close_clients
+from gumptionchain.application import close_clients
 
 
 class _RecordingClient:

@@ -4,15 +4,15 @@ from unittest.mock import patch
 import pytest
 from _sa_helpers import _count_select
 
-from cancelchain.block import TXN_TIMEOUT, Block
-from cancelchain.chain import (
+from gumptionchain.block import TXN_TIMEOUT, Block
+from gumptionchain.chain import (
     CURMUDGEON_PER_GRUMBLE,
     GENESIS_HASH,
     REWARD,
     Chain,
 )
-from cancelchain.database import db
-from cancelchain.exceptions import (
+from gumptionchain.database import db
+from gumptionchain.exceptions import (
     FutureBlockError,
     ImbalancedTransactionError,
     InflowOutflowAddressMismatchError,
@@ -25,11 +25,11 @@ from cancelchain.exceptions import (
     OutOfOrderBlockError,
     SpentTransactionError,
 )
-from cancelchain.milling import mill_hash_str
-from cancelchain.payload import Inflow, Outflow
-from cancelchain.transaction import Transaction
-from cancelchain.util import now, now_iso
-from cancelchain.wallet import Wallet
+from gumptionchain.milling import mill_hash_str
+from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import now, now_iso
+from gumptionchain.wallet import Wallet
 
 TEST_TARGET = 'F' * 64
 
@@ -118,7 +118,7 @@ def test_invalid_txn_timestamp(app, time_machine, wallet):
             chain.add_block(block)
 
 
-@patch('cancelchain.chain.TARGET_INTERVAL', 5)
+@patch('gumptionchain.chain.TARGET_INTERVAL', 5)
 def test_decrease_target(app, wallet):
     with app.app_context():
         chain = Chain()
@@ -141,7 +141,7 @@ def test_decrease_target(app, wallet):
         chain.add_block(block)
 
 
-@patch('cancelchain.chain.TARGET_INTERVAL', 5)
+@patch('gumptionchain.chain.TARGET_INTERVAL', 5)
 def test_increase_target(app, time_machine, wallet):
     with app.app_context():
         now_dt = now()
@@ -164,7 +164,7 @@ def test_increase_target(app, time_machine, wallet):
         assert chain.target == TEST_TARGET
 
 
-@patch('cancelchain.chain.TARGET_INTERVAL', 5)
+@patch('gumptionchain.chain.TARGET_INTERVAL', 5)
 def test_invalid_target(app, time_machine, time_stepper, wallet):
     with app.app_context():
         now_dt = now()

@@ -1,6 +1,6 @@
 import os
 
-from cancelchain import create_app
+from gumptionchain import create_app
 
 app = create_app()
 

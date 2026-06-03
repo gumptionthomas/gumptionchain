@@ -14,11 +14,11 @@ mirrors tests/test_command.py.
 import os
 import stat
 
-from cancelchain.command import MAX_IMPORT_LINE_BYTES
+from gumptionchain.command import MAX_IMPORT_LINE_BYTES
 
 
 def test_cli1_wallet_create_writes_private_key_0600(app, runner, tmp_path):
-    """CLI1 (Medium) — REMEDIATED. `cancelchain wallet create` used to write
+    """CLI1 (Medium) — REMEDIATED. `gumptionchain wallet create` used to write
     the new RSA private key via `Wallet.to_file` → `open(filename, 'wb')` with
     no `chmod 0o600`, landing at the process umask (commonly 0o644/0o664 →
     readable by a different local user/process, who then held a live signing
@@ -44,7 +44,7 @@ def test_cli1_wallet_create_writes_private_key_0600(app, runner, tmp_path):
 
 
 def test_cli4_import_bounds_line_length(app, runner, tmp_path, monkeypatch):
-    """CLI4 (Low) — REMEDIATED. `cancelchain import` used to read each line
+    """CLI4 (Low) — REMEDIATED. `gumptionchain import` used to read each line
     with no length bound and hand the whole line to `Block.from_json`, so a
     crafted `.jsonl` with one enormous line was buffered whole (OOM risk).
     `bounded_lines` now caps each line at `MAX_IMPORT_LINE_BYTES` in BOTH the
@@ -66,7 +66,7 @@ def test_cli4_import_bounds_line_length(app, runner, tmp_path, monkeypatch):
         raise RuntimeError(msg)
 
     monkeypatch.setattr(
-        'cancelchain.block.Block.from_json', recording_from_json
+        'gumptionchain.block.Block.from_json', recording_from_json
     )
 
     big = tmp_path / 'big.jsonl'

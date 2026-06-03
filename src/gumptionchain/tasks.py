@@ -7,7 +7,7 @@ from typing import Any
 from celery import Celery
 from flask import Flask, current_app
 
-from cancelchain.api_client import PEER_HOST_HEADER, ApiClient
+from gumptionchain.api_client import PEER_HOST_HEADER, ApiClient
 
 celery = Celery(__name__)
 

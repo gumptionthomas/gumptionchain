@@ -9,12 +9,12 @@ from typing import Any
 from flask import Flask, Response
 from werkzeug.routing import BaseConverter, ValidationError
 
-from cancelchain import __version__, api, browser, command
-from cancelchain.api_client import ApiClient
-from cancelchain.payload import decode_subject, validate_subject
-from cancelchain.schema import validate_address_format, validate_base64
-from cancelchain.util import host_address
-from cancelchain.wallet import Wallet
+from gumptionchain import __version__, api, browser, command
+from gumptionchain.api_client import ApiClient
+from gumptionchain.payload import decode_subject, validate_subject
+from gumptionchain.schema import validate_address_format, validate_base64
+from gumptionchain.util import host_address
+from gumptionchain.wallet import Wallet
 
 
 def close_clients(clients: dict[str, ApiClient]) -> None:

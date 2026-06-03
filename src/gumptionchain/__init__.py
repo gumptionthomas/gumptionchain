@@ -26,9 +26,9 @@ from flask import Flask
 from flask.cli import FlaskGroup
 from flask_migrate import Migrate
 
-__version__ = _pkg_version('cancelchain')
+__version__ = _pkg_version('gumptionchain')
 
-# Package-relative migrations path so `cancelchain init` / `cancelchain db
+# Package-relative migrations path so `gumptionchain init` / `gumptionchain db
 # upgrade` work in any CWD (pip-installed wheel, container, dev). Computed
 # from __file__ at import time rather than left to Flask-Migrate's default
 # `directory='migrations'` (which resolves against the process CWD).
@@ -40,7 +40,7 @@ def create_app(
     config_map: dict[str, Any] | None = None,
     register_browser: bool = True,  # noqa: FBT001
 ) -> Flask:
-    from .application import (  # noqa: PLC0415 — circular: application imports cancelchain
+    from .application import (  # noqa: PLC0415 — circular: application imports gumptionchain
         init_app,
     )
     from .cache import (  # noqa: PLC0415 — deferred alongside application for consistency
@@ -96,7 +96,7 @@ def create_app(
     return app
 
 
-@click.version_option(package_name='cancelchain')
+@click.version_option(package_name='gumptionchain')
 @click.group(cls=FlaskGroup, create_app=create_app, add_version_option=False)
 def cli() -> None:
     pass

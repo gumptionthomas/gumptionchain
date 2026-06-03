@@ -13,7 +13,7 @@ import pytest
 from pydantic import BaseModel, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
-from cancelchain.schema import (
+from gumptionchain.schema import (
     AddressType,
     Base64Type,
     MillHashType,
@@ -24,7 +24,7 @@ from cancelchain.schema import (
     validate_public_key,
     validate_signature,
 )
-from cancelchain.util import now_iso
+from gumptionchain.util import now_iso
 
 
 def test_validate_address_returns_false_on_malformed_key():

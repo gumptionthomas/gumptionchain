@@ -25,31 +25,31 @@ from pydantic import (
     ValidationError,
 )
 
-from cancelchain import signing
-from cancelchain.api_client import PEER_HOST_HEADER
-from cancelchain.block import Block, expiry_cutoff
-from cancelchain.cache import cache
-from cancelchain.chain import Chain
-from cancelchain.exceptions import (
+from gumptionchain import signing
+from gumptionchain.api_client import PEER_HOST_HEADER
+from gumptionchain.block import Block, expiry_cutoff
+from gumptionchain.cache import cache
+from gumptionchain.chain import Chain
+from gumptionchain.exceptions import (
     CCError,
     EmptyChainError,
     InvalidRoleConfigError,
     MempoolFullError,
     MissingBlockError,
 )
-from cancelchain.node import Node
-from cancelchain.payload import encode_subject, validate_raw_subject
-from cancelchain.schema import (
+from gumptionchain.node import Node
+from gumptionchain.payload import encode_subject, validate_raw_subject
+from gumptionchain.schema import (
     AddressType,
     PublicKeyType,
     pydantic_errors_to_messages,
     truncate,
     validate_address_format,
 )
-from cancelchain.signals import http_post as http_post_signal
-from cancelchain.tasks import post_process
-from cancelchain.util import ciso_2_dt, host_address, now, now_iso
-from cancelchain.wallet import Wallet
+from gumptionchain.signals import http_post as http_post_signal
+from gumptionchain.tasks import post_process
+from gumptionchain.util import ciso_2_dt, host_address, now, now_iso
+from gumptionchain.wallet import Wallet
 
 blueprint = Blueprint('api', __name__)
 
@@ -213,7 +213,7 @@ class Role(Enum):
     def validate_config(cls, config: Mapping[str, Any]) -> None:
         """Reject malformed role allowlists at startup.
 
-        Each *_ADDRESSES entry must be a valid cancelchain address,
+        Each *_ADDRESSES entry must be a valid gumptionchain address,
         except the '*' match-all sentinel which is permitted only in
         READER_ADDRESSES. Raises InvalidRoleConfigError on any violation.
         """
@@ -237,7 +237,7 @@ class Role(Enum):
                 elif not validate_address_format(entry):
                     msg = (
                         f'{role.name}_ADDRESSES entry {entry!r} '
-                        'is not a valid cancelchain address'
+                        'is not a valid gumptionchain address'
                     )
                     raise InvalidRoleConfigError(msg)
 

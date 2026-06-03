@@ -10,10 +10,10 @@ import httpx
 from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
 
-from cancelchain.block import Block, expiry_cutoff
-from cancelchain.chain import Chain, is_genesis_block
-from cancelchain.database import db
-from cancelchain.exceptions import (
+from gumptionchain.block import Block, expiry_cutoff
+from gumptionchain.chain import Chain, is_genesis_block
+from gumptionchain.database import db
+from gumptionchain.exceptions import (
     DuplicateMinedTransactionError,
     InvalidBlockError,
     InvalidBlockHashError,
@@ -21,16 +21,16 @@ from cancelchain.exceptions import (
     MempoolFullError,
     MissingBlockError,
 )
-from cancelchain.models import (
+from gumptionchain.models import (
     ChainDAO,
     ChainFill,
     ChainFillBlock,
     TransactionDAO,
     rollback_session,
 )
-from cancelchain.signals import new_block as new_block_signal
-from cancelchain.transaction import PendingTxnSet, Transaction
-from cancelchain.util import host_address, now
+from gumptionchain.signals import new_block as new_block_signal
+from gumptionchain.transaction import PendingTxnSet, Transaction
+from gumptionchain.util import host_address, now
 
 
 class Node:

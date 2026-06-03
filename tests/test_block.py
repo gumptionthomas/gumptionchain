@@ -2,14 +2,14 @@ import datetime
 
 import pytest
 
-from cancelchain.block import (
+from gumptionchain.block import (
     MAX_TRANSACTIONS,
     TXN_TIMEOUT,
     Block,
     txn_is_expired,
 )
-from cancelchain.chain import GENESIS_HASH
-from cancelchain.exceptions import (
+from gumptionchain.chain import GENESIS_HASH
+from gumptionchain.exceptions import (
     ExpiredTransactionError,
     InvalidBlockError,
     MissingCoinbaseError,
@@ -17,9 +17,9 @@ from cancelchain.exceptions import (
     SealedBlockError,
     UnlinkedBlockError,
 )
-from cancelchain.payload import Inflow, Outflow
-from cancelchain.transaction import Transaction
-from cancelchain.util import dt_2_iso, now
+from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import dt_2_iso, now
 
 TEST_TARGET = 'F' * 64
 

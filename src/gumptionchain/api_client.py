@@ -6,11 +6,11 @@ from typing import Self
 
 import httpx
 
-from cancelchain import signing
-from cancelchain.block import Block
-from cancelchain.transaction import Transaction
-from cancelchain.util import dt_2_ciso, host_address
-from cancelchain.wallet import Wallet
+from gumptionchain import signing
+from gumptionchain.block import Block
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import dt_2_ciso, host_address
+from gumptionchain.wallet import Wallet
 
 PEER_HOST_HEADER = 'Peer-Hosts'
 ADDRESS_MISMATCH_MSG = 'Address/wallet mismatch'

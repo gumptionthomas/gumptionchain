@@ -12,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from cancelchain.schema import (
+from gumptionchain.schema import (
     AddressType,
     MillHashType,
     truncate,

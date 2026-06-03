@@ -8,16 +8,16 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
-from cancelchain import create_app
-from cancelchain.application import create_clients
-from cancelchain.block import Block
-from cancelchain.chain import GENESIS_HASH, REWARD, Chain
-from cancelchain.database import db
-from cancelchain.miller import Miller
-from cancelchain.payload import Inflow, Outflow, encode_subject
-from cancelchain.transaction import Transaction
-from cancelchain.util import now
-from cancelchain.wallet import Wallet
+from gumptionchain import create_app
+from gumptionchain.application import create_clients
+from gumptionchain.block import Block
+from gumptionchain.chain import GENESIS_HASH, REWARD, Chain
+from gumptionchain.database import db
+from gumptionchain.miller import Miller
+from gumptionchain.payload import Inflow, Outflow, encode_subject
+from gumptionchain.transaction import Transaction
+from gumptionchain.util import now
+from gumptionchain.wallet import Wallet
 
 READER_WALLET = Wallet()
 TRANSACTOR_WALLET = Wallet()
@@ -137,7 +137,7 @@ def time_stepper(time_machine):
 
 @pytest.fixture(scope='session', autouse=True)
 def easy_mill_chain():
-    with patch('cancelchain.chain.MAX_TARGET', 'F' * 64) as _fixture:
+    with patch('gumptionchain.chain.MAX_TARGET', 'F' * 64) as _fixture:
         yield _fixture
 
 
@@ -478,7 +478,7 @@ def requests_proxy(app, host):
         )
 
     with patch(
-        'cancelchain.api_client._make_client',
+        'gumptionchain.api_client._make_client',
         side_effect=_wsgi_make_client,
     ):
         for c in list(app.clients.values()):
@@ -503,7 +503,7 @@ def remote_requests_proxy(remote_app, remote_host):
         )
 
     with patch(
-        'cancelchain.api_client._make_client',
+        'gumptionchain.api_client._make_client',
         side_effect=_wsgi_make_client,
     ):
         for c in list(remote_app.clients.values()):
