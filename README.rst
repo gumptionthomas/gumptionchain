@@ -122,14 +122,14 @@ Joining The GumptionChain Network
 
 The GumptionChain is run by a permissioned network of nodes. A GumptionChain instance requires `miller`_ or `transactor`_ role `API access`_ to a node in the network in order to have locally milled blocks or submitted transactions propagate to the official GumptionChain.
 
-`API access`_ to a node is granted by that node's operator. Once your wallet address is on a node's role allowlist (see below to request access), configure your instance to use that node as a peer. Replace ``CCYourWalletAddressCC`` with your wallet address, ``peer.example.com`` with the host of the node you've been granted access to, and ``/path/to/wallets`` with the path to a directory containing your key (`PEM`_) file:
+`API access`_ to a node is granted by that node's operator. Once your wallet address is on a node's role allowlist (see below to request access), configure your instance to use that node as a peer. Replace ``GCYourWalletAddressGC`` with your wallet address, ``peer.example.com`` with the host of the node you've been granted access to, and ``/path/to/wallets`` with the path to a directory containing your key (`PEM`_) file:
 
 .. code-block:: console
 
     # GumptionChain Settings
-    GC_NODE_HOST=http://CCYourWalletAddressCC@localhost:5000
-    GC_PEERS=["https://CCYourWalletAddressCC@peer.example.com"]
-    GC_DEFAULT_COMMAND_HOST=https://CCYourWalletAddressCC@peer.example.com
+    GC_NODE_HOST=http://GCYourWalletAddressGC@localhost:5000
+    GC_PEERS=["https://GCYourWalletAddressGC@peer.example.com"]
+    GC_DEFAULT_COMMAND_HOST=https://GCYourWalletAddressGC@peer.example.com
     GC_WALLET_DIR=/path/to/wallets
 
 Restart to load the new configuration.

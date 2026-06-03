@@ -21,7 +21,7 @@ from gumptionchain.milling import mill_hash_bin
 
 RSAKey = RSAPrivateKey | RSAPublicKey
 
-ADDRESS_TAG = 'CC'
+ADDRESS_TAG = 'GC'
 KEY_SIZE = 3072
 PUBLIC_EXPONENT = 65537
 
