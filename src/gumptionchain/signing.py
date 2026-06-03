@@ -8,15 +8,15 @@ from typing import Any
 from gumptionchain.exceptions import InvalidKeyError
 from gumptionchain.wallet import Wallet
 
-SIG_VERSION = '1'  # CC-Sig-Version header value (dispatch key)
-SIG_SCHEME = 'cc-sig-v1'  # scheme id bound into the signed canonical
+SIG_VERSION = '1'  # GC-Sig-Version header value (dispatch key)
+SIG_SCHEME = 'gc-sig-v1'  # scheme id bound into the signed canonical
 FRESHNESS_SECONDS = 300
 
-H_VERSION = 'CC-Sig-Version'
-H_ADDRESS = 'CC-Address'
-H_PUBKEY = 'CC-Public-Key'
-H_TIMESTAMP = 'CC-Timestamp'
-H_SIGNATURE = 'CC-Signature'
+H_VERSION = 'GC-Sig-Version'
+H_ADDRESS = 'GC-Address'
+H_PUBKEY = 'GC-Public-Key'
+H_TIMESTAMP = 'GC-Timestamp'
+H_SIGNATURE = 'GC-Signature'
 
 
 class SignatureError(Exception):
@@ -87,7 +87,7 @@ def verify(
     node_host: str,
     now: int | None = None,
 ) -> str:
-    """Verify a `cc-sig-v1` signed request; return the authenticated
+    """Verify a `gc-sig-v1` signed request; return the authenticated
     address or raise SignatureError.
     """
     if headers.get(H_VERSION) != SIG_VERSION:
