@@ -4,3 +4,6 @@
 
 # One-time ruff format pass (Phase 1 tooling modernization)
 27395d37afccd14e653d242ce10a1fe36a1be06c
+
+# rename: cancelchain → gumptionchain (Phase 1)
+e6c83ebb870fe4d929c0b7f980786fbf07433a41
