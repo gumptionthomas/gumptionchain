@@ -59,8 +59,8 @@ def init_app(
     app.cli.add_command(command.subject_cli)
 
     @app.context_processor
-    def inject_cc_version() -> dict[str, str]:
-        return {'cc_version': __version__}
+    def inject_gc_version() -> dict[str, str]:
+        return {'gc_version': __version__}
 
     @app.template_filter('utc_datetime')
     def utc_datetime(

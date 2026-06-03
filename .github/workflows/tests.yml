@@ -23,9 +23,9 @@ jobs:
       # `Base.metadata` against the schema implied by the migration history.
       # Four slashes = absolute SQLAlchemy URI (sqlite:////absolute/path),
       # avoiding Flask's relative-URI instance-folder resolution that would
-      # otherwise land the file in src/instance/cc_check.db.
+      # otherwise land the file in src/instance/gc_check.db.
       - env:
-          FLASK_SQLALCHEMY_DATABASE_URI: sqlite:////${{ runner.temp }}/cc_check.db
+          FLASK_SQLALCHEMY_DATABASE_URI: sqlite:////${{ runner.temp }}/gc_check.db
         run: |
           uv run gumptionchain db upgrade
           uv run gumptionchain db check

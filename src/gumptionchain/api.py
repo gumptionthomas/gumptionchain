@@ -31,8 +31,8 @@ from gumptionchain.block import Block, expiry_cutoff
 from gumptionchain.cache import cache
 from gumptionchain.chain import Chain
 from gumptionchain.exceptions import (
-    CCError,
     EmptyChainError,
+    GCError,
     InvalidRoleConfigError,
     MempoolFullError,
     MissingBlockError,
@@ -307,7 +307,7 @@ class BlockView(MethodView):
                         cache.set(key, block_json)
                 if block_json:
                     return make_json_response(block_json)
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -336,7 +336,7 @@ class BlockView(MethodView):
                 queue_block_post_process(block, vhosts)
         except MissingBlockError:
             abort(404)
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -391,7 +391,7 @@ class TxnView(MethodView):
                 queue_txn_post_process(txn, vhosts)
         except MempoolFullError:
             return make_json_response({'error': 'mempool full'}, 503)
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -443,7 +443,7 @@ class TransferTxnView(MethodView):
             return make_json_response(
                 lc.create_transfer(wallet, amount, dest_address).to_json()
             )
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -496,7 +496,7 @@ class SubjectTxnView(MethodView):
             return make_json_response(
                 lc.create_subject(wallet, amount, subject).to_json()
             )
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -531,7 +531,7 @@ class ForgiveTxnView(MethodView):
             return make_json_response(
                 lc.create_forgive(wallet, amount, subject).to_json()
             )
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -566,7 +566,7 @@ class SupportTxnView(MethodView):
             return make_json_response(
                 lc.create_support(wallet, amount, subject).to_json()
             )
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -611,7 +611,7 @@ class PendingTxnView(MethodView):
                 earliest=earliest, expired=expired
             )
             return make_json_response([json.loads(j) for j in pending_json])
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -638,7 +638,7 @@ class WalletBalanceView(MethodView):
             return make_json_response(
                 {'balance': balance, 'as_of_block': block_hash}
             )
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -667,7 +667,7 @@ class SubjectBalanceView(MethodView):
             return make_json_response(
                 {'balance': balance, 'as_of_block': block_hash}
             )
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
@@ -696,7 +696,7 @@ class SubjectSupportView(MethodView):
             return make_json_response(
                 {'support': support, 'as_of_block': block_hash}
             )
-        except CCError as err:
+        except GCError as err:
             return make_error_response(err)
         except Exception as e:
             exception_response(e)
