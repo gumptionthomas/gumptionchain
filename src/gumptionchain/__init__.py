@@ -63,7 +63,7 @@ def create_app(
 
     app.config.from_prefixed_env()
     app.config.from_object(EnvAppSettings.from_env())
-    app.config.from_envvar('CANCELCHAIN_SETTINGS', silent=True)
+    app.config.from_envvar('GUMPTIONCHAIN_SETTINGS', silent=True)
     if config_map is not None:
         app.config.from_mapping(config_map)
 
