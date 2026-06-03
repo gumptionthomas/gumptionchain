@@ -6,7 +6,7 @@ import os
 import weakref
 from typing import Any
 
-from flask import Flask, Response, request
+from flask import Flask, Response
 from werkzeug.routing import BaseConverter, ValidationError
 
 from cancelchain import __version__, api, browser, command
@@ -85,8 +85,12 @@ def init_app(
         # transaction.html:56); a stricter policy would require refactoring
         # those out. XSS is already prevented by Jinja autoescape, so the CSP
         # here is defense-in-depth (it still pins source origins, frame
-        # ancestors, base-uri, and object-src). HSTS is set only on secure
-        # (HTTPS) requests. setdefault() never overrides a header a view set.
+        # ancestors, base-uri, and object-src). HSTS is set unconditionally:
+        # browsers ignore it over plain HTTP (RFC 6797) and honor it over
+        # HTTPS, so it works even behind a TLS-terminating reverse proxy where
+        # this app sees an http request (gating on request.is_secure would
+        # silently drop HSTS in that common deployment). setdefault() never
+        # overrides a header a view already set.
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'DENY')
         response.headers.setdefault('Referrer-Policy', 'no-referrer')
@@ -102,11 +106,10 @@ def init_app(
             "img-src 'self' data:; "
             "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
         )
-        if request.is_secure:
-            response.headers.setdefault(
-                'Strict-Transport-Security',
-                'max-age=31536000; includeSubDomains',
-            )
+        response.headers.setdefault(
+            'Strict-Transport-Security',
+            'max-age=31536000; includeSubDomains',
+        )
         return response
 
 
