@@ -31,12 +31,12 @@ Every signed request must include all five of the following headers.
 | Header | Value |
 |---|---|
 | `GC-Sig-Version` | `1` |
-| `GC-Address` | Caller's CC address (e.g. `CC…CC`) |
+| `GC-Address` | Caller's GC address (e.g. `GC…GC`) |
 | `GC-Public-Key` | Caller's RSA public key, base64-encoded DER SubjectPublicKeyInfo |
 | `GC-Timestamp` | Unix time of the request, decimal seconds (e.g. `1748736000`) |
 | `GC-Signature` | Base64 RSASSA-PKCS1-v1_5 / SHA-384 signature over the canonical string |
 
-The `GC-Public-Key` is **self-certifying**: the server derives the CC address from
+The `GC-Public-Key` is **self-certifying**: the server derives the GC address from
 the supplied public key and requires it to equal `GC-Address`. No prior key
 registration is needed; any wallet whose address appears in the server's role
 configuration can authenticate.
@@ -71,7 +71,7 @@ Field-by-field rules:
 | `<body-digest>` | Lowercase hex SHA-256 of the raw request body bytes; use SHA-256 of `b""` (empty bytes) for requests with no body |
 | `<node-host>` | The full URL of the target node's identity (scheme + host + port, no path, e.g. `http://localhost:8080`) |
 | `<timestamp>` | The same decimal integer sent in `GC-Timestamp` |
-| `<address>` | The same CC address sent in `GC-Address` |
+| `<address>` | The same GC address sent in `GC-Address` |
 
 The canonical string is UTF-8 encoded to bytes before signing.
 
@@ -138,12 +138,12 @@ gc_signature = standard_b64encode(signature_bytes).decode()
 
 ## Address derivation (public key self-certification)
 
-A CC address is derived from a public key as follows:
+A GC address is derived from a public key as follows:
 
 1. Serialize the RSA public key to DER-encoded SubjectPublicKeyInfo bytes.
 2. Compute `mill_hash` of those bytes: `sha256(sha512(der_bytes).digest()).digest()` — 32 bytes.
 3. Base58Check-encode the 32-byte hash.
-4. Wrap with the `CC` tag: `"CC" + base58check_str + "CC"`.
+4. Wrap with the `GC` tag: `"GC" + base58check_str + "GC"`.
 
 The server performs this derivation on the `GC-Public-Key` value it receives and
 requires the result to equal `GC-Address`. This means the public key is the
@@ -203,7 +203,7 @@ query:     (empty)
 body:      (none)
 node_host: http://localhost:8080
 timestamp: 1748736000
-address:   CCAbcDef…XyzCC   ← placeholder
+address:   GCAbcDef…XyzGC   ← placeholder
 ```
 
 **Canonical string** (fields separated by `\n`, shown here on separate lines):
@@ -216,7 +216,7 @@ GET
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 http://localhost:8080
 1748736000
-CCAbcDef…XyzCC
+GCAbcDef…XyzGC
 ```
 
 (Line 4 is the empty query string — present as an empty line, not absent.)
@@ -225,7 +225,7 @@ CCAbcDef…XyzCC
 
 ```
 GC-Sig-Version: 1
-GC-Address:     CCAbcDef…XyzCC
+GC-Address:     GCAbcDef…XyzGC
 GC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
 GC-Timestamp:   1748736000
 GC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
@@ -242,7 +242,7 @@ query:     (empty)
 body:      {"block": "…"}   ← JSON bytes
 node_host: http://localhost:8080
 timestamp: 1748736001
-address:   CCAbcDef…XyzCC
+address:   GCAbcDef…XyzGC
 ```
 
 **Canonical string:**
@@ -255,20 +255,20 @@ POST
 <sha256 hex of the JSON body bytes>
 http://localhost:8080
 1748736001
-CCAbcDef…XyzCC
+GCAbcDef…XyzGC
 ```
 
 **Resulting request headers:**
 
 ```
 GC-Sig-Version: 1
-GC-Address:     CCAbcDef…XyzCC
+GC-Address:     GCAbcDef…XyzGC
 GC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
 GC-Timestamp:   1748736001
 GC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
 ```
 
-All placeholder values (`CCAbcDef…XyzCC`, the base64 keys, and the base64
+All placeholder values (`GCAbcDef…XyzGC`, the base64 keys, and the base64
 signatures) are illustrative only and are not real cryptographic values.
 
 ---
