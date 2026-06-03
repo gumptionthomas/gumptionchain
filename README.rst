@@ -127,10 +127,10 @@ The GumptionChain is run by a permissioned network of nodes. A GumptionChain ins
 .. code-block:: console
 
     # GumptionChain Settings
-    CC_NODE_HOST=http://CCYourWalletAddressCC@localhost:5000
-    CC_PEERS=["https://CCYourWalletAddressCC@peer.example.com"]
-    CC_DEFAULT_COMMAND_HOST=https://CCYourWalletAddressCC@peer.example.com
-    CC_WALLET_DIR=/path/to/wallets
+    GC_NODE_HOST=http://CCYourWalletAddressCC@localhost:5000
+    GC_PEERS=["https://CCYourWalletAddressCC@peer.example.com"]
+    GC_DEFAULT_COMMAND_HOST=https://CCYourWalletAddressCC@peer.example.com
+    GC_WALLET_DIR=/path/to/wallets
 
 Restart to load the new configuration.
 

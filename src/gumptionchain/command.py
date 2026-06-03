@@ -95,7 +95,7 @@ def host_api_client(
     if not host:
         msg = (
             'No host configured: pass --host or set '
-            'CC_DEFAULT_COMMAND_HOST in the environment.'
+            'GC_DEFAULT_COMMAND_HOST in the environment.'
         )
         raise click.UsageError(msg)
     if wallet_file:
