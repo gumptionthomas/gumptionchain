@@ -111,12 +111,12 @@ Domain objects own validation, serialization (Marshmallow schemas in `schema.py`
 
 ### API authentication
 
-Every API request is authenticated by a **per-request wallet signature** (`cc-sig-v1`). There is no token, no challenge/response handshake, and no `SECRET_KEY`-based bearer JWT. The scheme is stateless and node-bound.
+Every API request is authenticated by a **per-request wallet signature** (`gc-sig-v1`). There is no token, no challenge/response handshake, and no `SECRET_KEY`-based bearer JWT. The scheme is stateless and node-bound.
 
 **How it works:**
 
-1. The client constructs a canonical string over `cc-sig-v1 / METHOD / path / query / body-digest / node-host / timestamp / address` and signs it with its RSA private key (`Wallet.sign`).
-2. The signature, public key, address, timestamp, and scheme version are sent as `CC-*` request headers (`CC-Sig-Version`, `CC-Address`, `CC-Public-Key`, `CC-Timestamp`, `CC-Signature`).
+1. The client constructs a canonical string over `gc-sig-v1 / METHOD / path / query / body-digest / node-host / timestamp / address` and signs it with its RSA private key (`Wallet.sign`).
+2. The signature, public key, address, timestamp, and scheme version are sent as `GC-*` request headers (`GC-Sig-Version`, `GC-Address`, `GC-Public-Key`, `GC-Timestamp`, `GC-Signature`).
 3. `authorize()` in `api.py` calls `signing.verify()` to check the scheme version, request freshness (±300 s), public-key-to-address self-certification, the RSA signature, and node-binding (the canonical includes `NODE_HOST`, so a signature for node A fails verification at node B). Any failure → `401`.
 4. After signature verification, `authorize()` re-validates the caller's role against live `*_ADDRESSES` config via `Role.address_role(address)`. An address with no configured role or an insufficient role → `403`. This live re-check means role revocations take effect immediately.
 

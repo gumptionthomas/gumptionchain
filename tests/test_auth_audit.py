@@ -2,7 +2,7 @@
 
 Each surviving test corresponds to a finding in
 docs/superpowers/audits/2026-05-31-api-authentication-audit.md that is
-remediated by the per-request wallet-signature protocol (cc-sig-v1). The
+remediated by the per-request wallet-signature protocol (gc-sig-v1). The
 token-endpoint and symmetric-key findings (A1.a/A2.c/A2.e/A7.a) were
 dissolved by the protocol replacement (no /api/token endpoint, no ApiToken
 table, no argon2, no SECRET_KEY-as-auth) and their demonstrations are

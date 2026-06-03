@@ -30,7 +30,7 @@ def test_get_attaches_signature_headers(
     app, host, mill_block, requests_proxy, wallet
 ):
     """ApiClient.get signs the request: a round-trip authenticates, and the
-    transmitted request carries the cc-sig-v1 CC-* headers.
+    transmitted request carries the gc-sig-v1 GC-* headers.
     """
     sent = {}
     with app.app_context():

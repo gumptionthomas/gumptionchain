@@ -1,4 +1,4 @@
-# GumptionChain API Authentication Protocol: `cc-sig-v1`
+# GumptionChain API Authentication Protocol: `gc-sig-v1`
 
 Every GumptionChain API request (excluding the unauthenticated browser views) must
 be authenticated with a per-request wallet signature. The server verifies the
@@ -11,8 +11,8 @@ the signature is verified.
 
 ## Versioning
 
-Authentication scheme selection is driven by the `CC-Sig-Version` request header.
-This document specifies **version `1`** — the `cc-sig-v1` scheme. The header value
+Authentication scheme selection is driven by the `GC-Sig-Version` request header.
+This document specifies **version `1`** — the `gc-sig-v1` scheme. The header value
 is the decimal string `"1"`.
 
 Future schemes (for example, an RFC 9421 HTTP Message Signatures-based `v2` for
@@ -30,27 +30,27 @@ Every signed request must include all five of the following headers.
 
 | Header | Value |
 |---|---|
-| `CC-Sig-Version` | `1` |
-| `CC-Address` | Caller's CC address (e.g. `CC…CC`) |
-| `CC-Public-Key` | Caller's RSA public key, base64-encoded DER SubjectPublicKeyInfo |
-| `CC-Timestamp` | Unix time of the request, decimal seconds (e.g. `1748736000`) |
-| `CC-Signature` | Base64 RSASSA-PKCS1-v1_5 / SHA-384 signature over the canonical string |
+| `GC-Sig-Version` | `1` |
+| `GC-Address` | Caller's CC address (e.g. `CC…CC`) |
+| `GC-Public-Key` | Caller's RSA public key, base64-encoded DER SubjectPublicKeyInfo |
+| `GC-Timestamp` | Unix time of the request, decimal seconds (e.g. `1748736000`) |
+| `GC-Signature` | Base64 RSASSA-PKCS1-v1_5 / SHA-384 signature over the canonical string |
 
-The `CC-Public-Key` is **self-certifying**: the server derives the CC address from
-the supplied public key and requires it to equal `CC-Address`. No prior key
+The `GC-Public-Key` is **self-certifying**: the server derives the CC address from
+the supplied public key and requires it to equal `GC-Address`. No prior key
 registration is needed; any wallet whose address appears in the server's role
 configuration can authenticate.
 
 ---
 
-## Canonical string (`cc-sig-v1`)
+## Canonical string (`gc-sig-v1`)
 
 The client signs — and the server reconstructs — a canonical string formed by
 joining exactly these eight fields with newline (`\n`) characters, **in this
 order**, with no trailing newline:
 
 ```
-cc-sig-v1
+gc-sig-v1
 <METHOD>
 <path>
 <query>
@@ -64,14 +64,14 @@ Field-by-field rules:
 
 | Field | Value |
 |---|---|
-| `cc-sig-v1` | Literal scheme identifier, always this exact string |
+| `gc-sig-v1` | Literal scheme identifier, always this exact string |
 | `<METHOD>` | HTTP method, **uppercased** (e.g. `GET`, `POST`) |
 | `<path>` | The URL path, exactly as the server sees it (e.g. `/api/block`) |
 | `<query>` | The raw URL query string; empty string `""` when no query is present |
 | `<body-digest>` | Lowercase hex SHA-256 of the raw request body bytes; use SHA-256 of `b""` (empty bytes) for requests with no body |
 | `<node-host>` | The full URL of the target node's identity (scheme + host + port, no path, e.g. `http://localhost:8080`) |
-| `<timestamp>` | The same decimal integer sent in `CC-Timestamp` |
-| `<address>` | The same CC address sent in `CC-Address` |
+| `<timestamp>` | The same decimal integer sent in `GC-Timestamp` |
+| `<address>` | The same CC address sent in `GC-Address` |
 
 The canonical string is UTF-8 encoded to bytes before signing.
 
@@ -131,7 +131,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from base64 import standard_b64encode
 
 signature_bytes = private_key.sign(canonical_bytes, padding.PKCS1v15(), hashes.SHA384())
-cc_signature = standard_b64encode(signature_bytes).decode()
+gc_signature = standard_b64encode(signature_bytes).decode()
 ```
 
 ---
@@ -145,11 +145,11 @@ A CC address is derived from a public key as follows:
 3. Base58Check-encode the 32-byte hash.
 4. Wrap with the `CC` tag: `"CC" + base58check_str + "CC"`.
 
-The server performs this derivation on the `CC-Public-Key` value it receives and
-requires the result to equal `CC-Address`. This means the public key is the
+The server performs this derivation on the `GC-Public-Key` value it receives and
+requires the result to equal `GC-Address`. This means the public key is the
 authoritative credential; the address is a fingerprint of it.
 
-The `CC-Public-Key` header value is the standard base64 encoding of the DER
+The `GC-Public-Key` header value is the standard base64 encoding of the DER
 SubjectPublicKeyInfo bytes (step 1 above).
 
 ---
@@ -159,7 +159,7 @@ SubjectPublicKeyInfo bytes (step 1 above).
 The server rejects any request where:
 
 ```
-abs(server_unix_time - CC-Timestamp) > 300
+abs(server_unix_time - GC-Timestamp) > 300
 ```
 
 Both stale requests (more than 300 seconds old) and far-future requests (timestamp
@@ -175,17 +175,17 @@ transport precondition assumed for all API communication).
 The server performs these checks in order. Any failure in steps 1–6 results in
 `401 Unauthorized`. Insufficient role in step 7 results in `403 Forbidden`.
 
-1. `CC-Sig-Version` must be present and equal to `"1"`. Unknown or missing version
+1. `GC-Sig-Version` must be present and equal to `"1"`. Unknown or missing version
    → `401`.
-2. `CC-Address`, `CC-Public-Key`, `CC-Timestamp`, and `CC-Signature` must all be
+2. `GC-Address`, `GC-Public-Key`, `GC-Timestamp`, and `GC-Signature` must all be
    present and non-empty → `401`.
-3. `CC-Timestamp` must parse as a decimal integer → `401`.
+3. `GC-Timestamp` must parse as a decimal integer → `401`.
 4. Freshness: `abs(now − ts) <= 300` → else `401`.
-5. `CC-Public-Key` must be a valid RSA-3072 public key in base64 DER format, and
-   it must derive to an address equal to `CC-Address` → else `401`.
+5. `GC-Public-Key` must be a valid RSA-3072 public key in base64 DER format, and
+   it must derive to an address equal to `GC-Address` → else `401`.
 6. Reconstruct the canonical string from the live request (see above); verify the
-   `CC-Signature` using the public key from step 5 → else `401`.
-7. Map `CC-Address` to a role via the server's live address allowlists. If no role
+   `GC-Signature` using the public key from step 5 → else `401`.
+7. Map `GC-Address` to a role via the server's live address allowlists. If no role
    matches, or the role is insufficient for the endpoint, → `403`.
 
 ---
@@ -209,7 +209,7 @@ address:   CCAbcDef…XyzCC   ← placeholder
 **Canonical string** (fields separated by `\n`, shown here on separate lines):
 
 ```
-cc-sig-v1
+gc-sig-v1
 GET
 /api/block
 
@@ -224,11 +224,11 @@ CCAbcDef…XyzCC
 **Resulting request headers:**
 
 ```
-CC-Sig-Version: 1
-CC-Address:     CCAbcDef…XyzCC
-CC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
-CC-Timestamp:   1748736000
-CC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
+GC-Sig-Version: 1
+GC-Address:     CCAbcDef…XyzCC
+GC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
+GC-Timestamp:   1748736000
+GC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
 ```
 
 ### POST `/api/block/<hash>`
@@ -248,7 +248,7 @@ address:   CCAbcDef…XyzCC
 **Canonical string:**
 
 ```
-cc-sig-v1
+gc-sig-v1
 POST
 /api/block/0000ab12…ef34
 
@@ -261,11 +261,11 @@ CCAbcDef…XyzCC
 **Resulting request headers:**
 
 ```
-CC-Sig-Version: 1
-CC-Address:     CCAbcDef…XyzCC
-CC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
-CC-Timestamp:   1748736001
-CC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
+GC-Sig-Version: 1
+GC-Address:     CCAbcDef…XyzCC
+GC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
+GC-Timestamp:   1748736001
+GC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
 ```
 
 All placeholder values (`CCAbcDef…XyzCC`, the base64 keys, and the base64
@@ -286,5 +286,5 @@ signatures) are illustrative only and are not real cryptographic values.
 | Address derivation hash | `sha256(sha512(der_pubkey))` then Base58Check |
 | Timestamp format | Decimal integer, Unix seconds |
 | Freshness window | ±300 seconds |
-| Scheme identifier | `cc-sig-v1` (first field of canonical string) |
+| Scheme identifier | `gc-sig-v1` (first field of canonical string) |
 | Version header value | `1` |

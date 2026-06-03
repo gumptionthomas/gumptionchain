@@ -255,7 +255,7 @@ def authorize(
                 # request.headers is Werkzeug's case-insensitive Headers (not
                 # a Mapping subtype, but exposes the .get() verify() uses);
                 # case-insensitivity matters because HTTP transit normalizes
-                # `CC-Sig-Version` to `Cc-Sig-Version`.
+                # `GC-Sig-Version` to `Gc-Sig-Version`.
                 address = signing.verify(
                     cast('Mapping[str, Any]', request.headers),
                     method=request.method,
