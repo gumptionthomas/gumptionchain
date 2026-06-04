@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-GumptionChain is a custom proof-of-work blockchain (Flask + SQLAlchemy) where tokens are assigned to *subjects* (UTF-8 strings, 1–79 chars) as **opposition** (`opposition`, rescindable via `rescind`) or **support** (`support`, permanent). It runs as both a Flask web app (browser views + JSON API) and a `gumptionchain` CLI. The chain is permissioned: API access is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`) keyed off wallet addresses listed in config.
+GumptionChain is a custom proof-of-work blockchain (Flask + SQLAlchemy) where tokens are assigned to *subjects* (UTF-8 strings, 1–79 chars) as **opposition** (`opposition`, rescindable via `rescind --kind opposition`) or **support** (`support`, rescindable via `rescind --kind support`). It runs as both a Flask web app (browser views + JSON API) and a `gumptionchain` CLI. The chain is permissioned: API access is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`) keyed off wallet addresses listed in config.
 
 Units: 1 **GRIT / grit** = 100 **grains** (`GRAIN_PER_GRIT` in `gumptionchain.chain`). Float CLI amounts are converted via `grit_to_grains`.
 
