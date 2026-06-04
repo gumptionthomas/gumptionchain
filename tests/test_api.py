@@ -505,3 +505,42 @@ def test_post_process_signs_at_send_time(
             data=b.to_json(),
             vhosts=None,
         )
+
+
+def test_rescind_missing_kind_returns_validation_error(
+    app, host, mill_block, requests_proxy, subject_raw, transactor_wallet
+):
+    """Regression guard: /api/transaction/rescind without `kind` returns 400."""
+    with app.app_context():
+        mill_block(transactor_wallet)
+        client = ApiClient(host, transactor_wallet)
+        # Omit `kind` entirely — Pydantic validation must reject the request.
+        with pytest.raises(httpx.HTTPStatusError, match='400'):
+            client.get(
+                '/api/transaction/rescind',
+                params={
+                    'public_key': transactor_wallet.public_key_b64,
+                    'amount': '1',
+                    'subject': subject_raw,
+                    # `kind` deliberately absent
+                },
+            )
+
+
+def test_rescind_invalid_kind_returns_validation_error(
+    app, host, mill_block, requests_proxy, subject_raw, transactor_wallet
+):
+    """A `kind` value outside {'opposition','support'} returns 400."""
+    with app.app_context():
+        mill_block(transactor_wallet)
+        client = ApiClient(host, transactor_wallet)
+        with pytest.raises(httpx.HTTPStatusError, match='400'):
+            client.get(
+                '/api/transaction/rescind',
+                params={
+                    'public_key': transactor_wallet.public_key_b64,
+                    'amount': '1',
+                    'subject': subject_raw,
+                    'kind': 'invalid',
+                },
+            )

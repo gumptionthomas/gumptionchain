@@ -758,10 +758,18 @@ def test_support_rescind_mints_regret(
         expected_regret = amt // 2
         assert milled_block.regret == expected_regret
         coinbase_outflows = list(milled_block.coinbase.outflows)
-        regret_outflows = [
-            o for o in coinbase_outflows if o.address == wallet.address
-        ]
-        assert any(o.amount == expected_regret for o in regret_outflows)
+        # Only reward + regret should be present (schadenfreude/grace/mudita
+        # are 0 in this test), and exactly one outflow should carry the regret
+        # amount to the miner — not the reward outflow.
+        assert len(coinbase_outflows) == 2
+        assert (
+            sum(
+                1
+                for o in coinbase_outflows
+                if o.amount == expected_regret and o.address == wallet.address
+            )
+            == 1
+        )
 
 
 def test_rescind_support_insufficient_when_only_opposition(

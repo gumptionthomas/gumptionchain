@@ -74,6 +74,8 @@ def _check_subject(s: str) -> str:
 
 Subject = Annotated[str, AfterValidator(_check_subject)]
 
+StakeKind = Literal['opposition', 'support']
+
 
 class OutflowModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -83,7 +85,7 @@ class OutflowModel(BaseModel):
     opposition: Subject | None = None
     rescind: Subject | None = None
     support: Subject | None = None
-    rescind_kind: Literal['opposition', 'support'] | None = None
+    rescind_kind: StakeKind | None = None
 
     @model_validator(mode='after')
     def validate_destinations(self) -> Self:
@@ -116,7 +118,7 @@ class Outflow:
     opposition: str | None = None
     rescind: str | None = None
     support: str | None = None
-    rescind_kind: str | None = None
+    rescind_kind: StakeKind | None = None
 
     @property
     def data_csv(self) -> str:

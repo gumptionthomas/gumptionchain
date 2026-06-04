@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from enum import Enum
 from functools import wraps
-from typing import Annotated, Any, Literal, NoReturn, cast
+from typing import Annotated, Any, NoReturn, cast
 
 from flask import (
     Blueprint,
@@ -38,7 +38,11 @@ from gumptionchain.exceptions import (
     MissingBlockError,
 )
 from gumptionchain.node import Node
-from gumptionchain.payload import encode_subject, validate_raw_subject
+from gumptionchain.payload import (
+    StakeKind,
+    encode_subject,
+    validate_raw_subject,
+)
 from gumptionchain.schema import (
     AddressType,
     PublicKeyType,
@@ -477,7 +481,7 @@ class SubjectTxnQueryModel(BaseModel):
 
 
 class RescindTxnQueryModel(SubjectTxnQueryModel):
-    kind: Literal['opposition', 'support']
+    kind: StakeKind
 
 
 class OppositionTxnView(MethodView):
