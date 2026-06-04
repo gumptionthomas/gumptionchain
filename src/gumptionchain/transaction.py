@@ -189,22 +189,6 @@ class Transaction:
     def signing_data(self) -> bytes:
         return ','.join([self.data_csv, str(self.txid)]).encode()
 
-    @property
-    def schadenfreude(self) -> int:
-        return sum([o.schadenfreude for o in self.outflows])
-
-    @property
-    def grace(self) -> int:
-        return sum([o.grace for o in self.outflows])
-
-    @property
-    def mudita(self) -> int:
-        return sum([o.mudita for o in self.outflows])
-
-    @property
-    def regret(self) -> int:
-        return sum([o.regret for o in self.outflows])
-
     def set_wallet(self, wallet: Wallet) -> None:
         self.wallet = wallet
         self.address = self.wallet.address

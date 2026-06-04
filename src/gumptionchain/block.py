@@ -144,22 +144,6 @@ class Block:
         return self.last_txn if self.is_sealed else None
 
     @property
-    def schadenfreude(self) -> int:
-        return sum([t.schadenfreude for t in self.txns])
-
-    @property
-    def grace(self) -> int:
-        return sum([t.grace for t in self.txns])
-
-    @property
-    def mudita(self) -> int:
-        return sum([t.mudita for t in self.txns])
-
-    @property
-    def regret(self) -> int:
-        return sum([t.regret for t in self.txns])
-
-    @property
     def is_sealed(self) -> bool:
         return self.timestamp is not None
 

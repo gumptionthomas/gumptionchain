@@ -10,6 +10,7 @@ from gumptionchain.chain import (
     GRAIN_PER_GRIT,
     REWARD,
     Chain,
+    _net_stake_mint,
 )
 from gumptionchain.database import db
 from gumptionchain.exceptions import (
@@ -764,11 +765,10 @@ def test_support_rescind_mints_regret(
         _, milled_block = add_chain_block(chain=chain, block=block3)
 
         expected_regret = amt // 2
-        assert milled_block.regret == expected_regret
         coinbase_outflows = list(milled_block.coinbase.outflows)
-        # Only reward + regret should be present (schadenfreude/grace/mudita
-        # are 0 in this test), and exactly one outflow should carry the regret
-        # amount to the miner — not the reward outflow.
+        # This rescind block mints only reward + regret (no opposition/support
+        # stake or opposition rescind), so the coinbase has exactly two outflows
+        # and one carries the regret amount.
         assert len(coinbase_outflows) == 2
         assert (
             sum(
@@ -947,6 +947,37 @@ def test_to_dao_without_block_hash_returns_none():
     chain = Chain()
     assert chain.block_hash is None
     assert chain.to_dao() is None
+
+
+def test_net_stake_mint_new_stake():
+    assert _net_stake_mint({'A': 100}, {}, {}) == 50
+
+
+def test_net_stake_mint_restake_is_zero():
+    assert _net_stake_mint({'A': 100}, {'A': 100}, {}) == 0
+
+
+def test_net_stake_mint_partial_rescind_changeback_is_zero():
+    # out=change 60, consumed 100, rescind 40 -> new 0
+    assert _net_stake_mint({'A': 60}, {'A': 100}, {'A': 40}) == 0
+
+
+def test_net_stake_mint_odd_amount_floors():
+    assert _net_stake_mint({'A': 9}, {}, {}) == 4  # 9 // 2
+
+
+def test_net_stake_mint_sums_across_subjects():
+    assert _net_stake_mint({'A': 10, 'B': 20}, {}, {}) == 15  # 5 + 10
+
+
+def test_net_stake_mint_floors_each_subject_at_zero():
+    # A: consumed > emitted -> floored at 0 (not negative); B contributes
+    assert _net_stake_mint({'A': 10, 'B': 8}, {'A': 100}, {}) == 4  # 0 + 4
+
+
+def test_net_stake_mint_floor_is_per_subject_then_summed():
+    # A: max(0, 30-20+0)=10 -> 5 ; B: 8 -> 4 ; total 9
+    assert _net_stake_mint({'A': 30, 'B': 8}, {'A': 20}, {}) == 9
 
 
 # ---------------------------------------------------------------------------

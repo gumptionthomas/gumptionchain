@@ -52,37 +52,6 @@ def test_txn_invalid(invalid_txn, single_txn):
         single_txn.validate()
 
 
-def test_txn_schadenfreude(subject, txid, wallet):
-    txn = Transaction()
-    txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=9, opposition=subject))
-    txn.add_outflow(Outflow(amount=10, opposition=subject))
-    txn.set_wallet(wallet)
-    assert txn.schadenfreude == 9
-
-
-def test_txn_grace(subject, txid, wallet):
-    txn = Transaction()
-    txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(
-        Outflow(amount=9, rescind=subject, rescind_kind='opposition')
-    )
-    txn.add_outflow(
-        Outflow(amount=10, rescind=subject, rescind_kind='opposition')
-    )
-    txn.set_wallet(wallet)
-    assert txn.grace == 9
-
-
-def test_txn_mudita(subject, txid, wallet):
-    txn = Transaction()
-    txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=9, support=subject))
-    txn.add_outflow(Outflow(amount=10, support=subject))
-    txn.set_wallet(wallet)
-    assert txn.mudita == 9
-
-
 def test_coinbase_txn_valid(valid_coinbase_txn):
     valid_coinbase_txn.seal()
     valid_coinbase_txn.sign()
