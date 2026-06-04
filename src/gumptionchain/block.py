@@ -156,6 +156,10 @@ class Block:
         return sum([t.mudita for t in self.txns])
 
     @property
+    def regret(self) -> int:
+        return sum([t.regret for t in self.txns])
+
+    @property
     def is_sealed(self) -> bool:
         return self.timestamp is not None
 
@@ -237,6 +241,7 @@ class Block:
             self.schadenfreude,
             self.grace,
             self.mudita,
+            self.regret,
             prev_hash=self.prev_hash,
         )
 
@@ -313,6 +318,8 @@ class Block:
             comps.append(self.grace)
         if self.mudita:
             comps.append(self.mudita)
+        if self.regret:
+            comps.append(self.regret)
         if comps != [o.amount for o in cb.outflows[1:]]:
             raise InvalidCoinbaseError()
 

@@ -289,10 +289,11 @@ def invalid_txn(wallet):
 
 @pytest.fixture(
     params=[
-        (10, None, None, None),
-        (10, 5, None, None),
-        (10, 5, 5, None),
-        (10, 5, 5, 5),
+        (10, None, None, None, None),
+        (10, 5, None, None, None),
+        (10, 5, 5, None, None),
+        (10, 5, 5, 5, None),
+        (10, 5, 5, 5, 5),
     ]
 )
 def valid_coinbase_txn(request, wallet):

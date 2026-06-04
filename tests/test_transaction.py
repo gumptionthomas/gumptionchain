@@ -64,8 +64,12 @@ def test_txn_schadenfreude(subject, txid, wallet):
 def test_txn_grace(subject, txid, wallet):
     txn = Transaction()
     txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=9, rescind=subject))
-    txn.add_outflow(Outflow(amount=10, rescind=subject))
+    txn.add_outflow(
+        Outflow(amount=9, rescind=subject, rescind_kind='opposition')
+    )
+    txn.add_outflow(
+        Outflow(amount=10, rescind=subject, rescind_kind='opposition')
+    )
     txn.set_wallet(wallet)
     assert txn.grace == 9
 
@@ -76,7 +80,7 @@ def test_txn_mudita(subject, txid, wallet):
     txn.add_outflow(Outflow(amount=9, support=subject))
     txn.add_outflow(Outflow(amount=10, support=subject))
     txn.set_wallet(wallet)
-    assert txn.mudita == 19
+    assert txn.mudita == 9
 
 
 def test_coinbase_txn_valid(valid_coinbase_txn):
@@ -122,7 +126,9 @@ def test_txn_invalid_signature(single_txn):
 
 def test_db(app, wallet):
     with app.app_context():
-        cb = Transaction.coinbase(wallet, 20, 10, 9, 8, prev_hash=GENESIS_HASH)
+        cb = Transaction.coinbase(
+            wallet, 20, 10, 9, 8, 7, prev_hash=GENESIS_HASH
+        )
         cb.to_db()
         cb_copy = Transaction.from_db(cb.txid)
         assert cb_copy == cb
@@ -134,7 +140,7 @@ def test_db(app, wallet):
 
 
 def test_pending_txns(app, subject, wallet):
-    cb = Transaction.coinbase(wallet, 10, 0, 0, 0, prev_hash=GENESIS_HASH)
+    cb = Transaction.coinbase(wallet, 10, 0, 0, 0, 0, prev_hash=GENESIS_HASH)
     with app.app_context():
         cb.to_db()
         pending = PendingTxnSet()

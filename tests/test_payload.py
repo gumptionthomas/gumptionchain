@@ -33,13 +33,30 @@ def test_outflow_schadenfreude(subject):
 
 
 def test_outflow_grace(subject):
-    outflow = Outflow(amount=9, rescind=subject)
+    outflow = Outflow(amount=9, rescind=subject, rescind_kind='opposition')
     assert outflow.grace == 4
 
 
 def test_outflow_mudita(subject):
     outflow = Outflow(amount=9, support=subject)
-    assert outflow.mudita == 9
+    assert outflow.mudita == 4
+
+
+def test_outflow_mudita_is_half_weight(subject):
+    outflow = Outflow(amount=10, support=subject)
+    assert outflow.mudita == 5
+
+
+def test_outflow_grace_only_for_opposition_rescind(subject):
+    o = Outflow(amount=10, rescind=subject, rescind_kind='opposition')
+    assert o.grace == 5
+    assert o.regret == 0
+
+
+def test_outflow_regret_for_support_rescind(subject):
+    o = Outflow(amount=10, rescind=subject, rescind_kind='support')
+    assert o.regret == 5
+    assert o.grace == 0
 
 
 def test_inflow_data_csv(txid):

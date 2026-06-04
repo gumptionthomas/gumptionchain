@@ -139,14 +139,28 @@ class Outflow:
 
     @property
     def grace(self) -> int:
-        if self.rescind is not None and self.amount is not None:
+        if (
+            self.rescind is not None
+            and self.rescind_kind == 'opposition'
+            and self.amount is not None
+        ):
             return int(self.amount / 2)
         return 0
 
     @property
     def mudita(self) -> int:
         if self.support is not None and self.amount is not None:
-            return self.amount
+            return int(self.amount / 2)
+        return 0
+
+    @property
+    def regret(self) -> int:
+        if (
+            self.rescind is not None
+            and self.rescind_kind == 'support'
+            and self.amount is not None
+        ):
+            return int(self.amount / 2)
         return 0
 
 
