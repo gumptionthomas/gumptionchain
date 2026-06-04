@@ -641,7 +641,7 @@ def test_validate_io_address_mismatch(app, wallet):
             chain.add_block(block2)
 
 
-def test_validate_subject_ioflows(app, subject, wallet):
+def test_validate_opposition_ioflows(app, subject, wallet):
     with app.app_context():
         chain = Chain()
         block = Block()

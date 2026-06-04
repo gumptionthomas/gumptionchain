@@ -1011,7 +1011,7 @@ subject_cli = AppGroup('subject', help='Command group to work with subjects.')
 def opposition_balance(
     subject: str, host: str | None, wallet: str | None
 ) -> None:
-    """Get the balance (i.e. opposition transactions minus rescissions
+    """Get the balance (i.e. opposition transactions minus rescind
        transactions) in GRIT for a subject.
 
     \b

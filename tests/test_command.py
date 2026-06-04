@@ -125,7 +125,9 @@ def run_txn_opposition(
     )
 
 
-def test_subject(app, mill_block, runner, requests_proxy, subject_raw, wallet):
+def test_opposition(
+    app, mill_block, runner, requests_proxy, subject_raw, wallet
+):
     with app.app_context():
         txn_wallet = Wallet()
         txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
@@ -140,7 +142,7 @@ def test_subject(app, mill_block, runner, requests_proxy, subject_raw, wallet):
         assert len(m.pending_txns) == 1
 
 
-def test_invalid_subject(
+def test_invalid_opposition(
     app, mill_block, runner, requests_proxy, subject_raw, wallet
 ):
     with app.app_context():
@@ -175,7 +177,7 @@ def run_txn_rescind(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
     )
 
 
-def test_forgive(
+def test_rescind(
     app, mill_block, runner, requests_proxy, subject_raw, time_stepper, wallet
 ):
     with app.app_context():
@@ -197,7 +199,7 @@ def test_forgive(
         assert len(m.pending_txns) == 2
 
 
-def test_invalid_forgive(
+def test_invalid_rescind(
     app, mill_block, runner, requests_proxy, subject_raw, wallet
 ):
     with app.app_context():

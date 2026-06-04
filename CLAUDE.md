@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-GumptionChain is a custom proof-of-work blockchain (Flask + SQLAlchemy) where tokens are assigned to *subjects* (UTF-8 strings, 1–79 chars) as **opposition** (`subject`, rescindable via `forgive`) or **support** (`support`, permanent). It runs as both a Flask web app (browser views + JSON API) and a `gumptionchain` CLI. The chain is permissioned: API access is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`) keyed off wallet addresses listed in config.
+GumptionChain is a custom proof-of-work blockchain (Flask + SQLAlchemy) where tokens are assigned to *subjects* (UTF-8 strings, 1–79 chars) as **opposition** (`opposition`, rescindable via `rescind`) or **support** (`support`, permanent). It runs as both a Flask web app (browser views + JSON API) and a `gumptionchain` CLI. The chain is permissioned: API access is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`) keyed off wallet addresses listed in config.
 
 Units: 1 **GRIT / grit** = 100 **grains** (`GRAIN_PER_GRIT` in `gumptionchain.chain`). Float CLI amounts are converted via `grit_to_grains`.
 
@@ -89,7 +89,7 @@ Every core entity has a paired structure:
 | `Block` (`block.py`) | `BlockDAO` | Recursive CTE on `prev_id` provides `block_chain` / `transactions_chain` / `inflows_chain` / `outflows_chain` |
 | `Chain` (`chain.py`) | `ChainDAO` | A chain is identified by its tip `block_hash` |
 | `Transaction` (`transaction.py`) | `TransactionDAO` | Many-to-many with blocks via `block_transactions` |
-| `Inflow` / `Outflow` (`payload.py`) | `InflowDAO` / `OutflowDAO` | Outflow has at most one of `address`, `subject`, `forgive`, `support` |
+| `Inflow` / `Outflow` (`payload.py`) | `InflowDAO` / `OutflowDAO` | Outflow has at most one of `address`, `opposition`, `rescind`, `support` |
 | pending pool | `PendingTxnDAO` + `PendingIOflowDAO` | `PendingTxnSet` is a `MutableSet` over the DAO |
 
 Domain objects own validation, serialization (Marshmallow schemas in `schema.py`, `block.py`, `transaction.py`, `payload.py`), and round-trip via `to_dict` / `to_json` / `from_json` / `to_dao` / `from_dao` / `to_db` / `from_db`. **Don't add validation to the DAO layer** — it lives on the dataclass. `asdict_sans_none` (in `schema.py`) is what strips `None` keys before JSON; preserve that contract when adding fields.

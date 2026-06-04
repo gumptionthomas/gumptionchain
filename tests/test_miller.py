@@ -202,7 +202,7 @@ def test_max_txns(app, time_machine, wallet):
         assert len(b1.txns) == max_txns
 
 
-def test_subject_forgive_txns(app, subject, time_machine, wallet):
+def test_opposition_rescind_txns(app, subject, time_machine, wallet):
     with app.app_context():
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
@@ -229,7 +229,7 @@ def test_subject_forgive_txns(app, subject, time_machine, wallet):
         assert m.longest_chain.opposition_balance(subject) == 0
 
 
-def test_invalid_subject_forgive_txns(app, subject, time_machine, wallet):
+def test_invalid_opposition_rescind_txns(app, subject, time_machine, wallet):
     with app.app_context():
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)

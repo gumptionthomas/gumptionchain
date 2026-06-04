@@ -660,7 +660,7 @@ class OppositionBalanceView(MethodView):
             if lc is None:
                 raise EmptyChainError()
             block_hash = lc.block_hash
-            key = f'{block_hash}.{subject}.balance'
+            key = f'{block_hash}.{subject}.opposition'
             if (balance := cache.get(key)) is None:
                 balance = lc.opposition_balance(subject)
                 cache.set(key, balance)
