@@ -47,7 +47,7 @@ from gumptionchain.exceptions import (
 from gumptionchain.miller import Miller
 from gumptionchain.models import ChainDAO
 from gumptionchain.payload import Inflow, Outflow, encode_subject
-from gumptionchain.transaction import Transaction
+from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import dt_2_iso, now, now_iso
 
 # Matches the `easy_mill_chain` session-scoped fixture's patched
@@ -140,7 +140,7 @@ def _hostile_block(
     assert prev_block.idx is not None
     assert prev_block.block_hash is not None
     b.link(prev_block.idx + idx_offset, prev_block.block_hash, TEST_TARGET)
-    b.seal(wallet, REWARD)
+    b.seal(wallet, REWARD, CoinbaseMetrics())
     b.mill()
     return b
 
@@ -362,7 +362,7 @@ def test_a7_b_alternate_genesis_fragments_chain_registry(
         # fixture's patched value, also returned by Chain.block_target at
         # index=0).
         g2.link(0, GENESIS_HASH, TEST_TARGET)
-        g2.seal(miller_2_wallet, REWARD)
+        g2.seal(miller_2_wallet, REWARD, CoinbaseMetrics())
         g2.mill()
         assert g2.block_hash is not None
         assert g2.block_hash != g1.block_hash
@@ -423,7 +423,7 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
         time_machine.move_to(when_dt)
         g2 = Block()
         g2.link(0, GENESIS_HASH, TEST_TARGET)
-        g2.seal(miller_2_wallet, REWARD)
+        g2.seal(miller_2_wallet, REWARD, CoinbaseMetrics())
         g2.mill()
         assert g2.block_hash is not None
         assert g2.block_hash != g1.block_hash
@@ -433,7 +433,7 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
         time_machine.move_to(when_dt)
         b2 = Block()
         b2.link(1, g2.block_hash, TEST_TARGET)
-        b2.seal(miller_2_wallet, REWARD)
+        b2.seal(miller_2_wallet, REWARD, CoinbaseMetrics())
         b2.mill()
         assert b2.idx == 1
         assert b2.prev_hash == g2.block_hash
@@ -630,4 +630,4 @@ def test_a4_c_coinbase_block_binding(app, time_machine, wallet) -> None:
         b_mismatch.timestamp = now_iso()
         b_mismatch.mill()
         with pytest.raises(MismatchedCoinbaseError):
-            chain.validate_block_coinbase(b_mismatch)
+            chain.validate_block_coinbase(b_mismatch, CoinbaseMetrics())

@@ -20,7 +20,6 @@ from gumptionchain.exceptions import (
     FutureTransactionError,
     InvalidBlockError,
     InvalidBlockHashError,
-    InvalidCoinbaseError,
     InvalidMerkleRootError,
     InvalidProofError,
     InvalidTransactionError,
@@ -38,6 +37,7 @@ from gumptionchain.schema import (
     pydantic_errors_to_messages,
 )
 from gumptionchain.transaction import (
+    CoinbaseMetrics,
     Transaction,
     TransactionModel,
     txn_from_model_data,
@@ -232,34 +232,45 @@ class Block:
             txn.validate_coinbase()
         self.txns.append(txn)
 
-    def create_coinbase(self, wallet: Wallet, reward: int) -> Transaction:
+    def create_coinbase(
+        self, wallet: Wallet, reward: int, metrics: CoinbaseMetrics
+    ) -> Transaction:
         if self.prev_hash is None:
             raise UnlinkedBlockError()
         return Transaction.coinbase(
             wallet,
             reward,
-            self.schadenfreude,
-            self.grace,
-            self.mudita,
-            self.regret,
+            metrics.schadenfreude,
+            metrics.grace,
+            metrics.mudita,
+            metrics.regret,
             prev_hash=self.prev_hash,
         )
 
-    def add_coinbase(self, wallet: Wallet, reward: int) -> None:
-        self.add_txn(self.create_coinbase(wallet, reward), is_coinbase=True)
+    def add_coinbase(
+        self, wallet: Wallet, reward: int, metrics: CoinbaseMetrics
+    ) -> None:
+        self.add_txn(
+            self.create_coinbase(wallet, reward, metrics), is_coinbase=True
+        )
 
     def link(self, idx: int, prev_hash: str, target: str) -> None:
         self.idx = idx
         self.prev_hash = prev_hash
         self.target = target
 
-    def seal(self, wallet: Wallet, reward: int) -> None:
+    def seal(
+        self,
+        wallet: Wallet,
+        reward: int,
+        metrics: CoinbaseMetrics,
+    ) -> None:
         if self.is_sealed:
             raise SealedBlockError()
         if (self.prev_hash is None) or (self.idx is None):
             raise UnlinkedBlockError()
         self.txns.sort()
-        self.add_coinbase(wallet, reward)
+        self.add_coinbase(wallet, reward, metrics)
         self.merkle_root = self.get_merkle_root()
         self.timestamp = now_iso()
 
@@ -311,17 +322,6 @@ class Block:
         if not cb:
             raise MissingCoinbaseError()
         cb.validate_coinbase()
-        comps = []
-        if self.schadenfreude:
-            comps.append(self.schadenfreude)
-        if self.grace:
-            comps.append(self.grace)
-        if self.mudita:
-            comps.append(self.mudita)
-        if self.regret:
-            comps.append(self.regret)
-        if comps != [o.amount for o in cb.outflows[1:]]:
-            raise InvalidCoinbaseError()
 
     def validate(self) -> None:
         try:

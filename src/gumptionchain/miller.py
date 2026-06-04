@@ -12,7 +12,7 @@ from gumptionchain.chain import Chain
 from gumptionchain.milling import milling_generator
 from gumptionchain.node import Node
 from gumptionchain.signals import txn_failed as txn_failed_signal
-from gumptionchain.transaction import Transaction
+from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import host_address, now
 from gumptionchain.wallet import Wallet
 
@@ -83,11 +83,13 @@ class Miller(Node):
         chain.link_block(block)
         i = 0
         discard_txns: list[Transaction] = []
+        metrics = CoinbaseMetrics()
         self.update_pending_txns()
         for txn in self.pending_chain_txns(chain):
             try:
-                chain.validate_block_txn(block, txn, txn_in_block=False)
+                m = chain.validate_block_txn(block, txn, txn_in_block=False)
                 block.add_txn(txn)
+                metrics += m
                 i += 1
                 if i >= MAX_TRANSACTIONS - 1:
                     break
@@ -96,7 +98,7 @@ class Miller(Node):
                 txn_failed_signal.send(self, txn=txn, e=e)
         for txn in discard_txns:
             self.pending_txns.discard(txn)
-        chain.seal_block(block, self.milling_wallet)  # type: ignore[arg-type]
+        chain.seal_block(block, self.milling_wallet, metrics)  # type: ignore[arg-type]
         return block
 
     def poll_latest_blocks(self, progress: Any | None = None) -> None:

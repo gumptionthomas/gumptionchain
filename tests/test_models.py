@@ -8,7 +8,7 @@ from gumptionchain.chain import Chain
 from gumptionchain.database import db
 from gumptionchain.models import BlockDAO, ChainDAO, LongestChainBlockDAO
 from gumptionchain.payload import Inflow, Outflow
-from gumptionchain.transaction import Transaction
+from gumptionchain.transaction import CoinbaseMetrics, Transaction
 
 
 def test_unspent_outflows(app, subject, time_stepper, wallet):
@@ -18,7 +18,7 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         cb_1 = block_1.coinbase
@@ -45,13 +45,20 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         block_2a = Block()
         block_2a.add_txn(t_2a)
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet)
+        metrics_2a = sum(
+            (
+                chain_a.validate_block_txn(block_2a, txn)
+                for txn in block_2a.txns
+            ),
+            CoinbaseMetrics(),
+        )
+        chain_a.seal_block(block_2a, wallet, metrics_2a)
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -164,7 +171,7 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -172,13 +179,13 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -288,7 +295,7 @@ def test_non_longest_chain_blocks_uses_cte(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -296,13 +303,13 @@ def test_non_longest_chain_blocks_uses_cte(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -683,14 +690,14 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
         chain_b = Chain()
         block_b1 = Block()
         chain_b.link_block(block_b1)
-        chain_b.seal_block(block_b1, wallet)
+        chain_b.seal_block(block_b1, wallet, CoinbaseMetrics())
         block_b1.mill()
         block_b1.to_db()
         chain_b.block_hash = block_b1.block_hash
         _ = next(time_step)
         block_b2 = Block()
         chain_b.link_block(block_b2)
-        chain_b.seal_block(block_b2, wallet)
+        chain_b.seal_block(block_b2, wallet, CoinbaseMetrics())
         block_b2.mill()
         block_b2.to_db()
         chain_b.block_hash = block_b2.block_hash

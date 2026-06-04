@@ -15,7 +15,7 @@ from gumptionchain.chain import GENESIS_HASH, REWARD, Chain
 from gumptionchain.database import db
 from gumptionchain.miller import Miller
 from gumptionchain.payload import Inflow, Outflow, encode_subject
-from gumptionchain.transaction import Transaction
+from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import now
 from gumptionchain.wallet import Wallet
 
@@ -331,7 +331,13 @@ def add_chain_block(wallet):
         c = chain or Chain()
         b = block or Block()
         c.link_block(b)
-        c.seal_block(b, milling_wallet or wallet)
+        # Compute metrics over all txns in the block (before sealing the
+        # coinbase is not yet appended, so b.txns == future regular_txns).
+        metrics = sum(
+            (c.validate_block_txn(b, t) for t in b.txns),
+            CoinbaseMetrics(),
+        )
+        c.seal_block(b, milling_wallet or wallet, metrics)
         b.mill()
         c.add_block(b)
         return c, b

@@ -24,7 +24,7 @@ from gumptionchain.exceptions import MempoolFullError
 from gumptionchain.miller import Miller
 from gumptionchain.payload import Inflow, Outflow, encode_subject
 from gumptionchain.tasks import celery
-from gumptionchain.transaction import Transaction
+from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import now
 
 # Matches the `easy_mill_chain` session-scoped fixture's patched
@@ -51,7 +51,7 @@ def _hostile_block(prev_block: Block, wallet, idx_offset: int = 1) -> Block:
     assert prev_block.idx is not None
     assert prev_block.block_hash is not None
     b.link(prev_block.idx + idx_offset, prev_block.block_hash, TEST_TARGET)
-    b.seal(wallet, REWARD)
+    b.seal(wallet, REWARD, CoinbaseMetrics())
     b.mill()
     return b
 

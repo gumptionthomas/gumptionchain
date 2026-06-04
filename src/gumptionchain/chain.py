@@ -21,11 +21,13 @@ from gumptionchain.exceptions import (
     InvalidBlockError,
     InvalidBlockIndexError,
     InvalidChainError,
+    InvalidCoinbaseError,
     InvalidCoinbaseErrorRewardError,
     InvalidInflowOutflowError,
     InvalidPreviousHashError,
     InvalidTargetError,
     MismatchedCoinbaseError,
+    MissingCoinbaseError,
     MissingInflowOutflowError,
     MissingPreviousBlockError,
     OutOfOrderBlockError,
@@ -165,8 +167,13 @@ class Chain:
         target = self.target or MAX_TARGET
         block.link(index, prev_hash or GENESIS_HASH, target)
 
-    def seal_block(self, block: Block, wallet: Wallet) -> None:
-        block.seal(wallet, self.block_reward(block))
+    def seal_block(
+        self,
+        block: Block,
+        wallet: Wallet,
+        metrics: CoinbaseMetrics,
+    ) -> None:
+        block.seal(wallet, self.block_reward(block), metrics)
 
     def add_block(self, block: Block, *, commit: bool = True) -> None:
         self.validate_block(block)
@@ -218,9 +225,22 @@ class Chain:
             raise InvalidBlockIndexError()
         if block.target != self.block_target(block=block):
             raise InvalidTargetError()
+        metrics = CoinbaseMetrics()
         for txn in block.regular_txns:
-            self.validate_block_txn(block, txn)
-        self.validate_block_coinbase(block)
+            metrics += self.validate_block_txn(block, txn)
+        try:
+            self.validate_block_coinbase(block, metrics)
+        except (
+            MismatchedCoinbaseError,
+            InvalidCoinbaseErrorRewardError,
+            InvalidBlockError,
+        ):
+            # MismatchedCoinbaseError and InvalidCoinbaseErrorRewardError are
+            # InvalidCoinbaseError subclasses that callers test for by type;
+            # re-raise them before the generic InvalidCoinbaseError wrap.
+            raise
+        except InvalidCoinbaseError as e:
+            raise InvalidBlockError(e.messages) from e
 
     def validate_block_txn(
         self,
@@ -359,22 +379,22 @@ class Chain:
             raise SpentTransactionError()
         return ioflow.amount or 0, ioflow.opposition, ioflow.support
 
-    def validate_block_coinbase(self, block: Block) -> None:
-        block.validate_coinbase()
-        reward = self.block_reward(block)
+    def validate_block_coinbase(
+        self, block: Block, metrics: CoinbaseMetrics
+    ) -> None:
         cb = block.coinbase
-        if cb is not None:
-            # A4.c v2: a coinbase is bound to the block it rewards via its
-            # prev_hash (which is part of the coinbase's hashed txid). A
-            # replay carries the wrong parent; reject on the mismatch. This
-            # is a purely local check — no lineage walk, no self.last_block
-            # dependence — so it is correct in both the add-block path and
-            # Chain.validate() full-chain revalidation.
-            if cb.prev_hash != block.prev_hash:
-                raise MismatchedCoinbaseError()
-            outflow = cb.get_outflow(0)
-            if outflow is not None and outflow.amount != reward:
-                raise InvalidCoinbaseErrorRewardError()
+        if cb is None:
+            raise MissingCoinbaseError()
+        cb.validate_coinbase()
+        if metrics.nonzero_amounts() != [o.amount for o in cb.outflows[1:]]:
+            raise InvalidCoinbaseError()
+        reward = self.block_reward(block)
+        # A4.c v2: coinbase is bound to the block it rewards via prev_hash.
+        if cb.prev_hash != block.prev_hash:
+            raise MismatchedCoinbaseError()
+        outflow = cb.get_outflow(0)
+        if outflow is not None and outflow.amount != reward:
+            raise InvalidCoinbaseErrorRewardError()
 
     def get_block(self, block_hash: str) -> Block | None:
         dao = self.to_dao()
