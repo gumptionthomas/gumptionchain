@@ -150,7 +150,7 @@ When `GC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 - **Branch names:** `<type>/<short-description>` (e.g. `feat/peer-gossip-retry`, `fix/wallet-load-race`, `docs/api-auth-readme`).
 - **Commit messages:** Conventional Commits (`feat(scope): description`, `fix: ...`, `refactor: ...`, `docs: ...`).
 - **PR merge:** `gh pr merge <N> --squash --delete-branch`. Never regular merge or rebase, never leave the branch lying around.
-- **Always wait for Copilot review** (`wor` shorthand) before merging — even when CI is green and local testing looks clean. Copilot catches things that look obvious only in hindsight. Skip only when the user explicitly says so.
+- **Reviewed before merge — but not automatically by Copilot.** Automatic Copilot PR reviews are disabled (their pricing model), so don't wait on one or tell the user to. The pre-merge bar is: green CI **plus** a real review — the local subagent review pipeline run during implementation, `/code-review` (or the `ultracode` cloud review) for a heavier independent pass, and/or the user's own read. The user will **manually** request a Copilot review for large or risky changes; only then is `wor` waiting on Copilot.
 - **`mwg`** = "merge when green" — `gh pr checks <N> --watch`, then squash-merge once green.
 - **Run formatting and tests before commit:** `uv run ruff format --check src tests` and `uv run pytest`. CI gates on both.
 - **No "while we're in here" scope creep.** A fix PR fixes the thing it was opened for; adjacent refactors become their own PRs (or issues for later). Bundling expands blast radius and complicates revert.

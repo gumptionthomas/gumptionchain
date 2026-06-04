@@ -435,7 +435,10 @@ def test_future_timestamp_rejected(
 ):
     with app.app_context():
         mill_block(reader_wallet)
-        future = int(now().timestamp()) + (signing.FRESHNESS_SECONDS + 1)
+        # Sit well past the freshness window's far edge. A tight +1s margin
+        # is flaky: if >1s elapses before the server re-reads now() at verify,
+        # the "future" timestamp drifts back inside the window and is accepted.
+        future = int(now().timestamp()) + (signing.FRESHNESS_SECONDS + 60)
         headers = signing.sign_headers(
             reader_wallet,
             method='GET',
