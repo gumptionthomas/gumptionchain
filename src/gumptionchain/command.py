@@ -858,7 +858,7 @@ def create_rescind(
     except httpx.HTTPStatusError as e:
         console.print(f'Rescind failed: {http_error_message(e)}', style='error')
     except Exception as e:
-        console.print(f'Rescind failed: {e} ', style='error')
+        console.print(f'Rescind failed: {e}', style='error')
 
 
 @txn_cli.command('support')
