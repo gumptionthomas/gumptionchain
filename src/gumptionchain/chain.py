@@ -5,7 +5,7 @@ import json
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from functools import total_ordering
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -233,6 +233,8 @@ class Chain:
         # subtract outflow amounts
         for o in txn.outflows:
             if o.rescind:
+                # rescind_kind is validated to 'opposition'|'support' by
+                # OutflowModel; the else handles 'opposition'.
                 if o.rescind_kind == 'support':
                     support_amounts[o.rescind] = support_amounts.get(
                         o.rescind, 0
@@ -402,7 +404,7 @@ class Chain:
     def unrescinded_outflows(
         self,
         subject: str,
-        kind: str,
+        kind: Literal['opposition', 'support'],
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Iterator[tuple[str, int, Outflow]]:
         outflow_daos = db.session.execute(
@@ -422,7 +424,7 @@ class Chain:
         self,
         address: str,
         subject: str,
-        kind: str,
+        kind: Literal['opposition', 'support'],
         limit: int | None = None,
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Iterator[tuple[str, int, Outflow]]:
@@ -512,7 +514,11 @@ class Chain:
         return t
 
     def create_rescind(
-        self, wallet: Wallet, amount: int, subject: str, kind: str
+        self,
+        wallet: Wallet,
+        amount: int,
+        subject: str,
+        kind: Literal['opposition', 'support'],
     ) -> Transaction:
         address = wallet.address
         balance = 0

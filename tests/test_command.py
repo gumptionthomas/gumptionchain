@@ -262,6 +262,43 @@ def test_invalid_support(
         assert len(m.pending_txns) == 0
 
 
+def test_rescind_support_kind(
+    app,
+    mill_block,
+    runner,
+    requests_proxy,
+    subject_raw,
+    time_stepper,
+    wallet,
+):
+    """txn rescind --kind support creates a support rescind transaction."""
+    with app.app_context():
+        time_step = time_stepper()
+        txn_wallet = Wallet()
+        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
+        m, _ = mill_block(txn_wallet)
+        _ = next(time_step)
+        result = run_txn_support(runner, subject_raw, txn_wallet, txnwf)
+        assert 'Support created' in result.output
+        assert len(m.pending_txns) == 1
+        m, _ = mill_block(txn_wallet)
+        result = run_txn_rescind(
+            runner,
+            subject_raw,
+            txn_wallet,
+            txnwf,
+            confirm=False,
+            kind='support',
+        )
+        assert 'Rescind aborted' in result.output
+        assert len(m.pending_txns) == 1
+        result = run_txn_rescind(
+            runner, subject_raw, txn_wallet, txnwf, kind='support'
+        )
+        assert 'Rescind created' in result.output
+        assert len(m.pending_txns) == 2
+
+
 def test_create_wallet(app, runner):
     with app.app_context(), TemporaryDirectory() as walletdir:
         result = runner.invoke(

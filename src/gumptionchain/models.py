@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Generator
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from sqlalchemy import (
     CTE,
@@ -572,7 +572,7 @@ class ChainDAO(Base):
     def unrescinded_outflows(
         self,
         subject: str,
-        kind: str,
+        kind: Literal['opposition', 'support'],
         address: str | None = None,
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Select[tuple[OutflowDAO]]:
