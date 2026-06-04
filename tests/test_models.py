@@ -36,7 +36,7 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         _ = next(time_step)
         t_2a = Transaction()
         t_2a.add_inflow(Inflow(outflow_txid=cb_1.txid, outflow_idx=0))
-        t_2a.add_outflow(Outflow(amount=cb_1_amount, subject=subject))
+        t_2a.add_outflow(Outflow(amount=cb_1_amount, opposition=subject))
         t_2a.set_wallet(wallet)
         t_2a.seal()
         t_2a.sign()

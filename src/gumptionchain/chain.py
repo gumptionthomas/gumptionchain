@@ -213,30 +213,32 @@ class Chain:
         txn_in_block: bool = True,  # noqa: FBT001
     ) -> None:
         # add inflow amounts
-        subject_amounts: dict[str, int] = {}
+        opposition_amounts: dict[str, int] = {}
         other_amounts = 0
         for i in txn.inflows:
             amount, subject = self.validate_txn_inflow(
                 block, txn, i, txn_in_block=txn_in_block
             )
             if subject:
-                subject_amount: int | None = subject_amounts.get(subject, 0)
-                subject_amounts[subject] = (subject_amount or 0) + amount
+                opposition_amount: int | None = opposition_amounts.get(
+                    subject, 0
+                )
+                opposition_amounts[subject] = (opposition_amount or 0) + amount
             else:
                 other_amounts += amount
         # subtract outflow amounts
         for o in txn.outflows:
-            if o.forgive:
-                forgive_amount = subject_amounts.get(o.forgive, 0)
-                subject_amounts[o.forgive] = forgive_amount - (o.amount or 0)
-            elif o.subject:
-                subject_amount = subject_amounts.get(o.subject)
-                if subject_amount and subject_amount > 0:
-                    if (o.amount or 0) > subject_amount:
-                        subject_amounts[o.subject] = 0
-                        other_amounts -= (o.amount or 0) - subject_amount
+            if o.rescind:
+                rescind_amount = opposition_amounts.get(o.rescind, 0)
+                opposition_amounts[o.rescind] = rescind_amount - (o.amount or 0)
+            elif o.opposition:
+                opposition_amount = opposition_amounts.get(o.opposition)
+                if opposition_amount and opposition_amount > 0:
+                    if (o.amount or 0) > opposition_amount:
+                        opposition_amounts[o.opposition] = 0
+                        other_amounts -= (o.amount or 0) - opposition_amount
                     else:
-                        subject_amounts[o.subject] = subject_amount - (
+                        opposition_amounts[o.opposition] = opposition_amount - (
                             o.amount or 0
                         )
                 else:
@@ -245,7 +247,7 @@ class Chain:
                 other_amounts -= o.amount or 0
         if other_amounts != 0:
             raise ImbalancedTransactionError()
-        for _, amount in subject_amounts.items():
+        for _, amount in opposition_amounts.items():
             if amount != 0:
                 raise ImbalancedTransactionError()
 
@@ -265,8 +267,8 @@ class Chain:
                 ioflow = ioflow_txn.get_outflow(i.outflow_idx or 0)
         if not ioflow:
             raise MissingInflowOutflowError()
-        # inflow's outflow can't be for forgiveness or support
-        if ioflow.forgive is not None or ioflow.support is not None:
+        # inflow's outflow can't be for rescind or support
+        if ioflow.rescind is not None or ioflow.support is not None:
             raise InvalidInflowOutflowError()
         # inflow's outflow address equals the txn address
         address = (
@@ -282,7 +284,7 @@ class Chain:
         )
         if num_inflows > 1 or (num_inflows > 0 and not txn_in_block):
             raise SpentTransactionError()
-        return ioflow.amount or 0, ioflow.subject
+        return ioflow.amount or 0, ioflow.opposition
 
     def validate_block_coinbase(self, block: Block) -> None:
         block.validate_coinbase()
@@ -475,7 +477,7 @@ class Chain:
                 t.add_inflow(Inflow(outflow_txid=txid, outflow_idx=index))
         if balance < amount:
             raise InsufficientFundsError()
-        t.add_outflow(Outflow(amount=amount, subject=subject))
+        t.add_outflow(Outflow(amount=amount, opposition=subject))
         if balance - amount:
             t.add_outflow(Outflow(amount=balance - amount, address=address))
         t.set_wallet(wallet)
@@ -496,9 +498,9 @@ class Chain:
             t.add_inflow(Inflow(outflow_txid=txid, outflow_idx=index))
         if balance < amount:
             raise InsufficientFundsError()
-        t.add_outflow(Outflow(amount=amount, forgive=subject))
+        t.add_outflow(Outflow(amount=amount, rescind=subject))
         if balance - amount:
-            t.add_outflow(Outflow(amount=balance - amount, subject=subject))
+            t.add_outflow(Outflow(amount=balance - amount, opposition=subject))
         t.set_wallet(wallet)
         t.seal()
         return t

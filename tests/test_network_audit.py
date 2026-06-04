@@ -136,7 +136,7 @@ def test_n2_mempool_has_no_admission_cap(app, time_machine, wallet) -> None:
             # (no chain lookup / balance check), so the unfunded txn admits.
             t.add_inflow(Inflow(outflow_txid='0' * 64, outflow_idx=0))
             t.add_outflow(
-                Outflow(amount=1, subject=encode_subject(f'subj-{i}'))
+                Outflow(amount=1, opposition=encode_subject(f'subj-{i}'))
             )
             t.set_wallet(wallet)
             t.seal()
@@ -162,7 +162,7 @@ def test_n3_pending_txn_regossiped_on_every_receipt(
         # One valid signed txn (dummy inflow satisfies the shape check).
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid='0' * 64, outflow_idx=0))
-        t.add_outflow(Outflow(amount=1, subject=encode_subject('subj-n3')))
+        t.add_outflow(Outflow(amount=1, opposition=encode_subject('subj-n3')))
         t.set_wallet(wallet)
         t.seal()
         t.sign()
@@ -304,7 +304,7 @@ def test_n2_full_mempool_returns_503(
             t = Transaction()
             t.add_inflow(Inflow(outflow_txid='0' * 64, outflow_idx=0))
             t.add_outflow(
-                Outflow(amount=1, subject=encode_subject(f's503-{i}'))
+                Outflow(amount=1, opposition=encode_subject(f's503-{i}'))
             )
             t.set_wallet(wallet)
             t.seal()
@@ -334,7 +334,9 @@ def test_n3_new_txn_gossips_once(app, time_machine, wallet) -> None:
 
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid='0' * 64, outflow_idx=0))
-        t.add_outflow(Outflow(amount=1, subject=encode_subject('subj-n3-pos')))
+        t.add_outflow(
+            Outflow(amount=1, opposition=encode_subject('subj-n3-pos'))
+        )
         t.set_wallet(wallet)
         t.seal()
         t.sign()

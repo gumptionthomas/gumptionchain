@@ -98,8 +98,8 @@
               <tr>
                 <td class="col-1">{{ loop.index0 }}</td>
                 <td class="col-3">{{ o.address or None }}</td>
-                <td class="col-2">{{ o.subject }}{% if o.subject %} <em>({{ o.subject | human_subject }})</em>{% endif %}</td>
-                <td class="col-2">{{ o.forgive }}{% if o.forgive %} <em>({{ o.forgive | human_subject }})</em>{% endif %}</td>
+                <td class="col-2">{{ o.opposition }}{% if o.opposition %} <em>({{ o.opposition | human_subject }})</em>{% endif %}</td>
+                <td class="col-2">{{ o.rescind }}{% if o.rescind %} <em>({{ o.rescind | human_subject }})</em>{% endif %}</td>
                 <td class="col-2">{{ o.support }}{% if o.support %} <em>({{ o.support | human_subject }})</em>{% endif %}</td>
                 <td class="col-2">{{ o.amount }}</td>
               </tr>

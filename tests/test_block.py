@@ -27,7 +27,7 @@ TEST_TARGET = 'F' * 64
 def new_txn(txid, subject, wallet):
     txn = Transaction()
     txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=10, subject=subject))
+    txn.add_outflow(Outflow(amount=10, opposition=subject))
     txn.set_wallet(wallet)
     txn.seal()
     txn.sign()
@@ -151,7 +151,7 @@ def test_too_many_txns(reward, subject, txid, wallet):
     for _i in range(MAX_TRANSACTIONS + 1):
         txn = Transaction()
         txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-        txn.add_outflow(Outflow(amount=10, subject=subject))
+        txn.add_outflow(Outflow(amount=10, opposition=subject))
         txn.set_wallet(wallet)
         txn.seal()
         txn.sign()

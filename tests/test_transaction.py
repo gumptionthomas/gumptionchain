@@ -55,8 +55,8 @@ def test_txn_invalid(invalid_txn, single_txn):
 def test_txn_schadenfreude(subject, txid, wallet):
     txn = Transaction()
     txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=9, subject=subject))
-    txn.add_outflow(Outflow(amount=10, subject=subject))
+    txn.add_outflow(Outflow(amount=9, opposition=subject))
+    txn.add_outflow(Outflow(amount=10, opposition=subject))
     txn.set_wallet(wallet)
     assert txn.schadenfreude == 9
 
@@ -64,8 +64,8 @@ def test_txn_schadenfreude(subject, txid, wallet):
 def test_txn_grace(subject, txid, wallet):
     txn = Transaction()
     txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=9, forgive=subject))
-    txn.add_outflow(Outflow(amount=10, forgive=subject))
+    txn.add_outflow(Outflow(amount=9, rescind=subject))
+    txn.add_outflow(Outflow(amount=10, rescind=subject))
     txn.set_wallet(wallet)
     assert txn.grace == 9
 
@@ -140,7 +140,7 @@ def test_pending_txns(app, subject, wallet):
         pending = PendingTxnSet()
         txn = Transaction()
         txn.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
-        txn.add_outflow(Outflow(amount=10, subject=subject))
+        txn.add_outflow(Outflow(amount=10, opposition=subject))
         txn.set_wallet(wallet)
         txn.seal()
         txn.sign()
@@ -155,7 +155,7 @@ def test_pending_txns(app, subject, wallet):
 def test_to_dao_unsealed_raises(subject):
     """to_dao() raises UnsealedTransactionError when txid is None."""
     txn = Transaction()
-    txn.add_outflow(Outflow(amount=1, subject=subject))
+    txn.add_outflow(Outflow(amount=1, opposition=subject))
     assert txn.txid is None
     with pytest.raises(UnsealedTransactionError):
         txn.to_dao()
@@ -165,7 +165,7 @@ def test_to_dao_inflow_missing_outflow_ref_raises(subject):
     """Transaction.to_dao() raises if an inflow has None outflow_txid/idx."""
     txn = Transaction()
     txn.add_inflow(Inflow(outflow_txid=None, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=1, subject=subject))
+    txn.add_outflow(Outflow(amount=1, opposition=subject))
     txn.seal()
     with pytest.raises(
         InvalidTransactionError, match='Inflow 0 missing outflow reference'
@@ -176,7 +176,7 @@ def test_to_dao_inflow_missing_outflow_ref_raises(subject):
 def test_to_dao_outflow_missing_amount_raises(subject):
     """Transaction.to_dao() raises if an outflow has None amount."""
     txn = Transaction()
-    txn.add_outflow(Outflow(amount=None, subject=subject))
+    txn.add_outflow(Outflow(amount=None, opposition=subject))
     txn.seal()
     with pytest.raises(
         InvalidTransactionError, match='Outflow 0 missing amount'
@@ -189,7 +189,7 @@ def test_pending_add_unsealed_raises(app, subject, wallet):
     with app.app_context():
         pending = PendingTxnSet()
         txn = Transaction()
-        txn.add_outflow(Outflow(amount=1, subject=subject))
+        txn.add_outflow(Outflow(amount=1, opposition=subject))
         assert txn.txid is None
         with pytest.raises(UnsealedTransactionError):
             pending.add(txn)
@@ -201,7 +201,7 @@ def test_pending_add_inflow_missing_ref_raises(app, subject, wallet):
         pending = PendingTxnSet()
         txn = Transaction()
         txn.add_inflow(Inflow(outflow_txid=None, outflow_idx=0))
-        txn.add_outflow(Outflow(amount=1, subject=subject))
+        txn.add_outflow(Outflow(amount=1, opposition=subject))
         txn.seal()
         with pytest.raises(
             InvalidTransactionError,
@@ -215,7 +215,7 @@ def test_pending_add_outflow_missing_amount_raises(app, subject, wallet):
     with app.app_context():
         pending = PendingTxnSet()
         txn = Transaction()
-        txn.add_outflow(Outflow(amount=None, subject=subject))
+        txn.add_outflow(Outflow(amount=None, opposition=subject))
         txn.seal()
         with pytest.raises(
             InvalidTransactionError, match='Outflow 0 missing amount'

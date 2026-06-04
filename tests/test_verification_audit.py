@@ -565,7 +565,9 @@ def test_a7_h_non_printable_subject_accepted(app, time_machine, wallet) -> None:
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
         oppose_amount = 10
-        t.add_outflow(Outflow(amount=oppose_amount, subject=malicious_subject))
+        t.add_outflow(
+            Outflow(amount=oppose_amount, opposition=malicious_subject)
+        )
         t.add_outflow(
             Outflow(amount=cb_amount - oppose_amount, address=wallet.address)
         )

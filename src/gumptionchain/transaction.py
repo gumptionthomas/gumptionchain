@@ -282,8 +282,8 @@ class Transaction:
                     idx,
                     outflow.amount,  # type: ignore[arg-type]
                     address=outflow.address,
-                    subject=outflow.subject,
-                    forgive=outflow.forgive,
+                    opposition=outflow.opposition,
+                    rescind=outflow.rescind,
                     support=outflow.support,
                 )
                 for idx, outflow in enumerate(self.outflows)
@@ -334,8 +334,8 @@ class Transaction:
                 Outflow(
                     amount=outflow_dao.amount,
                     address=outflow_dao.address,
-                    subject=outflow_dao.subject,
-                    forgive=outflow_dao.forgive,
+                    opposition=outflow_dao.opposition,
+                    rescind=outflow_dao.rescind,
                     support=outflow_dao.support,
                 )
                 for outflow_dao in dao.outflows

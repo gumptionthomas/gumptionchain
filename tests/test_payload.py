@@ -19,21 +19,21 @@ from gumptionchain.payload import (
 def test_outflow_data_csv(subject, wallet):
     outflow = Outflow(amount=9, address=wallet.address)
     assert outflow.data_csv == f'9,{wallet.address},,,'
-    outflow = Outflow(amount=9, subject=subject)
+    outflow = Outflow(amount=9, opposition=subject)
     assert outflow.data_csv == f'9,,{subject},,'
-    outflow = Outflow(amount=9, forgive=subject)
+    outflow = Outflow(amount=9, rescind=subject)
     assert outflow.data_csv == f'9,,,{subject},'
     outflow = Outflow(amount=9, support=subject)
     assert outflow.data_csv == f'9,,,,{subject}'
 
 
 def test_outflow_schadenfreude(subject):
-    outflow = Outflow(amount=9, subject=subject)
+    outflow = Outflow(amount=9, opposition=subject)
     assert outflow.schadenfreude == 4
 
 
 def test_outflow_grace(subject):
-    outflow = Outflow(amount=9, forgive=subject)
+    outflow = Outflow(amount=9, rescind=subject)
     assert outflow.grace == 4
 
 
@@ -65,22 +65,22 @@ def test_outflow_model_accepts_address_only(wallet):
     m = OutflowModel(amount=10, address=wallet.address)
     assert m.amount == 10
     assert m.address == wallet.address
-    assert m.subject is None
-    assert m.forgive is None
+    assert m.opposition is None
+    assert m.rescind is None
     assert m.support is None
 
 
-def test_outflow_model_accepts_subject_only():
+def test_outflow_model_accepts_opposition_only():
     subject = encode_subject('cancel me')
-    m = OutflowModel(amount=5, subject=subject)
-    assert m.subject == subject
+    m = OutflowModel(amount=5, opposition=subject)
+    assert m.opposition == subject
     assert m.address is None
 
 
-def test_outflow_model_accepts_forgive_only():
+def test_outflow_model_accepts_rescind_only():
     subject = encode_subject('forgiven one')
-    m = OutflowModel(amount=3, forgive=subject)
-    assert m.forgive == subject
+    m = OutflowModel(amount=3, rescind=subject)
+    assert m.rescind == subject
     assert m.address is None
 
 
@@ -91,19 +91,19 @@ def test_outflow_model_accepts_support_only():
     assert m.address is None
 
 
-def test_outflow_model_rejects_address_and_subject(wallet):
+def test_outflow_model_rejects_address_and_opposition(wallet):
     subject = encode_subject('test')
     with pytest.raises(PydanticValidationError) as exc_info:
-        OutflowModel(amount=5, address=wallet.address, subject=subject)
+        OutflowModel(amount=5, address=wallet.address, opposition=subject)
     assert any(
         INVALID_DESTINATION_MSG in err['msg'] for err in exc_info.value.errors()
     )
 
 
-def test_outflow_model_rejects_two_subject_options():
+def test_outflow_model_rejects_two_opposition_options():
     subj = encode_subject('test')
     with pytest.raises(PydanticValidationError) as exc_info:
-        OutflowModel(amount=5, subject=subj, forgive=subj)
+        OutflowModel(amount=5, opposition=subj, rescind=subj)
     assert any(
         INVALID_DESTINATION_MSG in err['msg'] for err in exc_info.value.errors()
     )

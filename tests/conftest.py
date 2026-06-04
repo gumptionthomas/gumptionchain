@@ -228,8 +228,8 @@ def valid_outflow(request, wallet):
     return Outflow(
         amount=request.param[0],
         address=address,
-        subject=request.param[2],
-        forgive=request.param[3],
+        opposition=request.param[2],
+        rescind=request.param[3],
         support=request.param[4],
     )
 
@@ -247,8 +247,8 @@ def invalid_outflow(request, wallet):
     return Outflow(
         amount=wallet.address if request.param[0] else None,
         address=request.param[1],
-        subject=request.param[2],
-        forgive=request.param[3],
+        opposition=request.param[2],
+        rescind=request.param[3],
         support=request.param[4],
     )
 
@@ -274,7 +274,7 @@ def valid_txn(valid_inflow, valid_outflow, wallet):
 def single_txn(subject, txid, wallet):
     txn = Transaction()
     txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
-    txn.add_outflow(Outflow(amount=9, subject=subject))
+    txn.add_outflow(Outflow(amount=9, opposition=subject))
     txn.set_wallet(wallet)
     return txn
 

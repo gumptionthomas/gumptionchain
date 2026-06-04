@@ -77,15 +77,15 @@ class OutflowModel(BaseModel):
 
     amount: int = Field(ge=1)
     address: AddressType | None = None
-    subject: Subject | None = None
-    forgive: Subject | None = None
+    opposition: Subject | None = None
+    rescind: Subject | None = None
     support: Subject | None = None
 
     @model_validator(mode='after')
     def validate_destinations(self) -> Self:
         options = [
             v
-            for v in (self.subject, self.forgive, self.support)
+            for v in (self.opposition, self.rescind, self.support)
             if v is not None
         ]
         if not (
@@ -107,8 +107,8 @@ class InflowModel(BaseModel):
 class Outflow:
     amount: int | None = None
     address: str | None = None
-    subject: str | None = None
-    forgive: str | None = None
+    opposition: str | None = None
+    rescind: str | None = None
     support: str | None = None
 
     @property
@@ -117,21 +117,21 @@ class Outflow:
             [
                 str(self.amount),
                 self.address if self.address is not None else '',
-                self.subject if self.subject is not None else '',
-                self.forgive if self.forgive is not None else '',
+                self.opposition if self.opposition is not None else '',
+                self.rescind if self.rescind is not None else '',
                 self.support if self.support is not None else '',
             ]
         )
 
     @property
     def schadenfreude(self) -> int:
-        if self.subject is not None and self.amount is not None:
+        if self.opposition is not None and self.amount is not None:
             return int(self.amount / 2)
         return 0
 
     @property
     def grace(self) -> int:
-        if self.forgive is not None and self.amount is not None:
+        if self.rescind is not None and self.amount is not None:
             return int(self.amount / 2)
         return 0
 
