@@ -5,7 +5,7 @@ import os
 from collections.abc import Generator
 from datetime import timedelta
 from http.client import responses
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import click
 import httpx
@@ -37,7 +37,7 @@ from gumptionchain.console import console
 from gumptionchain.database import db
 from gumptionchain.miller import Miller
 from gumptionchain.node import Node
-from gumptionchain.payload import encode_subject
+from gumptionchain.payload import StakeKind, encode_subject
 from gumptionchain.transaction import Transaction
 from gumptionchain.util import host_address, now_iso
 from gumptionchain.wallet import Wallet
@@ -848,7 +848,7 @@ def create_rescind(
             txn_wallet_obj.public_key_b64,
             grit_to_grains(amount),
             subject,
-            cast(Literal['opposition', 'support'], kind),
+            cast(StakeKind, kind),
         )
         txn = Transaction.from_json(r.text)
         if not (confirm := yes):

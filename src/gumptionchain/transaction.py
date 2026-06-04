@@ -5,7 +5,7 @@ from collections.abc import Generator, Iterator, MutableSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from json import JSONDecodeError
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, cast
 
 from pydantic import (
     BaseModel,
@@ -35,6 +35,7 @@ from gumptionchain.payload import (
     InflowModel,
     Outflow,
     OutflowModel,
+    StakeKind,
 )
 from gumptionchain.schema import (
     AddressType,
@@ -109,6 +110,7 @@ class RegularTransactionModel(TransactionModel):
 
 class CoinbaseTransactionModel(TransactionModel):
     inflows: Annotated[list[InflowModel], Field(min_length=0, max_length=0)]
+    # reward + up to 4 sentiment metrics: schadenfreude, grace, mudita, regret
     outflows: Annotated[list[OutflowModel], Field(min_length=1, max_length=5)]
     # Coinbases must carry their block's prev_hash binding.
     prev_hash: MillHashType
@@ -342,7 +344,9 @@ class Transaction:
                     opposition=outflow_dao.opposition,
                     rescind=outflow_dao.rescind,
                     support=outflow_dao.support,
-                    rescind_kind=outflow_dao.rescind_kind,
+                    rescind_kind=cast(
+                        'StakeKind | None', outflow_dao.rescind_kind
+                    ),
                 )
                 for outflow_dao in dao.outflows
             ],

@@ -5,7 +5,7 @@ import json
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from functools import total_ordering
-from typing import Any, Literal, Self
+from typing import Any, Self, assert_never
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -33,7 +33,7 @@ from gumptionchain.exceptions import (
 )
 from gumptionchain.milling import mill_hash_str
 from gumptionchain.models import BlockDAO, ChainDAO
-from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.payload import Inflow, Outflow, StakeKind
 from gumptionchain.transaction import Transaction
 from gumptionchain.util import dt_2_iso, now
 from gumptionchain.wallet import Wallet
@@ -406,7 +406,7 @@ class Chain:
     def unrescinded_outflows(
         self,
         subject: str,
-        kind: Literal['opposition', 'support'],
+        kind: StakeKind,
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Iterator[tuple[str, int, Outflow]]:
         outflow_daos = db.session.execute(
@@ -426,7 +426,7 @@ class Chain:
         self,
         address: str,
         subject: str,
-        kind: Literal['opposition', 'support'],
+        kind: StakeKind,
         limit: int | None = None,
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Iterator[tuple[str, int, Outflow]]:
@@ -520,7 +520,7 @@ class Chain:
         wallet: Wallet,
         amount: int,
         subject: str,
-        kind: Literal['opposition', 'support'],
+        kind: StakeKind,
     ) -> Transaction:
         address = wallet.address
         balance = 0
@@ -540,8 +540,10 @@ class Chain:
             change = balance - amount
             if kind == 'support':
                 t.add_outflow(Outflow(amount=change, support=subject))
-            else:
+            elif kind == 'opposition':
                 t.add_outflow(Outflow(amount=change, opposition=subject))
+            else:
+                assert_never(kind)
         t.set_wallet(wallet)
         t.seal()
         return t

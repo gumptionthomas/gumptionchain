@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Generator
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     CTE,
@@ -17,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gumptionchain.database import Base, db
+from gumptionchain.payload import StakeKind
 
 # Chain-factory returns below carry `# type: ignore[no-any-return]` because
 # Flask-SQLAlchemy's `db.select` / `db.aliased` / `db.desc` facade methods
@@ -572,7 +573,7 @@ class ChainDAO(Base):
     def unrescinded_outflows(
         self,
         subject: str,
-        kind: Literal['opposition', 'support'],
+        kind: StakeKind,
         address: str | None = None,
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Select[tuple[OutflowDAO]]:
@@ -591,9 +592,12 @@ class ChainDAO(Base):
             stmt = stmt.where(~OutflowDAO.pending.any())
         return stmt
 
-    def opposition_balance(self, subject: str) -> int:
+    def _stake_balance(self, subject: str, kind: StakeKind) -> int:
+        column = (
+            OutflowDAO.support if kind == 'support' else OutflowDAO.opposition
+        )
         inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
-        stmt = self.outflows.where(OutflowDAO.opposition == subject)
+        stmt = self.outflows.where(column == subject)
         stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
         stmt = stmt.where(inflows_alias.id.is_(None))
         outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
@@ -602,16 +606,11 @@ class ChainDAO(Base):
         )
         return db.session.scalar(sum_stmt) or 0
 
+    def opposition_balance(self, subject: str) -> int:
+        return self._stake_balance(subject, 'opposition')
+
     def support_balance(self, subject: str) -> int:
-        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
-        stmt = self.outflows.where(OutflowDAO.support == subject)
-        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        stmt = stmt.where(inflows_alias.id.is_(None))
-        outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
-        sum_stmt = db.select(db.func.sum(OutflowDAO.amount)).join(
-            outflows_alias, OutflowDAO.id == outflows_alias.id
-        )
-        return db.session.scalar(sum_stmt) or 0
+        return self._stake_balance(subject, 'support')
 
     def wallet_leaderboard(
         self,
