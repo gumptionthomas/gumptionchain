@@ -134,7 +134,7 @@ class Outflow:
     @property
     def schadenfreude(self) -> int:
         if self.opposition is not None and self.amount is not None:
-            return int(self.amount / 2)
+            return self.amount // 2
         return 0
 
     @property
@@ -144,13 +144,13 @@ class Outflow:
             and self.rescind_kind == 'opposition'
             and self.amount is not None
         ):
-            return int(self.amount / 2)
+            return self.amount // 2
         return 0
 
     @property
     def mudita(self) -> int:
         if self.support is not None and self.amount is not None:
-            return int(self.amount / 2)
+            return self.amount // 2
         return 0
 
     @property
@@ -160,7 +160,7 @@ class Outflow:
             and self.rescind_kind == 'support'
             and self.amount is not None
         ):
-            return int(self.amount / 2)
+            return self.amount // 2
         return 0
 
 
