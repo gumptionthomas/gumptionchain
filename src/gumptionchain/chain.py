@@ -234,15 +234,17 @@ class Chain:
         for o in txn.outflows:
             if o.rescind:
                 # rescind_kind is validated to 'opposition'|'support' by
-                # OutflowModel; the else handles 'opposition'.
+                # OutflowModel; reject anything else defensively.
                 if o.rescind_kind == 'support':
                     support_amounts[o.rescind] = support_amounts.get(
                         o.rescind, 0
                     ) - (o.amount or 0)
-                else:
+                elif o.rescind_kind == 'opposition':
                     opposition_amounts[o.rescind] = opposition_amounts.get(
                         o.rescind, 0
                     ) - (o.amount or 0)
+                else:
+                    raise ImbalancedTransactionError()
             elif o.opposition:
                 opposition_amount = opposition_amounts.get(o.opposition)
                 if opposition_amount and opposition_amount > 0:

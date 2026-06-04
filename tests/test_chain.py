@@ -723,6 +723,47 @@ def test_rescind_support_drops_support_balance(
         assert chain.support_balance(subject) == 0
 
 
+def test_support_rescind_mints_regret(
+    add_chain_block, app, subject, time_stepper, wallet
+):
+    """Block with a support-rescind txn mints regret == rescind_amount // 2."""
+    with app.app_context():
+        time_step = time_stepper(start=now() - datetime.timedelta(hours=1))
+        _ = next(time_step)
+        chain, block = add_chain_block()
+        cb = block.coinbase
+        amt = next(iter(cb.outflows)).amount
+
+        # stake support
+        _ = next(time_step)
+        t_support = Transaction()
+        t_support.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
+        t_support.add_outflow(Outflow(amount=amt, support=subject))
+        t_support.set_wallet(wallet)
+        t_support.seal()
+        t_support.sign()
+        block2 = Block()
+        block2.add_txn(t_support)
+        add_chain_block(chain=chain, block=block2)
+        chain.to_db()
+
+        # rescind support — amt is even (genesis reward), so // 2 is exact
+        _ = next(time_step)
+        rescind_txn = chain.create_rescind(wallet, amt, subject, 'support')
+        rescind_txn.sign()
+        block3 = Block()
+        block3.add_txn(rescind_txn)
+        _, milled_block = add_chain_block(chain=chain, block=block3)
+
+        expected_regret = amt // 2
+        assert milled_block.regret == expected_regret
+        coinbase_outflows = list(milled_block.coinbase.outflows)
+        regret_outflows = [
+            o for o in coinbase_outflows if o.address == wallet.address
+        ]
+        assert any(o.amount == expected_regret for o in regret_outflows)
+
+
 def test_rescind_support_insufficient_when_only_opposition(
     add_chain_block, app, subject, time_stepper, wallet
 ):
