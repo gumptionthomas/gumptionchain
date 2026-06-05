@@ -373,18 +373,17 @@ class BlockDAO(Base):
     def get_transaction_in_chain(self, txid: str) -> TransactionDAO | None:
         divergent, cap = self._ancestry()
         if divergent:
-            hit = (
-                db.session.execute(
-                    db.select(TransactionDAO)
-                    .join(TransactionDAO.blocks)
-                    .where(BlockDAO.id.in_(divergent))
-                    .where(TransactionDAO.txid == txid)
-                )
-                .scalars()
-                .first()
-            )
+            # scalar_one_or_none (not first): a txid is unique within a valid
+            # chain, so >1 match signals corrupt block<->txn associations and
+            # should raise, matching the prior CTE behaviour.
+            hit: TransactionDAO | None = db.session.execute(
+                db.select(TransactionDAO)
+                .join(TransactionDAO.blocks)
+                .where(BlockDAO.id.in_(divergent))
+                .where(TransactionDAO.txid == txid)
+            ).scalar_one_or_none()
             if hit is not None:
-                return hit  # type: ignore[no-any-return]
+                return hit
         if cap is not None:
             return db.session.execute(
                 db.select(TransactionDAO)
@@ -413,9 +412,12 @@ class BlockDAO(Base):
                 stmt = stmt.where(BlockDAO.block_hash == block_hash)
             if idx is not None:
                 stmt = stmt.where(BlockDAO.idx == idx)
-            hit = db.session.execute(stmt).scalars().first()
+            # scalar_one_or_none (not first): preserves the prior CTE
+            # single-result semantics — a degenerate/corrupt >1 match raises
+            # rather than silently returning an arbitrary block.
+            hit: BlockDAO | None = db.session.execute(stmt).scalar_one_or_none()
             if hit is not None:
-                return hit  # type: ignore[no-any-return]
+                return hit
         if cap is not None:
             stmt = (
                 db.select(BlockDAO)
