@@ -13,6 +13,8 @@ from sqlalchemy import (
     Select,
     String,
     Text,
+    false,
+    or_,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -370,6 +372,74 @@ class BlockDAO(Base):
             current = current.prev
         return divergent, None
 
+    def ancestry_blocks_q(self) -> Select[tuple[BlockDAO]]:
+        """Blocks in this block's ancestry, CTE-free, ordered tip→genesis.
+
+        Combines the short divergent suffix (ids not in the materialization)
+        with the canonical prefix (`LongestChainBlockDAO.position <= cap`) as a
+        single composable predicate. Degenerates to materialized membership for
+        a canonical anchor (`divergent` empty, `cap` = tip position). Ordered
+        by `idx` desc to match the recursive `block_chain` CTE's tip-first
+        ordering, so consumers that read rows directly (not just as a
+        membership subquery) see the same order.
+        """
+        divergent, cap = self._ancestry()
+        clauses = []
+        if divergent:
+            clauses.append(BlockDAO.id.in_(divergent))
+        if cap is not None:
+            clauses.append(
+                db.select(LongestChainBlockDAO.block_id)
+                .where(
+                    LongestChainBlockDAO.block_id == BlockDAO.id,
+                    LongestChainBlockDAO.position <= cap,
+                )
+                .exists()
+            )
+        # or_(false(), *clauses) is always-false when clauses is empty (the
+        # unreachable divergent-empty + cap-None case) and a no-op wrapper
+        # otherwise.
+        return (  # type: ignore[no-any-return]
+            db.select(BlockDAO)
+            .where(or_(false(), *clauses))
+            .order_by(BlockDAO.idx.desc())
+        )
+
+    def ancestry_transactions_q(self) -> Select[tuple[TransactionDAO]]:
+        blocks_subq = self.ancestry_blocks_q().subquery()
+        block_alias = db.aliased(BlockDAO, blocks_subq)
+        return (  # type: ignore[no-any-return]
+            db.select(TransactionDAO)
+            .join(block_alias, TransactionDAO.blocks)
+            .order_by(TransactionDAO.timestamp.desc(), TransactionDAO.id)
+        )
+
+    def ancestry_outflows_q(self) -> Select[tuple[OutflowDAO]]:
+        txn_subq = self.ancestry_transactions_q().subquery()
+        txn_alias = db.aliased(TransactionDAO, txn_subq)
+        return (  # type: ignore[no-any-return]
+            db.select(OutflowDAO)
+            .join(txn_alias, OutflowDAO.transaction)
+            .order_by(
+                txn_alias.timestamp.desc(),
+                txn_alias.txid,
+                OutflowDAO.idx,
+            )
+        )
+
+    def ancestry_inflows_q(self) -> Select[tuple[InflowDAO]]:
+        txn_subq = self.ancestry_transactions_q().subquery()
+        txn_alias = db.aliased(TransactionDAO, txn_subq)
+        return (  # type: ignore[no-any-return]
+            db.select(InflowDAO)
+            .join(txn_alias, InflowDAO.transaction)
+            .order_by(
+                txn_alias.timestamp.desc(),
+                txn_alias.txid,
+                InflowDAO.idx,
+            )
+        )
+
     def get_transaction_in_chain(self, txid: str) -> TransactionDAO | None:
         divergent, cap = self._ancestry()
         if divergent:
@@ -400,7 +470,9 @@ class BlockDAO(Base):
     def address_transactions(
         self, address: str
     ) -> Select[tuple[TransactionDAO]]:
-        return self.transactions_chain.where(TransactionDAO.address == address)
+        return self.ancestry_transactions_q().where(
+            TransactionDAO.address == address
+        )
 
     def get_block_in_chain(
         self, block_hash: str | None = None, idx: int | None = None
@@ -626,25 +698,25 @@ class ChainDAO(Base):
     def blocks(self) -> Select[tuple[BlockDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_blocks_q()
-        return self.block.block_chain
+        return self.block.ancestry_blocks_q()
 
     @property
     def transactions(self) -> Select[tuple[TransactionDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_transactions_q()
-        return self.block.transactions_chain
+        return self.block.ancestry_transactions_q()
 
     @property
     def outflows(self) -> Select[tuple[OutflowDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_outflows_q()
-        return self.block.outflows_chain
+        return self.block.ancestry_outflows_q()
 
     @property
     def inflows(self) -> Select[tuple[InflowDAO]]:
         if self._is_longest():
             return BlockDAO.longest_chain_inflows_q()
-        return self.block.inflows_chain
+        return self.block.ancestry_inflows_q()
 
     def unspent_outflows(
         self,

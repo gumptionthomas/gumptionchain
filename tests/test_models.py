@@ -17,6 +17,23 @@ from gumptionchain.payload import Inflow, Outflow
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 
 
+def _pythonic_ancestry_ids(block_dao):
+    """Ground-truth ancestry: block ids from this block back to genesis via
+    `prev`, computed in pure Python — independent of the CTE and the
+    materialization, so it cannot share a bug with the code under test.
+    """
+    ids = []
+    current = block_dao
+    while current is not None:
+        ids.append(current.id)
+        current = current.prev
+    return ids
+
+
+def _oracle_block_ids(select_stmt):
+    return sorted(b.id for b in db.session.execute(select_stmt).scalars().all())
+
+
 def test_unspent_outflows(app, subject, time_stepper, wallet):
     with app.app_context():
         time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
@@ -288,9 +305,10 @@ def test_longest_chain_blocks_q_fast_path_skips_cte(app, mill_block, wallet):
         assert 'longest_chain_block' in compiled_sql.lower()
 
 
-def test_non_longest_chain_blocks_uses_cte(app, time_stepper, wallet):
-    """A non-longest ChainDAO's .blocks still emits the recursive CTE
-    (we did not optimize that path). Verified by emitted SQL.
+def test_non_longest_chain_blocks_is_cte_free(app, time_stepper, wallet):
+    """A non-longest ChainDAO's .blocks must NOT emit a recursive CTE after
+    #158 — it resolves ancestry via the divergent-suffix + materialization
+    predicate. Verified by emitted SQL.
 
     Builds a real fork (chain_a + chain_b sharing block_1) so that a
     non-longest ChainDAO row genuinely exists.
@@ -345,8 +363,10 @@ def test_non_longest_chain_blocks_uses_cte(app, time_stepper, wallet):
         compiled_sql = str(
             non_longest.blocks.compile(compile_kwargs={'literal_binds': True})
         )
-        # CTE fallback uses 'WITH RECURSIVE' on SQLite/Postgres.
-        assert 'RECURSIVE' in compiled_sql.upper()
+        assert 'RECURSIVE' not in compiled_sql.upper(), (
+            f'non-longest .blocks should be CTE-free, got:\n{compiled_sql}'
+        )
+        assert 'longest_chain_block' in compiled_sql.lower()
 
 
 def test_longest_chain_block_rebuild_on_reorg(app, mill_block, wallet):
@@ -1091,3 +1111,88 @@ def test_hot_path_methods_never_touch_recursive_cte_fork(
             # not a true count).
             assert fork.inflows_in_chain_count(f['spend_outflow_txid'], 0) == 1
             assert fork.inflows_in_chain_count('nope', 0) == 0
+
+
+def test_ancestry_read_paths_match_oracle_canonical(
+    app, add_chain_block, time_stepper, wallet
+):
+    """ChainDAO read accessors + address_transactions on a canonical tip
+    return exactly the ancestry computed by the Python prev-walk oracle.
+    """
+    with app.app_context():
+        _chain, _block1, block2, _spend = _build_canonical_chain_with_spend(
+            add_chain_block, time_stepper, wallet
+        )
+        tip = BlockDAO.get(block2.block_hash)
+        assert tip is not None
+        oracle_ids = sorted(_pythonic_ancestry_ids(tip))
+
+        chain_dao = ChainDAO.get(block2.block_hash)
+        assert chain_dao is not None
+        assert _oracle_block_ids(chain_dao.blocks) == oracle_ids
+
+        txn_ids = {
+            t.id
+            for t in db.session.execute(chain_dao.transactions).scalars().all()
+        }
+        assert txn_ids
+        for t in db.session.execute(chain_dao.transactions).scalars().all():
+            assert {b.id for b in t.blocks} & set(oracle_ids)
+
+        addr_txns = list(
+            db.session.execute(
+                tip.address_transactions(wallet.address)
+            ).scalars()
+        )
+        assert all(t.address == wallet.address for t in addr_txns)
+
+
+def test_ancestry_read_paths_match_oracle_fork(
+    app, time_stepper, wallet, subject
+):
+    """The non-longest (fork) read accessors resolve the fork tip's ancestry
+    (divergent suffix + shared prefix) identically to the Python oracle, and
+    fork balances/outflows are correct.
+    """
+    with app.app_context():
+        f = _build_fork(time_stepper, wallet, subject)
+        fork = f['fork']
+        assert fork is not None
+        assert fork._ancestry()[0]  # genuine non-empty divergent suffix
+        oracle_ids = sorted(_pythonic_ancestry_ids(fork))
+
+        chain_dao = ChainDAO.get(f['block_2b'].block_hash)
+        assert chain_dao is not None
+        assert chain_dao._is_longest() is False
+        assert _oracle_block_ids(chain_dao.blocks) == oracle_ids
+
+        opp = chain_dao.opposition_balance(subject)
+        assert opp > 0
+
+        unspent = list(
+            db.session.execute(
+                chain_dao.unspent_outflows(wallet.address)
+            ).scalars()
+        )
+        for o in unspent:
+            assert {b.id for b in o.transaction.blocks} & set(oracle_ids)
+
+
+def test_ancestry_read_paths_match_oracle_bootstrap(
+    app, add_chain_block, time_stepper, wallet
+):
+    """With an empty materialization, ancestry_*_q resolve via the
+    all-divergent predicate and still match the oracle.
+    """
+    with app.app_context():
+        _chain, _block1, block2, _spend = _build_canonical_chain_with_spend(
+            add_chain_block, time_stepper, wallet
+        )
+        db.session.execute(db.delete(LongestChainBlockDAO))
+        db.session.commit()
+        assert _count(LongestChainBlockDAO) == 0
+
+        tip = BlockDAO.get(block2.block_hash)
+        assert tip is not None
+        oracle_ids = sorted(_pythonic_ancestry_ids(tip))
+        assert _oracle_block_ids(tip.ancestry_blocks_q()) == oracle_ids
