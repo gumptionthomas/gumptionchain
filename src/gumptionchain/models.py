@@ -340,10 +340,62 @@ class BlockDAO(Base):
         else:
             db.session.flush()
 
+    def _ancestry(self) -> tuple[list[int], int | None]:
+        """Resolve this block's ancestry against LongestChainBlockDAO without
+        recursion.
+
+        Returns (divergent_ids, cap_position):
+        - divergent_ids: ids of blocks on the divergent suffix (not in the
+          materialization), nearest-first. Empty when this block is canonical.
+        - cap_position: position of the common ancestor in the materialization;
+          the canonical prefix is everything with position <= cap_position.
+          None only when the materialization is empty (bootstrap), in which
+          case divergent_ids covers the whole walked chain.
+
+        Cost: O(divergent-suffix length) indexed `prev` lookups — 0 extra for a
+        canonical anchor (first lookup hits), reorg-depth for a fork. Never
+        O(chain-height) except transient bootstrap.
+        """
+        divergent: list[int] = []
+        current: BlockDAO | None = self
+        while current is not None:
+            position = db.session.scalar(
+                db.select(LongestChainBlockDAO.position).where(
+                    LongestChainBlockDAO.block_id == current.id
+                )
+            )
+            if position is not None:
+                return divergent, position
+            divergent.append(current.id)
+            current = current.prev
+        return divergent, None
+
     def get_transaction_in_chain(self, txid: str) -> TransactionDAO | None:
-        return db.session.execute(
-            self.transactions_chain.where(TransactionDAO.txid == txid)
-        ).scalar_one_or_none()
+        divergent, cap = self._ancestry()
+        if divergent:
+            # scalar_one_or_none (not first): a txid is unique within a valid
+            # chain, so >1 match signals corrupt block<->txn associations and
+            # should raise, matching the prior CTE behaviour.
+            hit: TransactionDAO | None = db.session.execute(
+                db.select(TransactionDAO)
+                .join(TransactionDAO.blocks)
+                .where(BlockDAO.id.in_(divergent))
+                .where(TransactionDAO.txid == txid)
+            ).scalar_one_or_none()
+            if hit is not None:
+                return hit
+        if cap is not None:
+            return db.session.execute(
+                db.select(TransactionDAO)
+                .join(TransactionDAO.blocks)
+                .join(
+                    LongestChainBlockDAO,
+                    LongestChainBlockDAO.block_id == BlockDAO.id,
+                )
+                .where(LongestChainBlockDAO.position <= cap)
+                .where(TransactionDAO.txid == txid)
+            ).scalar_one_or_none()
+        return None
 
     def address_transactions(
         self, address: str
@@ -353,26 +405,74 @@ class BlockDAO(Base):
     def get_block_in_chain(
         self, block_hash: str | None = None, idx: int | None = None
     ) -> BlockDAO | None:
-        block_alias = db.aliased(BlockDAO, self.block_chain.subquery())
-        stmt = db.select(BlockDAO).join(
-            block_alias, BlockDAO.id == block_alias.id
-        )
-        if block_hash is not None:
-            stmt = stmt.where(BlockDAO.block_hash == block_hash)
-        if idx is not None:
-            stmt = stmt.where(BlockDAO.idx == idx)
-        return db.session.execute(stmt).scalar_one_or_none()
+        divergent, cap = self._ancestry()
+        if divergent:
+            stmt = db.select(BlockDAO).where(BlockDAO.id.in_(divergent))
+            if block_hash is not None:
+                stmt = stmt.where(BlockDAO.block_hash == block_hash)
+            if idx is not None:
+                stmt = stmt.where(BlockDAO.idx == idx)
+            # scalar_one_or_none (not first): preserves the prior CTE
+            # single-result semantics — a degenerate/corrupt >1 match raises
+            # rather than silently returning an arbitrary block.
+            hit: BlockDAO | None = db.session.execute(stmt).scalar_one_or_none()
+            if hit is not None:
+                return hit
+        if cap is not None:
+            stmt = (
+                db.select(BlockDAO)
+                .join(
+                    LongestChainBlockDAO,
+                    LongestChainBlockDAO.block_id == BlockDAO.id,
+                )
+                .where(LongestChainBlockDAO.position <= cap)
+            )
+            if block_hash is not None:
+                stmt = stmt.where(BlockDAO.block_hash == block_hash)
+            if idx is not None:
+                stmt = stmt.where(BlockDAO.idx == idx)
+            return db.session.execute(stmt).scalar_one_or_none()
+        return None
 
     def inflows_in_chain_count(
         self, outflow_txid: str, outflow_idx: int
     ) -> int:
-        stmt = self.inflows_chain.where(
-            InflowDAO.outflow_txid == outflow_txid,
-            InflowDAO.outflow_idx == outflow_idx,
-        )
-        return (
-            1 if db.session.execute(stmt).scalars().first() is not None else 0
-        )
+        divergent, cap = self._ancestry()
+        if divergent:
+            hit = (
+                db.session.execute(
+                    db.select(InflowDAO)
+                    .join(InflowDAO.transaction)
+                    .join(TransactionDAO.blocks)
+                    .where(BlockDAO.id.in_(divergent))
+                    .where(InflowDAO.outflow_txid == outflow_txid)
+                    .where(InflowDAO.outflow_idx == outflow_idx)
+                )
+                .scalars()
+                .first()
+            )
+            if hit is not None:
+                return 1
+        if cap is not None:
+            hit = (
+                db.session.execute(
+                    db.select(InflowDAO)
+                    .join(InflowDAO.transaction)
+                    .join(TransactionDAO.blocks)
+                    .join(
+                        LongestChainBlockDAO,
+                        LongestChainBlockDAO.block_id == BlockDAO.id,
+                    )
+                    .where(LongestChainBlockDAO.position <= cap)
+                    .where(InflowDAO.outflow_txid == outflow_txid)
+                    .where(InflowDAO.outflow_idx == outflow_idx)
+                )
+                .scalars()
+                .first()
+            )
+            if hit is not None:
+                return 1
+        return 0
 
     @classmethod
     def count(cls) -> int:
