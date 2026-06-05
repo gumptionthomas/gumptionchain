@@ -6,7 +6,13 @@ from _sa_helpers import _count, _count_select
 from gumptionchain.block import Block
 from gumptionchain.chain import Chain
 from gumptionchain.database import db
-from gumptionchain.models import BlockDAO, ChainDAO, LongestChainBlockDAO
+from gumptionchain.models import (
+    BlockDAO,
+    ChainDAO,
+    InflowDAO,
+    LongestChainBlockDAO,
+    TransactionDAO,
+)
 from gumptionchain.payload import Inflow, Outflow
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 
@@ -783,6 +789,216 @@ def _build_canonical_chain_with_spend(add_chain_block, time_stepper, wallet):
     return chain, block1, block2, t.txid
 
 
+def _cte_get_block_in_chain(block_dao, block_hash=None, idx=None):
+    """Ground-truth get_block_in_chain via the recursive CTE."""
+    block_alias = db.aliased(BlockDAO, block_dao.block_chain.subquery())
+    stmt = db.select(BlockDAO).join(block_alias, BlockDAO.id == block_alias.id)
+    if block_hash is not None:
+        stmt = stmt.where(BlockDAO.block_hash == block_hash)
+    if idx is not None:
+        stmt = stmt.where(BlockDAO.idx == idx)
+    return db.session.execute(stmt).scalar_one_or_none()
+
+
+def _build_fork(time_stepper, wallet, subject):
+    """Build a real fork: chain_a (canonical, longest) and chain_b (fork)
+    both share block_1. chain_b's tip block_2b spends block_1's coinbase, so
+    the divergent suffix carries a genuine inflow. Returns a dict with the
+    fork tip BlockDAO and the txids/hashes the tests assert against.
+    """
+    time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+    _ = next(time_step)
+    chain_a = Chain()
+    block_1 = Block()
+    chain_a.link_block(block_1)
+    chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+    block_1.mill()
+    chain_a.add_block(block_1)
+    chain_a.to_db()
+    cb_1 = block_1.coinbase
+    cb_1_amount = next(iter(cb_1.outflows)).amount
+
+    _ = next(time_step)
+    block_2a = Block()
+    chain_a.link_block(block_2a)
+    chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+    block_2a.mill()
+
+    # Fork tip spends block_1's coinbase, so the divergent suffix has a
+    # real inflow to count.
+    _ = next(time_step)
+    spend = Transaction()
+    spend.add_inflow(Inflow(outflow_txid=cb_1.txid, outflow_idx=0))
+    spend.add_outflow(Outflow(amount=cb_1_amount, opposition=subject))
+    spend.set_wallet(wallet)
+    spend.seal()
+    spend.sign()
+
+    # chain_a's tip is still block_1 here (block_2a is milled but not yet
+    # added), so linking block_2b against chain_a chains it onto block_1 as
+    # an alternate child — the fork point.
+    block_2b = Block()
+    block_2b.add_txn(spend)
+    chain_a.link_block(block_2b)
+    metrics_2b = sum(
+        (chain_a.validate_block_txn(block_2b, txn) for txn in block_2b.txns),
+        CoinbaseMetrics(),
+    )
+    chain_a.seal_block(block_2b, wallet, metrics_2b)
+    block_2b.mill()
+
+    # chain_a wins the (idx DESC, timestamp ASC) tiebreaker because block_2a
+    # has the earlier timestamp; add it first so it becomes canonical.
+    _ = next(time_step)
+    chain_a.add_block(block_2a)
+    chain_a.to_db()
+
+    _ = next(time_step)
+    chain_b = Chain()
+    chain_b.add_block(block_2b)
+    chain_b.to_db()
+
+    fork = BlockDAO.get(block_2b.block_hash)
+    return {
+        'fork': fork,
+        'block_1': block_1,
+        'block_2a': block_2a,
+        'block_2b': block_2b,
+        'fork_cb_txid': block_2b.coinbase.txid,
+        'ancestor_cb_txid': block_1.coinbase.txid,
+        'spend_txid': spend.txid,
+        'spend_outflow_txid': cb_1.txid,
+    }
+
+
+def test_hot_path_methods_match_cte_canonical(
+    app, add_chain_block, time_stepper, wallet
+):
+    with app.app_context():
+        _chain, block1, block2, spend_txid = _build_canonical_chain_with_spend(
+            add_chain_block, time_stepper, wallet
+        )
+        cb1_txid = block1.coinbase.txid
+        tip = BlockDAO.get(block2.block_hash)
+        assert tip is not None
+
+        for txid in (spend_txid, cb1_txid, 'missing'):
+            cte = db.session.execute(
+                tip.transactions_chain.where(TransactionDAO.txid == txid)
+            ).scalar_one_or_none()
+            new = tip.get_transaction_in_chain(txid)
+            assert (new.id if new else None) == (cte.id if cte else None)
+
+        for otxid, oidx in ((cb1_txid, 0), ('missing', 0)):
+            cte_exists = (
+                1
+                if db.session.execute(
+                    tip.inflows_chain.where(
+                        InflowDAO.outflow_txid == otxid,
+                        InflowDAO.outflow_idx == oidx,
+                    )
+                )
+                .scalars()
+                .first()
+                is not None
+                else 0
+            )
+            assert tip.inflows_in_chain_count(otxid, oidx) == cte_exists
+
+        for kwargs in (
+            {'block_hash': block1.block_hash},
+            {'idx': 0},
+            {'idx': 1},
+            {'block_hash': 'missing'},
+        ):
+            cte_block = _cte_get_block_in_chain(tip, **kwargs)
+            new_block = tip.get_block_in_chain(**kwargs)
+            assert (new_block.id if new_block else None) == (
+                cte_block.id if cte_block else None
+            )
+
+
+def test_hot_path_methods_match_cte_fork(app, time_stepper, wallet, subject):
+    """A fork (non-longest) block resolves its divergent-suffix ancestry the
+    same as the recursive CTE would.
+    """
+    with app.app_context():
+        f = _build_fork(time_stepper, wallet, subject)
+        fork = f['fork']
+        assert fork is not None
+        assert fork._ancestry()[0]  # non-empty divergent suffix
+
+        for txid in (f['fork_cb_txid'], f['ancestor_cb_txid'], 'missing'):
+            cte = db.session.execute(
+                fork.transactions_chain.where(TransactionDAO.txid == txid)
+            ).scalar_one_or_none()
+            new = fork.get_transaction_in_chain(txid)
+            assert (new.id if new else None) == (cte.id if cte else None)
+
+        for kwargs in (
+            {'block_hash': f['block_2b'].block_hash},
+            {'block_hash': f['block_1'].block_hash},
+            {'idx': 0},
+        ):
+            cte_block = _cte_get_block_in_chain(fork, **kwargs)
+            new_block = fork.get_block_in_chain(**kwargs)
+            assert (new_block.id if new_block else None) == (
+                cte_block.id if cte_block else None
+            )
+
+        # The fork's divergent suffix consumes block_1's coinbase; count it
+        # against the CTE ground truth (hit) plus a miss.
+        for otxid, oidx, expected in (
+            (f['spend_outflow_txid'], 0, 1),
+            ('missing', 0, 0),
+        ):
+            cte_exists = (
+                1
+                if db.session.execute(
+                    fork.inflows_chain.where(
+                        InflowDAO.outflow_txid == otxid,
+                        InflowDAO.outflow_idx == oidx,
+                    )
+                )
+                .scalars()
+                .first()
+                is not None
+                else 0
+            )
+            assert cte_exists == expected
+            assert fork.inflows_in_chain_count(otxid, oidx) == cte_exists
+
+
+def test_hot_path_methods_match_cte_empty_materialization(
+    app, add_chain_block, time_stepper, wallet
+):
+    """With an empty LongestChainBlockDAO (bootstrap), _ancestry walks the
+    whole chain into divergent_ids and the methods still match the CTE.
+    """
+    with app.app_context():
+        _chain, block1, block2, spend_txid = _build_canonical_chain_with_spend(
+            add_chain_block, time_stepper, wallet
+        )
+        db.session.execute(db.delete(LongestChainBlockDAO))
+        db.session.commit()
+        assert _count(LongestChainBlockDAO) == 0
+
+        tip = BlockDAO.get(block2.block_hash)
+        assert tip is not None
+        divergent, cap = tip._ancestry()
+        assert cap is None
+        assert len(divergent) == 2  # whole chain is "divergent"
+
+        for txid in (spend_txid, block1.coinbase.txid, 'missing'):
+            cte = db.session.execute(
+                tip.transactions_chain.where(TransactionDAO.txid == txid)
+            ).scalar_one_or_none()
+            new = tip.get_transaction_in_chain(txid)
+            assert (new.id if new else None) == (cte.id if cte else None)
+        assert tip.get_block_in_chain(idx=0) is not None
+        assert tip.inflows_in_chain_count(block1.coinbase.txid, 0) == 1
+
+
 def test_hot_path_methods_never_touch_recursive_cte(
     app, add_chain_block, time_stepper, wallet
 ):
@@ -820,3 +1036,42 @@ def test_hot_path_methods_never_touch_recursive_cte(
             assert tip_dao.get_block_in_chain(idx=0) is not None
             # an ancestor anchor still resolves its own ancestry
             assert genesis_dao.get_transaction_in_chain(cb1_txid) is not None
+
+
+def test_hot_path_methods_never_touch_recursive_cte_fork(
+    app, time_stepper, wallet, subject
+):
+    """The divergent (fork) branch of all three methods — including
+    get_block_in_chain's `if divergent:` block — must execute CTE-free.
+    Booby-trap _block_chain over a genuine fork anchor.
+    """
+    with app.app_context():
+        f = _build_fork(time_stepper, wallet, subject)
+        fork = f['fork']
+        assert fork is not None
+        # Confirm a real divergent suffix BEFORE arming the trap.
+        assert fork._ancestry()[0]
+
+        with patch.object(
+            BlockDAO, '_block_chain', new_callable=PropertyMock
+        ) as cte_mock:
+            cte_mock.side_effect = AssertionError(
+                'hot-path method accessed the recursive CTE'
+            )
+            # get_transaction_in_chain — divergent-suffix hit + miss.
+            assert fork.get_transaction_in_chain(f['fork_cb_txid']) is not None
+            assert fork.get_transaction_in_chain('does-not-exist') is None
+            # get_block_in_chain — fork tip (divergent) and shared prefix.
+            assert (
+                fork.get_block_in_chain(block_hash=f['block_2b'].block_hash)
+                is not None
+            )
+            assert (
+                fork.get_block_in_chain(block_hash=f['block_1'].block_hash)
+                is not None
+            )
+            assert fork.get_block_in_chain(idx=0) is not None
+            # inflows_in_chain_count — inflow consumed in the divergent
+            # suffix counts once; a missing one is zero.
+            assert fork.inflows_in_chain_count(f['spend_outflow_txid'], 0) == 1
+            assert fork.inflows_in_chain_count('nope', 0) == 0
