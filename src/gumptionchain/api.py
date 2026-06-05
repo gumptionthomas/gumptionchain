@@ -198,14 +198,17 @@ class Role(Enum):
     def address_roles(cls, address: str) -> list[Role]:
         # Fail closed if a list is not configured (None / a stray string):
         # `isinstance` excludes both, avoiding silent substring semantics.
-        # The '*' match-all sentinel is honored only for READER at match
-        # time too (defense-in-depth: startup validation forbids it in
+        # The '*' match-all sentinel is honored only for READER or TRANSACTOR
+        # at match time too (defense-in-depth: startup validation forbids it in
         # higher tiers, but a runtime config mutation must not escalate).
         return [
             role
             for role in Role
             if isinstance(addrs := role.addresses(), (list, tuple))
-            and (address in addrs or (role is cls.READER and '*' in addrs))
+            and (
+                address in addrs
+                or (role in (cls.READER, cls.TRANSACTOR) and '*' in addrs)
+            )
         ]
 
     @classmethod
@@ -219,7 +222,8 @@ class Role(Enum):
 
         Each *_ADDRESSES entry must be a valid gumptionchain address,
         except the '*' match-all sentinel which is permitted only in
-        READER_ADDRESSES. Raises InvalidRoleConfigError on any violation.
+        READER_ADDRESSES or TRANSACTOR_ADDRESSES. Raises
+        InvalidRoleConfigError on any violation.
         """
         for role in cls:
             entries = config.get(f'{role.name}_ADDRESSES', []) or []
@@ -231,11 +235,11 @@ class Role(Enum):
                 raise InvalidRoleConfigError(msg)
             for entry in entries:
                 if entry == '*':
-                    if role is not cls.READER:
+                    if role not in (cls.READER, cls.TRANSACTOR):
                         msg = (
                             f'{role.name}_ADDRESSES contains "*" '
                             '(match-all is permitted only in '
-                            'READER_ADDRESSES)'
+                            'READER_ADDRESSES or TRANSACTOR_ADDRESSES)'
                         )
                         raise InvalidRoleConfigError(msg)
                 elif not validate_address_format(entry):

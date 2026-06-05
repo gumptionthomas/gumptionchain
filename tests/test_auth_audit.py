@@ -14,9 +14,12 @@ matching the audit document's per-adversary sections.
 """
 
 import httpx
+import pytest
 
 from gumptionchain import signing
+from gumptionchain.api import Role
 from gumptionchain.api_client import ApiClient
+from gumptionchain.exceptions import InvalidRoleConfigError
 from gumptionchain.miller import Miller
 from gumptionchain.util import host_address
 
@@ -159,3 +162,41 @@ def test_a5_b_stale_role_rejected_after_config_revocation(
             assert r2.status_code == httpx.codes.FORBIDDEN
         finally:
             app.config['MILLER_ADDRESSES'] = original_miller_addresses
+
+
+def test_validate_config_allows_wildcard_in_transactor():
+    # Should not raise.
+    Role.validate_config({'TRANSACTOR_ADDRESSES': ['*']})
+
+
+def test_validate_config_allows_wildcard_in_reader():
+    Role.validate_config({'READER_ADDRESSES': ['*']})
+
+
+def test_validate_config_rejects_wildcard_in_miller():
+    with pytest.raises(InvalidRoleConfigError):
+        Role.validate_config({'MILLER_ADDRESSES': ['*']})
+
+
+def test_validate_config_rejects_wildcard_in_admin():
+    with pytest.raises(InvalidRoleConfigError):
+        Role.validate_config({'ADMIN_ADDRESSES': ['*']})
+
+
+def test_wildcard_transactor_grants_transactor_role(app):
+    with app.app_context():
+        app.config['TRANSACTOR_ADDRESSES'] = ['*']
+        assert Role.address_role('not-a-listed-address') is Role.TRANSACTOR
+
+
+def test_no_wildcard_unlisted_is_not_transactor(app):
+    with app.app_context():
+        app.config['TRANSACTOR_ADDRESSES'] = []
+        assert Role.address_role('not-a-listed-address') is not Role.TRANSACTOR
+
+
+def test_wildcard_not_honored_for_miller_at_match_time(app):
+    # Defense-in-depth: a runtime-mutated MILLER "*" must NOT grant MILLER.
+    with app.app_context():
+        app.config['MILLER_ADDRESSES'] = ['*']
+        assert Role.MILLER not in Role.address_roles('not-a-listed-address')

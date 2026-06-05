@@ -275,9 +275,9 @@ def test_validate_config_rejects_nonaddress(app):
         Role.validate_config(app.config)
 
 
-def test_validate_config_rejects_wildcard_outside_reader(app):
+def test_validate_config_rejects_wildcard_in_miller_and_admin(app):
+    # READER and TRANSACTOR permit "*"; MILLER and ADMIN must not.
     for role_key in (
-        'TRANSACTOR_ADDRESSES',
         'MILLER_ADDRESSES',
         'ADMIN_ADDRESSES',
     ):
