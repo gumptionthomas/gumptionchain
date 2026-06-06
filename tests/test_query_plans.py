@@ -83,6 +83,11 @@ def test_balance_read_builds_no_automatic_index(
             ).all()
         )
         joined = '\n'.join(p for _s, p in plans)
+        # NOTE: unspent_outflows still MATERIALIZEs the full self.inflows
+        # subquery (the anon_ derived table). That materialization is a known,
+        # out-of-scope cost — the index pack covers base-table access, not
+        # subquery materialization (issue #161 scope) — so we deliberately do
+        # NOT assert against it here. Its absence below is intentional.
         # SQLite always builds an AUTOMATIC covering index to seek into a
         # MATERIALIZEd derived table (the inflows subquery, aliased anon_N) —
         # a base-table index can't cover a transient result set, so those
