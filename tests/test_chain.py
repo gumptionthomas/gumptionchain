@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from _sa_helpers import _count_select
+from sqlalchemy import event
 
 from gumptionchain.block import TXN_TIMEOUT, Block
 from gumptionchain.chain import (
@@ -1549,3 +1550,75 @@ def test_outflow_from_dao_matches_transaction_roundtrip(
         assert direct == roundtrip
         assert direct.opposition == subject
         assert direct.amount == cb_amount
+
+
+def _count_selects(fn):
+    bind = db.session.get_bind()
+    count = 0
+
+    def _rec(conn, cursor, statement, parameters, context, executemany):
+        nonlocal count
+        if statement.lstrip().upper().startswith('SELECT'):
+            count += 1
+
+    event.listen(bind, 'before_cursor_execute', _rec)
+    try:
+        fn()
+    finally:
+        event.remove(bind, 'before_cursor_execute', _rec)
+    return count
+
+
+def _build_chain_with_stakes(add_chain_block, time_stepper, wallet, subject, n):
+    """Build a canonical chain where n distinct transactions each spend the
+    previous block's coinbase into one opposition stake on `subject`. Each
+    stake is in its own block/transaction so the pre-fix N+1 issues a fresh
+    lazy-load per matched outflow.
+    """
+    time_step = time_stepper(
+        start=datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=2)
+    )
+    _ = next(time_step)
+    chain, prev_block = add_chain_block(milling_wallet=wallet)
+    for _i in range(n):
+        cb = prev_block.coinbase
+        cb_amount = next(iter(cb.outflows)).amount
+        _ = next(time_step)
+        spend = Transaction()
+        spend.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
+        spend.add_outflow(Outflow(amount=cb_amount, opposition=subject))
+        spend.set_wallet(wallet)
+        spend.seal()
+        spend.sign()
+        spend.to_db()
+        block = Block()
+        block.add_txn(spend)
+        _ = next(time_step)
+        chain, prev_block = add_chain_block(
+            chain=chain, block=block, milling_wallet=wallet
+        )
+    chain.to_db()
+    return chain
+
+
+def test_unrescinded_address_outflows_no_n_plus_1(
+    app, add_chain_block, time_stepper, wallet, subject
+):
+    """Draining the generator must issue a constant number of SELECTs,
+    independent of the matched-outflow count (no per-row Transaction
+    reconstruction).
+    """
+    with app.app_context():
+        chain = _build_chain_with_stakes(
+            add_chain_block, time_stepper, wallet, subject, n=3
+        )
+
+        def _drain():
+            return list(
+                chain.unrescinded_address_outflows(
+                    wallet.address, subject, 'opposition'
+                )
+            )
+
+        assert len(_drain()) == 3
+        assert _count_selects(_drain) <= 5
