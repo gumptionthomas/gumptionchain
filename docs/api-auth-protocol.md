@@ -119,7 +119,7 @@ cryptographic configuration, because the canonical strings differ.
 ## Signing algorithm
 
 The signature is produced using **RSASSA-PKCS1-v1_5 with SHA-384** over the
-canonical string bytes. The key is the wallet's RSA-3072 private key. The resulting
+canonical string bytes. The key is the wallet's RSA-2048 private key. The resulting
 signature bytes are encoded with **standard base64** (not URL-safe base64, using
 `+` and `/`).
 
@@ -181,7 +181,7 @@ The server performs these checks in order. Any failure in steps 1–6 results in
    present and non-empty → `401`.
 3. `GC-Timestamp` must parse as a decimal integer → `401`.
 4. Freshness: `abs(now − ts) <= 300` → else `401`.
-5. `GC-Public-Key` must be a valid RSA-3072 public key in base64 DER format, and
+5. `GC-Public-Key` must be a valid RSA-2048 public key in base64 DER format, and
    it must derive to an address equal to `GC-Address` → else `401`.
 6. Reconstruct the canonical string from the live request (see above); verify the
    `GC-Signature` using the public key from step 5 → else `401`.
@@ -277,7 +277,7 @@ signatures) are illustrative only and are not real cryptographic values.
 
 | Property | Value |
 |---|---|
-| RSA key size | 3072 bits |
+| RSA key size | 2048 bits |
 | Signature algorithm | RSASSA-PKCS1-v1_5 |
 | Signature hash | SHA-384 |
 | Signature encoding | Standard base64 (RFC 4648, uses `+` and `/`) |
