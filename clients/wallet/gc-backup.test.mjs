@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Wallet } from './gc-wallet.mjs';
+import { base64decode, base64encode } from './gc-crypto.mjs';
 import {
   exportEncrypted, importEncrypted, BadBackupError, BadPassphraseError,
 } from './gc-backup.mjs';
@@ -44,8 +45,11 @@ test('importEncrypted with a wrong passphrase throws BadPassphraseError', async 
 test('importEncrypted on a tampered ciphertext throws BadPassphraseError', async () => {
   const wallet = await Wallet.generate();
   const backup = await exportEncrypted(wallet, PASS, FAST);
-  // flip a byte in the base64 ciphertext's decoded form via a known-bad value
-  backup.ciphertext = backup.ciphertext.slice(0, -2) + 'AA';
+  // Flip a content byte so GCM's auth tag rejects it (a real bit-flip, not a
+  // length/padding change).
+  const ct = base64decode(backup.ciphertext);
+  ct[0] ^= 0xff;
+  backup.ciphertext = base64encode(ct);
   await assert.rejects(() => importEncrypted(backup, PASS), BadPassphraseError);
 });
 
@@ -76,6 +80,13 @@ test('importEncrypted rejects a malformed artifact (missing fields)', async () =
     () => importEncrypted({ kind: 'gc-wallet-backup', version: 1 }, PASS),
     BadBackupError,
   );
+});
+
+test('importEncrypted rejects a non-positive kdf.iterations', async () => {
+  const wallet = await Wallet.generate();
+  const backup = await exportEncrypted(wallet, PASS, FAST);
+  backup.kdf.iterations = 0;
+  await assert.rejects(() => importEncrypted(backup, PASS), BadBackupError);
 });
 
 import { exportPlain, importPlain } from './gc-backup.mjs';

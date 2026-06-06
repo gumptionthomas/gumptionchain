@@ -61,7 +61,15 @@ export async function importEncrypted(backup, passphrase) {
     throw new BadBackupError(`unsupported backup version: ${backup.version}`);
   }
   const { kdf, iv, ciphertext } = backup;
-  if (!kdf || kdf.name !== 'PBKDF2' || !kdf.salt || !iv || !ciphertext) {
+  if (
+    !kdf
+    || kdf.name !== 'PBKDF2'
+    || !kdf.salt
+    || typeof kdf.iterations !== 'number'
+    || kdf.iterations <= 0
+    || !iv
+    || !ciphertext
+  ) {
     throw new BadBackupError('malformed gc-wallet-backup artifact');
   }
   const key = await deriveKey(passphrase, base64decode(kdf.salt), kdf.iterations);
