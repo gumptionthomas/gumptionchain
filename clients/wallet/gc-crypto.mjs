@@ -1,4 +1,4 @@
-// Pure Web Crypto + vanilla JS. No dependencies. Browser + Node 19+.
+// Pure Web Crypto + vanilla JS. No dependencies. Browser + Node 20+.
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
 export function base58encode(bytes) {
