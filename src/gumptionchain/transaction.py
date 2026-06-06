@@ -5,7 +5,7 @@ from collections.abc import Generator, Iterator, MutableSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from json import JSONDecodeError
-from typing import Annotated, Any, Literal, Self, cast
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -35,7 +35,6 @@ from gumptionchain.payload import (
     InflowModel,
     Outflow,
     OutflowModel,
-    StakeKind,
 )
 from gumptionchain.schema import (
     AddressType,
@@ -338,25 +337,9 @@ class Transaction:
             public_key=dao.public_key,
             signature=dao.signature,
             prev_hash=dao.prev_hash,
-            inflows=[
-                Inflow(
-                    outflow_txid=inflow_dao.outflow_txid,
-                    outflow_idx=inflow_dao.outflow_idx,
-                )
-                for inflow_dao in dao.inflows
-            ],
+            inflows=[Inflow.from_dao(inflow_dao) for inflow_dao in dao.inflows],
             outflows=[
-                Outflow(
-                    amount=outflow_dao.amount,
-                    address=outflow_dao.address,
-                    opposition=outflow_dao.opposition,
-                    rescind=outflow_dao.rescind,
-                    support=outflow_dao.support,
-                    rescind_kind=cast(
-                        'StakeKind | None', outflow_dao.rescind_kind
-                    ),
-                )
-                for outflow_dao in dao.outflows
+                Outflow.from_dao(outflow_dao) for outflow_dao in dao.outflows
             ],
             version=dao.version,
         )

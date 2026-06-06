@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self, cast
 
 from pydantic import (
     AfterValidator,
@@ -120,6 +120,17 @@ class Outflow:
     support: str | None = None
     rescind_kind: StakeKind | None = None
 
+    @classmethod
+    def from_dao(cls, dao: Any) -> Self:
+        return cls(
+            amount=dao.amount,
+            address=dao.address,
+            opposition=dao.opposition,
+            rescind=dao.rescind,
+            support=dao.support,
+            rescind_kind=cast('StakeKind | None', dao.rescind_kind),
+        )
+
     @property
     def data_csv(self) -> str:
         return ','.join(
@@ -138,6 +149,13 @@ class Outflow:
 class Inflow:
     outflow_txid: str | None = None
     outflow_idx: int | None = None
+
+    @classmethod
+    def from_dao(cls, dao: Any) -> Self:
+        return cls(
+            outflow_txid=dao.outflow_txid,
+            outflow_idx=dao.outflow_idx,
+        )
 
     @property
     def data_csv(self) -> str:

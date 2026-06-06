@@ -457,11 +457,7 @@ class Chain:
             )
         ).scalars()
         for outflow_dao in outflow_daos:
-            txn = Transaction.from_dao(outflow_dao.transaction)
-            index = outflow_dao.idx
-            outflow = txn.get_outflow(index=index)
-            if outflow is None:
-                continue
+            outflow = Outflow.from_dao(outflow_dao)
             amount += outflow.amount or 0
             yield (outflow_dao.txid, outflow_dao.idx, outflow)
             if limit is not None and amount >= limit:
@@ -479,11 +475,7 @@ class Chain:
             )
         ).scalars()
         for outflow_dao in outflow_daos:
-            txn = Transaction.from_dao(outflow_dao.transaction)
-            index = outflow_dao.idx
-            outflow = txn.get_outflow(index=index)
-            if outflow is None:
-                continue
+            outflow = Outflow.from_dao(outflow_dao)
             yield (outflow_dao.txid, outflow_dao.idx, outflow)
 
     def unrescinded_address_outflows(
@@ -501,11 +493,7 @@ class Chain:
             )
         ).scalars()
         for outflow_dao in outflow_daos:
-            txn = Transaction.from_dao(outflow_dao.transaction)
-            index = outflow_dao.idx
-            outflow = txn.get_outflow(index=index)
-            if outflow is None:
-                continue
+            outflow = Outflow.from_dao(outflow_dao)
             amount += outflow.amount or 0
             yield (outflow_dao.txid, outflow_dao.idx, outflow)
             if limit is not None and amount >= limit:
