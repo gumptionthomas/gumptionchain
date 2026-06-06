@@ -49,6 +49,7 @@ GENESIS_HASH = mill_hash_str('GENESIS')
 # before the first retarget at block TARGET_INTERVAL). This is an easy
 # placeholder for dev/testnet.
 MAX_TARGET = '0' * 4 + 'F' * 60
+# EGU 1b: flat 5-GRIT non-halving reward, 5-min blocks, 24-block retarget.
 REWARD = 5 * GRAIN_PER_GRIT
 TARGET_GOAL_SECONDS = 300
 TARGET_INTERVAL = 24
