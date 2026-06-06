@@ -17,6 +17,13 @@ jobs:
       - run: uv sync --group dev --python ${{ matrix.python-version }}
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
+      # Node is needed on PATH for the live JS->Python gc-sig cross-verify in
+      # tests/test_browser_wallet_parity.py (it shells out to `node`). The
+      # browser wallet is pure Web Crypto + vanilla JS — zero npm packages.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: '20'
+      - run: node --test clients/wallet/*.test.mjs
       - run: uv run pytest
       - run: uv run mypy
       # Migration drift gate: upgrade a throwaway SQLite file, then compare
