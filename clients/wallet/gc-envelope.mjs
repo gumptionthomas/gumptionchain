@@ -9,6 +9,10 @@ async function deriveAesKey(prfOutput) {
     'deriveKey',
   ]);
   return crypto.subtle.deriveKey(
+    // Empty HKDF salt is deliberate and sound (RFC 5869): the PRF output is
+    // already high-entropy keying material, and the versioned HKDF_INFO label
+    // provides domain separation. The PRF output is never used as the key
+    // directly — it is HKDF input keying material.
     { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: HKDF_INFO },
     ikm,
     { name: 'AES-GCM', length: 256 },
