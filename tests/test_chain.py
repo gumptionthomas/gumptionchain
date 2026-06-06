@@ -1552,7 +1552,7 @@ def test_outflow_from_dao_matches_transaction_roundtrip(
         assert direct.amount == cb_amount
 
 
-def _count_selects(fn):
+def _count_select_statements(fn):
     bind = db.session.get_bind()
     count = 0
 
@@ -1621,4 +1621,7 @@ def test_unrescinded_address_outflows_no_n_plus_1(
             )
 
         assert len(_drain()) == 3
-        assert _count_selects(_drain) <= 5
+        # post-fix: 3 SELECTs; the pre-fix N+1 was ~12 (3 stakes x ~4 lazy
+        # loads). Bound leaves slack for incidental queries without
+        # re-admitting per-row Transaction loads.
+        assert _count_select_statements(_drain) <= 5
