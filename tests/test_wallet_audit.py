@@ -37,8 +37,8 @@ def test_wc1_bespoke_encrypt_decrypt_removed():
 
 def test_wc2_import_rejects_degenerate_exponent():
     """WC2 (Low) — REMEDIATED. `Wallet.__init__` previously checked
-    `isinstance(RSA*)` + `key_size == 3072` but not the public exponent (pyca
-    does not enforce a minimum), so a 3072-bit `e=3` key loaded and was
+    `isinstance(RSA*)` + `key_size == 2048` but not the public exponent (pyca
+    does not enforce a minimum), so a 2048-bit `e=3` key loaded and was
     accepted. It now rejects any imported key whose exponent is not 65537
     (matching the node's own generation). Not a live vulnerability (pyca's
     strict PKCS#1 v1.5 verifier forecloses cube-root forgery) — defense-in-
