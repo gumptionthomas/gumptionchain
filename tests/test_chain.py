@@ -1558,7 +1558,9 @@ def _count_select_statements(fn):
 
     def _rec(conn, cursor, statement, parameters, context, executemany):
         nonlocal count
-        if statement.lstrip().upper().startswith('SELECT'):
+        # Count read queries: plain SELECTs and CTE queries (WITH / WITH
+        # RECURSIVE), so a future CTE-shaped query can't slip the count.
+        if statement.lstrip().upper().startswith(('SELECT', 'WITH')):
             count += 1
 
     event.listen(bind, 'before_cursor_execute', _rec)
@@ -1621,7 +1623,11 @@ def test_unrescinded_address_outflows_no_n_plus_1(
             )
 
         assert len(_drain()) == 3
-        # post-fix: 3 SELECTs; the pre-fix N+1 was ~12 (3 stakes x ~4 lazy
-        # loads). Bound leaves slack for incidental queries without
-        # re-admitting per-row Transaction loads.
+        # Expire the session so the counted drain runs cold — a warm identity
+        # map / relationship cache from the sanity drain above could otherwise
+        # mask a per-row N+1 and let a regressed implementation pass.
+        db.session.expire_all()
+        # post-fix: constant SELECTs regardless of match count; the pre-fix
+        # N+1 was ~12 (3 stakes x ~4 lazy loads). Bound leaves slack for
+        # incidental queries without re-admitting per-row Transaction loads.
         assert _count_select_statements(_drain) <= 5
