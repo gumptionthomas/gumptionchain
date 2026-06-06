@@ -3,8 +3,25 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Wallet } from './gc-wallet.mjs';
 import { canonical, signHeaders } from './gc-sig.mjs';
+import { base58encode } from './gc-crypto.mjs';
 
 const V = JSON.parse(readFileSync(new URL('./testdata/gc-sig-vectors.json', import.meta.url)));
+
+test('fromPrivateKeyB58 rejects a non-2048 RSA key (node would reject it)', async () => {
+  // 3072 is freely generatable in Web Crypto; the node only accepts 2048.
+  const pair = await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5', modulusLength: 3072,
+      publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: 'SHA-384',
+    },
+    true, ['sign', 'verify'],
+  );
+  const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
+  await assert.rejects(
+    () => Wallet.fromPrivateKeyB58(base58encode(pkcs8)),
+    /modulus length/,
+  );
+});
 
 test('imported fixed key derives the same address + public key as Python', async () => {
   const w = await Wallet.fromPrivateKeyB58(V.private_key_b58);

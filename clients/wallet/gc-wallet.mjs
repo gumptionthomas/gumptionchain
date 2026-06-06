@@ -13,6 +13,27 @@ const KEYGEN = {
 };
 const IMPORT_PARAMS = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-384' };
 const ADDRESS_TAG = 'GC';
+const KEY_SIZE = 2048;
+const PUBLIC_EXPONENT = Uint8Array.of(0x01, 0x00, 0x01); // 65537
+
+// Mirror the node's Wallet key-profile guard: reject any imported key that is
+// not RSA-2048 with e=65537, so a client can't mint an identity/signature the
+// Python node will always reject. (Web Crypto exposes both on key.algorithm.)
+function assertKeyProfile(key) {
+  const { modulusLength, publicExponent } = key.algorithm;
+  if (modulusLength !== KEY_SIZE) {
+    throw new Error(
+      `unsupported RSA modulus length ${modulusLength} (want ${KEY_SIZE})`,
+    );
+  }
+  const e = new Uint8Array(publicExponent);
+  const ok =
+    e.length === PUBLIC_EXPONENT.length &&
+    e.every((b, i) => b === PUBLIC_EXPONENT[i]);
+  if (!ok) {
+    throw new Error('unsupported RSA public exponent (want 65537)');
+  }
+}
 
 export class Wallet {
   #privateKey;
@@ -40,6 +61,7 @@ export class Wallet {
       true,
       ['sign'],
     );
+    assertKeyProfile(priv);
     const jwk = await crypto.subtle.exportKey('jwk', priv);
     const pubJwk = { kty: jwk.kty, n: jwk.n, e: jwk.e, ext: true };
     const pub = await crypto.subtle.importKey(

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from gumptionchain.signing import _canonical
@@ -90,9 +91,15 @@ def _build_vectors() -> dict[str, object]:
 
 def test_vectors_committed_and_self_consistent() -> None:
     fresh = _build_vectors()
-    if not VECTORS_PATH.exists():
+    # Default run is READ-ONLY: fail loud if the committed oracle is missing,
+    # rather than silently regenerating (which would let an accidental deletion
+    # pass CI). Regenerate intentionally with GC_REGEN_VECTORS=1.
+    if os.environ.get('GC_REGEN_VECTORS'):
         VECTORS_PATH.parent.mkdir(parents=True, exist_ok=True)
         VECTORS_PATH.write_text(json.dumps(fresh, indent=2) + '\n')
+    assert VECTORS_PATH.exists(), (
+        'gc-sig-vectors.json missing; regenerate with GC_REGEN_VECTORS=1'
+    )
     committed = json.loads(VECTORS_PATH.read_text())
     assert committed == fresh, 'gc-sig-vectors.json drifted; regenerate'
 

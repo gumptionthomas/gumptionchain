@@ -1,7 +1,7 @@
 # EGU #2.1 — headless gc-sig-v1 core signing module — design
 
 **Date:** 2026-06-06
-**Status:** Approved design, pre-implementation
+**Status:** Implemented in #171
 **Issue:** #170 (sub-project 1 of EGU #2 / #152)
 **Type:** New client module (vanilla JS / Web Crypto) — additive; no change to the Python chain.
 
@@ -93,7 +93,7 @@ sub-projects) handle UX. No silent fallback.
 
 1. **JS unit tests** — `clients/wallet/*.test.mjs`, run with Node's built-in
    runner (`node --test`), **zero npm dependencies**. Cover: keygen shape (2048,
-   e=65537), `millHash` against a known digest, base58check round-trip + against
+   e=65537), `millHash` against a known digest, base58 round-trip + against
    golden values, address derivation, `sign` against golden signature, canonical
    string bytes, and `signHeaders` shape/values.
 2. **Golden vectors** — `clients/wallet/testdata/gc-sig-vectors.json`, emitted by
