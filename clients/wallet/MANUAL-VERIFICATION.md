@@ -39,6 +39,26 @@ Real behavior is verified by hand using `passkey-wallet-demo.html`:
 
 6. **Clear.** Click **Clear** and confirm the record is removed from IndexedDB.
 
+## Backup / recovery (#2.3)
+
+The backup crypto (`gc-backup.mjs` — PBKDF2-SHA256 → AES-GCM-256, plus the
+raw-string path) is fully covered by `node --test`. Only the browser glue in the
+demo page (file download/upload, passphrase prompt, clipboard) is manual:
+
+1. **Enroll or unlock** a wallet; note its address.
+2. Click **Download backup**, enter a passphrase, and save
+   `gc-wallet-backup.json`.
+3. Open the file in a text editor — confirm it contains
+   `"kind": "gc-wallet-backup"`, base64 `salt`/`iv`/`ciphertext`, and **no**
+   recognizable private key.
+4. Reload the page (or use a fresh profile), click **Restore from file**, pick
+   the file, and enter the passphrase — confirm the recovered address matches
+   step 1.
+5. Enter a **wrong** passphrase — confirm a clear `BadPassphraseError` message
+   and that no wallet is loaded.
+6. Click **Show raw key**, copy it; reload; paste into the import textarea and
+   click **Import raw key** — confirm the address matches.
+
 ## Notes for the tester
 
 - The passkey credential is a **separate** WebAuthn credential (ES256/RS256,

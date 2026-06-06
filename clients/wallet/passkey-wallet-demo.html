@@ -45,6 +45,34 @@
       <button id="clear">Clear</button>
     </p>
 
+    <h2>Backup / recovery</h2>
+    <p class="hint">
+      Acts on the wallet from the most recent Enroll or Unlock above
+      (<code>currentWallet</code>).
+    </p>
+    <p>
+      <button id="download-backup">Download backup</button>
+      <button id="restore-file">Restore from file</button>
+      <input id="restore-input" type="file" accept=".json,application/json"
+             hidden />
+    </p>
+    <p>
+      <button id="show-raw">Show raw key</button>
+      <button id="copy-raw">Copy raw key</button>
+    </p>
+    <p>
+      <input id="raw-key" type="text" readonly
+             style="width: 100%; font-family: monospace"
+             placeholder="raw b58 private key appears here" />
+    </p>
+    <p>
+      <textarea id="import-raw-text" rows="3" style="width: 100%"
+                placeholder="paste a raw b58 private key to import"></textarea>
+    </p>
+    <p>
+      <button id="import-raw">Import raw key</button>
+    </p>
+
     <h2>Output</h2>
     <pre id="out">(idle)</pre>
 
@@ -60,6 +88,8 @@
       import { enroll, unlock, clear } from './gc-store.mjs';
       import { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
       import { makeIdbStore } from './gc-store-idb.mjs';
+      import { exportEncrypted, importEncrypted, exportPlain, importPlain }
+        from './gc-backup.mjs';
 
       const rpId = location.hostname;
       const rpName = 'GumptionChain Wallet Demo';
@@ -67,6 +97,10 @@
 
       const passkey = makeWebauthnPasskey({ rpId, rpName });
       const store = makeIdbStore({ dbName: 'gc-wallet' });
+
+      // The wallet from the most recent enroll/unlock, held in memory so the
+      // backup controls can act on it. Cleared by Clear.
+      let currentWallet = null;
 
       const out = document.getElementById('out');
       const show = (msg) => {
@@ -76,12 +110,19 @@
         console.error(label, err);
         show(`${label} failed:\n${err && err.message ? err.message : err}`);
       };
+      const requireWallet = () => {
+        if (!currentWallet) {
+          throw new Error('no wallet loaded — Enroll or Unlock first');
+        }
+        return currentWallet;
+      };
 
       document.getElementById('enroll').addEventListener('click', async () => {
         try {
           show('Enrolling — complete the passkey ceremony…');
           const wallet = await Wallet.generate();
           const address = await enroll(wallet, { passkey, store }, { userName });
+          currentWallet = wallet;
           show(`Enrolled.\naddress: ${address}`);
         } catch (err) {
           fail('Enroll', err);
@@ -92,6 +133,7 @@
         try {
           show('Unlocking — complete the passkey ceremony…');
           const wallet = await unlock({ passkey, store });
+          currentWallet = wallet;
           const address = await wallet.address();
           const msg = new TextEncoder().encode('hello gumptionchain');
           const sig = await wallet.sign(msg);
@@ -107,11 +149,113 @@
       document.getElementById('clear').addEventListener('click', async () => {
         try {
           await clear(store);
+          currentWallet = null;
           show('Cleared. The stored record has been removed.');
         } catch (err) {
           fail('Clear', err);
         }
       });
+
+      document
+        .getElementById('download-backup')
+        .addEventListener('click', async () => {
+          try {
+            const wallet = requireWallet();
+            const passphrase = prompt('Passphrase to encrypt the backup:');
+            if (!passphrase) {
+              show('Download backup cancelled — no passphrase entered.');
+              return;
+            }
+            const backup = await exportEncrypted(wallet, passphrase);
+            const blob = new Blob([JSON.stringify(backup, null, 2)], {
+              type: 'application/json',
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'gc-wallet-backup.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            show(`Downloaded gc-wallet-backup.json\naddress: ${backup.address}`);
+          } catch (err) {
+            fail('Download backup', err);
+          }
+        });
+
+      const restoreInput = document.getElementById('restore-input');
+      document
+        .getElementById('restore-file')
+        .addEventListener('click', () => restoreInput.click());
+      restoreInput.addEventListener('change', async () => {
+        const file = restoreInput.files && restoreInput.files[0];
+        restoreInput.value = '';
+        if (!file) {
+          return;
+        }
+        try {
+          const obj = JSON.parse(await file.text());
+          const passphrase = prompt('Passphrase to decrypt the backup:');
+          if (!passphrase) {
+            show('Restore cancelled — no passphrase entered.');
+            return;
+          }
+          const prior = currentWallet ? await currentWallet.address() : null;
+          const recovered = await importEncrypted(obj, passphrase);
+          const address = await recovered.address();
+          currentWallet = recovered;
+          const note =
+            prior && prior !== address
+              ? '\n(warning: differs from the previously loaded wallet)'
+              : prior
+                ? '\n(matches the previously loaded wallet)'
+                : '';
+          show(`Restored from file.\naddress: ${address}${note}`);
+        } catch (err) {
+          fail('Restore from file', err);
+        }
+      });
+
+      document.getElementById('show-raw').addEventListener('click', async () => {
+        try {
+          const wallet = requireWallet();
+          document.getElementById('raw-key').value = await exportPlain(wallet);
+          show('Raw key revealed. Copy it into a password manager, then clear.');
+        } catch (err) {
+          fail('Show raw key', err);
+        }
+      });
+
+      document.getElementById('copy-raw').addEventListener('click', async () => {
+        try {
+          const value = document.getElementById('raw-key').value;
+          if (!value) {
+            show('Nothing to copy — click Show raw key first.');
+            return;
+          }
+          await navigator.clipboard.writeText(value);
+          show('Raw key copied to clipboard.');
+        } catch (err) {
+          fail('Copy raw key', err);
+        }
+      });
+
+      document
+        .getElementById('import-raw')
+        .addEventListener('click', async () => {
+          try {
+            const value = document.getElementById('import-raw-text').value.trim();
+            if (!value) {
+              show('Nothing to import — paste a raw b58 private key first.');
+              return;
+            }
+            const recovered = await importPlain(value);
+            const address = await recovered.address();
+            currentWallet = recovered;
+            show(`Imported raw key.\naddress: ${address}`);
+          } catch (err) {
+            fail('Import raw key', err);
+          }
+        });
     </script>
   </body>
 </html>
