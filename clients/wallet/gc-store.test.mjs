@@ -82,3 +82,16 @@ test('clear removes the stored wallet', async () => {
   await clear(store);
   assert.equal(await hasWallet(store), false);
 });
+
+test('clear on an empty store is an idempotent no-op', async () => {
+  const store = fakeStore();
+  await clear(store); // must not throw
+  assert.equal(await hasWallet(store), false);
+});
+
+test('unlock rejects a record with an unknown version (fail fast)', async () => {
+  const store = fakeStore();
+  await enroll(await Wallet.generate(), { passkey: fakePasskey(PRF), store }, { userName: 'p' });
+  store._peek().version = 999;
+  await assert.rejects(() => unlock({ passkey: fakePasskey(PRF), store }), /version/);
+});

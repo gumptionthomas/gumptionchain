@@ -6,6 +6,7 @@
 //          unlock(credentialId)->prfOutput (Uint8Array).
 // store (single record): get()->record|null, put(record), delete().
 import { base64encode, base64decode } from './gc-crypto.mjs';
+import { NoWalletError, UnsupportedError } from './gc-errors.mjs';
 import { seal, open } from './gc-envelope.mjs';
 import { Wallet } from './gc-wallet.mjs';
 
@@ -13,8 +14,8 @@ const RECORD_VERSION = 1;
 const te = new TextEncoder();
 const td = new TextDecoder();
 
-export class NoWalletError extends Error {}
-export class UnsupportedError extends Error {}
+// Re-export so existing consumers/tests can import the typed errors from here.
+export { NoWalletError, UnsupportedError } from './gc-errors.mjs';
 
 export async function hasWallet(store) {
   return (await store.get()) !== null;
@@ -44,6 +45,11 @@ export async function unlock({ passkey, store }) {
   const rec = await store.get();
   if (rec === null) {
     throw new NoWalletError('no stored wallet');
+  }
+  if (rec.version !== RECORD_VERSION) {
+    // Fail fast on an unknown/corrupt record rather than mis-decoding fields;
+    // a future schema bump handles migration here explicitly.
+    throw new Error(`unsupported wallet record version: ${rec.version}`);
   }
   const prfOutput = await passkey.unlock(rec.credentialId);
   const b58Bytes = await open(prfOutput, {

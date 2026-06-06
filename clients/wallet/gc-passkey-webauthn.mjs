@@ -2,6 +2,7 @@
 // interface. The passkey is a normal credential (ES256/RS256) used ONLY for its
 // PRF output — it is NOT the wallet's RSA key.
 import { base64encode, base64decode } from './gc-crypto.mjs';
+import { UnsupportedError } from './gc-errors.mjs';
 
 const PRF_SALT = new TextEncoder().encode('gc-wallet-prf-v1');
 
@@ -31,8 +32,13 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
         extensions: { prf: { eval: { first: PRF_SALT } } },
       },
     });
+    if (!assertion) {
+      throw new Error('passkey assertion failed or was cancelled');
+    }
     const out = prfFirst(assertion);
-    if (!out) throw new Error('passkey PRF not available on assertion');
+    if (!out) {
+      throw new UnsupportedError('passkey PRF not available on assertion');
+    }
     return out;
   }
 
@@ -62,7 +68,12 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
           extensions: { prf: { eval: { first: PRF_SALT } } },
         },
       });
+      if (!cred) {
+        throw new Error('passkey creation failed or was cancelled');
+      }
       const credentialId = b64urlEncode(new Uint8Array(cred.rawId));
+      // Prefer the create-time PRF result; else one assertion gets it (which
+      // throws UnsupportedError if the authenticator doesn't support PRF).
       const prfOutput = prfFirst(cred) ?? (await unlock(credentialId));
       return { credentialId, prfOutput };
     },
