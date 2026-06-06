@@ -42,10 +42,17 @@ from gumptionchain.wallet import Wallet
 
 GRAIN_PER_GRIT = 100
 GENESIS_HASH = mill_hash_str('GENESIS')
-MAX_TARGET = '0' * 6 + 'F' * 58
-REWARD = 100 * GRAIN_PER_GRIT
-TARGET_GOAL_SECONDS = 600
-TARGET_INTERVAL = 2016
+# MAX_TARGET is the difficulty floor (easiest target) and genesis/initial
+# target. BENCHMARK-PENDING: set the mainnet value on real Pi sha256(sha512)
+# hashrate so a lone Pi finds a block in <=300s. Err easier (too-easy is a
+# self-correcting fast-start that retargeting raises; too-hard stalls genesis
+# before the first retarget at block TARGET_INTERVAL). This is an easy
+# placeholder for dev/testnet.
+MAX_TARGET = '0' * 4 + 'F' * 60
+# EGU 1b: flat 5-GRIT non-halving reward, 5-min blocks, 24-block retarget.
+REWARD = 5 * GRAIN_PER_GRIT
+TARGET_GOAL_SECONDS = 300
+TARGET_INTERVAL = 24
 TARGET_INTERVAL_SECONDS = TARGET_GOAL_SECONDS * TARGET_INTERVAL
 
 

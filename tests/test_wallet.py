@@ -4,7 +4,7 @@ import pytest
 
 from gumptionchain.exceptions import InvalidKeyError, NoPrivateKeyError
 from gumptionchain.schema import validate_address_format
-from gumptionchain.wallet import Wallet
+from gumptionchain.wallet import KEY_SIZE, Wallet
 
 PASSPHRASE = 'fourty-two'
 
@@ -15,6 +15,17 @@ def test_new():
     assert wallet.private_key is not None
     assert wallet.public_key is not None
     assert wallet.address is not None
+
+
+def test_wallet_key_size_is_2048():
+    assert KEY_SIZE == 2048
+    wallet = Wallet()
+    assert wallet.private_key is not None
+    assert wallet.private_key.key_size == 2048
+    # sign + verify round-trip at the new size
+    message = b'browser-wallet friendliness'
+    signature = wallet.sign(message)
+    assert wallet.validate_signature(message, signature) is True
 
 
 def test_invalid_address():
