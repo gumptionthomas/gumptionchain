@@ -32,6 +32,11 @@ TXID_1 = '0' * 64
 # HS256 requires ≥32 bytes; this is 35 bytes (above the threshold so
 # pyjwt 2.13+ doesn't emit InsecureKeyLengthWarning during tests).
 TEST_SECRET_KEY = 'test-secret-key-for-phase-3-32bytes'
+# The four WALLET_* constants below are ONE self-consistent canonical wallet:
+# WALLET_PUBLIC_KEY_B64 / WALLET_ADDRESS derive from WALLET_PRIVATE_KEY_B58, and
+# WALLET_SIGNATURE is that key's signature over WALLET_SIGNATURE_DATA. They are
+# RSA-key-size-coupled: if wallet.KEY_SIZE changes, regenerate ALL FOUR together
+# from one fresh Wallet (a partial update fails the key_size guard, as in #167).
 WALLET_PRIVATE_KEY_B58 = (
     'riiewRJm2wpE3rWTs1ikUc83so8ZXMX8vp9dUTnRgMC8GyfLr99M2sohUdWp62MRBJLvX1'
     'FzqWDaJihdNfsx3ybub662Njn3Rsig8zyWHeXLihfvjnFt6qgPMqfvTevYgmutwK7xWNW5'
