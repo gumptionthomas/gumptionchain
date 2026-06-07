@@ -57,3 +57,23 @@ test('maxAge enforces freshness when supplied', async () => {
   const fresh = await verifyMessage(proof, { maxAge: 5000, now });
   assert.equal(fresh.valid, true);
 });
+
+import { toArmored, fromArmored } from './gc-message.mjs';
+
+test('toArmored/fromArmored round-trip preserves the proof', async () => {
+  const w = await Wallet.generate();
+  const proof = await signMessage(w, 'multi\nline\nmessage', { timestamp: TS });
+  const armored = toArmored(proof);
+  assert.ok(armored.startsWith('-----BEGIN GUMPTION SIGNED MESSAGE-----'));
+  const back = fromArmored(armored);
+  assert.deepEqual(back, proof);
+  assert.equal((await verifyMessage(back)).valid, true);
+});
+
+test('fromArmored rejects malformed armor and cleartext mismatch', async () => {
+  const w = await Wallet.generate();
+  const proof = await signMessage(w, 'hello', { timestamp: TS });
+  assert.throws(() => fromArmored('not armored at all'), BadProofError);
+  const tampered = toArmored(proof).replace('hello', 'goodbye');
+  assert.throws(() => fromArmored(tampered), BadProofError);
+});

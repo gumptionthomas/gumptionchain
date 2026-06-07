@@ -74,3 +74,34 @@ export async function verifyMessage(proof, { maxAge, now } = {}) {
   }
   return { ...result, valid: true };
 }
+
+const ARMOR_HEADER = '-----BEGIN GUMPTION SIGNED MESSAGE-----';
+const ARMOR_SIG = '-----BEGIN GUMPTION SIGNATURE-----';
+const ARMOR_FOOTER = '-----END GUMPTION SIGNED MESSAGE-----';
+
+export function toArmored(proof) {
+  const blob = base64encode(te.encode(JSON.stringify(proof)));
+  return [ARMOR_HEADER, proof.message, ARMOR_SIG, blob, ARMOR_FOOTER].join('\n');
+}
+
+export function fromArmored(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const h = lines.indexOf(ARMOR_HEADER);
+  const s = lines.indexOf(ARMOR_SIG);
+  const f = lines.indexOf(ARMOR_FOOTER);
+  if (h < 0 || s < 0 || f < 0 || !(h < s && s < f)) {
+    throw new BadProofError('malformed armored message');
+  }
+  const cleartext = lines.slice(h + 1, s).join('\n');
+  const blob = lines.slice(s + 1, f).join('').trim();
+  let proof;
+  try {
+    proof = JSON.parse(td.decode(base64decode(blob)));
+  } catch {
+    throw new BadProofError('malformed armored signature block');
+  }
+  if (proof.message !== cleartext) {
+    throw new BadProofError('armored cleartext does not match signed message');
+  }
+  return proof;
+}
