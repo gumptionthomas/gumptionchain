@@ -20,8 +20,16 @@ Real behavior is verified by hand using `passkey-wallet-demo.html`:
    then open <http://localhost:8000/passkey-wallet-demo.html>. (Opening the file
    via `file://` will not work — no secure context.)
 
-2. **Use a PRF-capable browser/authenticator.** Recent Chrome or Safari, or a
-   Bitwarden passkey provider. The `prf` WebAuthn extension must be supported.
+2. **Use a PRF-capable browser/authenticator.** Recent Chrome or Safari with a
+   platform passkey (Touch ID / iCloud Keychain), a phone passkey via hybrid
+   (QR), or a hardware key with `hmac-secret`. The `prf` WebAuthn extension must
+   be returned to the relying party.
+
+   > **Not Bitwarden.** The Bitwarden browser extension uses PRF only to unlock
+   > its *own* vault; it does not act as a PRF-capable authenticator for an
+   > external RP, so it returns no `prf` result and enroll fails. Verified
+   > 2026-06-06: `create()` returns `prf: undefined` under the Bitwarden
+   > extension.
 
 3. **Enroll.** Click **Enroll** and complete one passkey ceremony. Note the
    `address` shown in the output box.
@@ -90,5 +98,7 @@ manual:
   additional `get()` assertion to obtain it. On such authenticators enrollment
   may prompt twice.
 - If **Enroll** fails immediately with a PRF-related error, the
-  browser/authenticator likely does not support the `prf` extension — try a
-  different provider (e.g. Bitwarden) or browser.
+  browser/authenticator did not return the `prf` extension — try a different
+  authenticator (a platform passkey in recent Chrome/Safari, a phone passkey
+  via hybrid, or a hardware key with `hmac-secret`). Note the Bitwarden
+  extension does **not** export PRF to external RPs.
