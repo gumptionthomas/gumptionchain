@@ -17,10 +17,11 @@ VECTORS_PATH = (
     / 'testdata'
     / 'gc-attestation-vectors.json'
 )
+# txids are canonical 64-char lowercase-hex mill hashes (see #187).
 _CASES = [
     {
         'claim': {
-            'txid': 'tx1',
+            'txid': '1' * 64,
             'kind': 'opposition',
             'subject': 'goblins',
             'amount': 300,
@@ -29,7 +30,7 @@ _CASES = [
     },
     {
         'claim': {
-            'txid': 'tx2',
+            'txid': '2' * 64,
             'kind': 'support',
             'subject': 'göblins',
             'amount': 100,
@@ -39,7 +40,7 @@ _CASES = [
     },
     {
         'claim': {
-            'txid': 'tx3',
+            'txid': '3' * 64,
             'kind': 'transfer',
             'address': 'GCxGC',
             'amount': 5,

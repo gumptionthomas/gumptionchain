@@ -11,8 +11,10 @@ from gumptionchain.attestation import (
 from gumptionchain.wallet import Wallet
 
 TS = '1700002000'
+# A canonical txid is a 64-char lowercase-hex mill hash.
+TX = '1' * 64
 CLAIM = {
-    'txid': 'tx1',
+    'txid': TX,
     'kind': 'opposition',
     'subject': 'goblins',
     'amount': 300,
@@ -27,7 +29,7 @@ def _provenance(
     address: str, status: str = 'canonical', confirmations: int = 3
 ):
     return {
-        'txid': 'tx1',
+        'txid': TX,
         'address': address,
         'status': status,
         'confirmations': confirmations,
@@ -40,10 +42,10 @@ def _provenance(
 
 def test_build_stake_message_order_and_omission() -> None:
     assert build_stake_message(CLAIM) == (
-        '{"txid":"tx1","kind":"opposition","subject":"goblins","amount":300}'
+        f'{{"txid":"{TX}","kind":"opposition","subject":"goblins","amount":300}}'
     )
     assert build_stake_message({**CLAIM, 'handle': 'me.bsky.social'}) == (
-        '{"txid":"tx1","kind":"opposition","subject":"goblins","amount":300,'
+        f'{{"txid":"{TX}","kind":"opposition","subject":"goblins","amount":300,'
         '"handle":"me.bsky.social"}'
     )
 
@@ -53,12 +55,31 @@ def test_build_stake_message_rejects_malformed() -> None:
         build_stake_message({'kind': 'opposition', 'subject': 's', 'amount': 1})
     with pytest.raises(BadAttestationError):
         build_stake_message(
-            {'txid': 't', 'kind': 'x', 'subject': 's', 'amount': 1}
+            {'txid': TX, 'kind': 'x', 'subject': 's', 'amount': 1}
         )
     with pytest.raises(BadAttestationError):
         build_stake_message(
-            {'txid': 't', 'kind': 'opposition', 'subject': 's', 'amount': 0}
+            {'txid': TX, 'kind': 'opposition', 'subject': 's', 'amount': 0}
         )
+
+
+def test_build_stake_message_rejects_malformed_txid() -> None:
+    # Not 64-char lowercase hex -> rejected up front as a bad attestation,
+    # rather than slipping through to a provenance fetch (see #187).
+    for bad in (
+        'tx1',  # too short + non-hex 'x'
+        'g' * 64,  # right length, non-hex char
+        '1' * 63,  # too short
+        '1' * 65,  # too long
+        'A' * 64,  # uppercase hex is not the canonical form
+        '1' * 63 + '/',  # path metacharacter
+    ):
+        with pytest.raises(BadAttestationError):
+            build_stake_message({**CLAIM, 'txid': bad})
+    # A valid 64-hex txid is accepted.
+    assert build_stake_message({**CLAIM, 'txid': 'a' * 64}).startswith(
+        f'{{"txid":"{"a" * 64}"'
+    )
 
 
 def test_sign_then_parse_round_trips() -> None:
@@ -113,7 +134,7 @@ def test_verify_stake_failure_reasons() -> None:
     )
 
     mismatch = {
-        'txid': 'tx1',
+        'txid': TX,
         'address': w.address,
         'status': 'canonical',
         'confirmations': 3,
@@ -134,7 +155,7 @@ def test_parse_rejects_non_canonical() -> None:
     with pytest.raises(BadAttestationError):
         parse_stake_attestation(
             {
-                'message': '{"txid":"tx1","kind":"opposition",'
+                'message': f'{{"txid":"{TX}","kind":"opposition",'
                 '"subject":"goblins","amount":300.0}'
             }
         )
@@ -142,7 +163,7 @@ def test_parse_rejects_non_canonical() -> None:
     with pytest.raises(BadAttestationError):
         parse_stake_attestation(
             {
-                'message': '{"kind":"opposition","txid":"tx1",'
+                'message': f'{{"kind":"opposition","txid":"{TX}",'
                 '"subject":"goblins","amount":300}'
             }
         )
@@ -153,7 +174,7 @@ def test_validate_rejects_present_offside_key() -> None:
     with pytest.raises(BadAttestationError):
         build_stake_message(
             {
-                'txid': 't',
+                'txid': TX,
                 'kind': 'transfer',
                 'address': 'a',
                 'amount': 1,
@@ -163,7 +184,7 @@ def test_validate_rejects_present_offside_key() -> None:
     with pytest.raises(BadAttestationError):
         build_stake_message(
             {
-                'txid': 't',
+                'txid': TX,
                 'kind': 'opposition',
                 'subject': 's',
                 'amount': 1,

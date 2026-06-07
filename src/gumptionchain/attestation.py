@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -12,6 +13,14 @@ from gumptionchain.message import (
 from gumptionchain.wallet import Wallet
 
 KINDS = frozenset({'opposition', 'support', 'rescind', 'transfer'})
+
+# A txid is a transaction's mill hash: 64-char lowercase hex (see
+# milling.mill_hash_str -> .hexdigest()). Validating the canonical shape here
+# (rather than only "non-empty string") means a malformed txid is rejected as a
+# bad attestation up front, instead of slipping through to a provenance fetch
+# that 404s and gets mis-reported as 'txn-not-found'. Kept in lockstep with the
+# JS validator's TXID_RE in clients/wallet/gc-attestation.mjs.
+_TXID_RE = re.compile(r'[0-9a-f]{64}')
 
 
 class AttestationError(Exception):
@@ -32,8 +41,8 @@ def _validate_claim(claim: Any) -> None:
     address = claim.get('address')
     amount = claim.get('amount')
     handle = claim.get('handle')
-    if not isinstance(txid, str) or not txid:
-        msg = 'txid is required'
+    if not isinstance(txid, str) or not _TXID_RE.fullmatch(txid):
+        msg = 'txid must be a 64-char hex digest'
         raise BadAttestationError(msg)
     if kind not in KINDS:
         msg = f'invalid kind: {kind}'

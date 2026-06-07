@@ -7,6 +7,13 @@ import { signMessage, verifyMessage } from './gc-message.mjs';
 
 const KINDS = new Set(['opposition', 'support', 'rescind', 'transfer']);
 
+// A txid is a transaction's mill hash: 64-char lowercase hex. Validating the
+// canonical shape here (not just "non-empty string") rejects a malformed txid
+// as a bad attestation up front, instead of letting it slip through to a
+// provenance fetch that 404s and gets mis-reported as 'txn-not-found'. Kept in
+// lockstep with the Python validator's _TXID_RE in attestation.py.
+const TXID_RE = /^[0-9a-f]{64}$/;
+
 export { BadAttestationError } from './gc-errors.mjs';
 
 function validateClaim(claim) {
@@ -14,8 +21,8 @@ function validateClaim(claim) {
     throw new BadAttestationError('claim must be an object');
   }
   const { txid, kind, subject, address, amount, handle } = claim;
-  if (typeof txid !== 'string' || !txid) {
-    throw new BadAttestationError('txid is required');
+  if (typeof txid !== 'string' || !TXID_RE.test(txid)) {
+    throw new BadAttestationError('txid must be a 64-char hex digest');
   }
   if (!KINDS.has(kind)) {
     throw new BadAttestationError(`invalid kind: ${kind}`);
