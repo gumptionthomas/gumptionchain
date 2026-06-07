@@ -60,6 +60,25 @@ demo page (file download/upload, passphrase prompt, clipboard) is manual:
 6. Click **Show raw key**, copy it; reload; paste into the import textarea and
    click **Import raw key** — confirm the address matches.
 
+## Message signing (#2.4)
+
+The `gc-msg-v1` crypto (`gc-message.mjs` — canonical, sign/verify, armored) is
+fully covered by `node --test` and by JS↔Python parity + golden-vector tests.
+Only the demo-page glue (textareas, copy buttons, JSON-vs-armored parsing) is
+manual:
+
+1. **Unlock a wallet.** In **Sign message**, enter some text and click **Sign
+   message**; confirm a proof JSON and an armored block appear, and that the
+   proof `address` matches the loaded wallet.
+2. Copy the **armored** block into **Verify message** and click **Verify
+   message**; confirm `valid: true` with the right `address`/`timestamp`.
+3. Edit one character of the armored cleartext (the human-readable line between
+   the headers) and verify again; confirm a `BadProofError` (cleartext
+   mismatch) is surfaced.
+4. Paste the **JSON** form instead and verify; confirm `valid: true`.
+5. Tamper a character inside the JSON `message` field and verify; confirm
+   `valid: false, reason: bad-signature`.
+
 ## Notes for the tester
 
 - The passkey credential is a **separate** WebAuthn credential (ES256/RS256,

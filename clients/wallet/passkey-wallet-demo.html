@@ -73,6 +73,42 @@
       <button id="import-raw">Import raw key</button>
     </p>
 
+    <h2>Sign message (#2.4)</h2>
+    <p class="hint">
+      Signs arbitrary text into a portable <code>gc-msg-v1</code> proof using
+      <code>currentWallet</code>. Verifies off-chain in JS and Python.
+    </p>
+    <p>
+      <textarea id="sign-msg-text" rows="3" style="width: 100%"
+                placeholder="message to sign"></textarea>
+    </p>
+    <p>
+      <button id="sign-msg">Sign message</button>
+      <button id="copy-msg-json">Copy JSON</button>
+      <button id="copy-msg-armored">Copy armored</button>
+    </p>
+    <p>
+      <textarea id="sign-msg-json" rows="4" style="width: 100%; font-family: monospace"
+                readonly placeholder="proof JSON appears here"></textarea>
+    </p>
+    <p>
+      <textarea id="sign-msg-armored" rows="6" style="width: 100%; font-family: monospace"
+                readonly placeholder="armored proof appears here"></textarea>
+    </p>
+
+    <h2>Verify message (#2.4)</h2>
+    <p class="hint">
+      Paste either the JSON proof or the armored block; verification is
+      self-contained (no wallet required).
+    </p>
+    <p>
+      <textarea id="verify-msg-text" rows="6" style="width: 100%; font-family: monospace"
+                placeholder="paste JSON or armored gc-msg-v1 proof"></textarea>
+    </p>
+    <p>
+      <button id="verify-msg">Verify message</button>
+    </p>
+
     <h2>Output</h2>
     <pre id="out">(idle)</pre>
 
@@ -90,6 +126,8 @@
       import { makeIdbStore } from './gc-store-idb.mjs';
       import { exportEncrypted, importEncrypted, exportPlain, importPlain }
         from './gc-backup.mjs';
+      import { signMessage, verifyMessage, toArmored, fromArmored }
+        from './gc-message.mjs';
 
       const rpId = location.hostname;
       const rpName = 'GumptionChain Wallet Demo';
@@ -256,6 +294,72 @@
             show(`Imported raw key.\naddress: ${address}`);
           } catch (err) {
             fail('Import raw key', err);
+          }
+        });
+
+      document.getElementById('sign-msg').addEventListener('click', async () => {
+        try {
+          const wallet = requireWallet();
+          const text = document.getElementById('sign-msg-text').value;
+          const proof = await signMessage(wallet, text);
+          document.getElementById('sign-msg-json').value =
+            JSON.stringify(proof, null, 2);
+          document.getElementById('sign-msg-armored').value = toArmored(proof);
+          show(`Signed message.\naddress: ${proof.address}`);
+        } catch (err) {
+          fail('Sign message', err);
+        }
+      });
+
+      const copyField = async (id, label) => {
+        try {
+          const value = document.getElementById(id).value;
+          if (!value) {
+            show('Nothing to copy — sign a message first.');
+            return;
+          }
+          await navigator.clipboard.writeText(value);
+          show(`${label} copied to clipboard.`);
+        } catch (err) {
+          fail(`Copy ${label}`, err);
+        }
+      };
+      document
+        .getElementById('copy-msg-json')
+        .addEventListener('click', () => copyField('sign-msg-json', 'JSON'));
+      document
+        .getElementById('copy-msg-armored')
+        .addEventListener('click', () =>
+          copyField('sign-msg-armored', 'Armored'),
+        );
+
+      document
+        .getElementById('verify-msg')
+        .addEventListener('click', async () => {
+          try {
+            const text = document.getElementById('verify-msg-text').value.trim();
+            if (!text) {
+              show('Nothing to verify — paste a JSON or armored proof first.');
+              return;
+            }
+            let proof;
+            try {
+              proof = JSON.parse(text);
+            } catch {
+              proof = fromArmored(text);
+            }
+            const r = await verifyMessage(proof);
+            const lines = [
+              `valid: ${r.valid}`,
+              `address: ${r.address}`,
+              `timestamp: ${r.timestamp}`,
+            ];
+            if (!r.valid) {
+              lines.push(`reason: ${r.reason}`);
+            }
+            show(lines.join('\n'));
+          } catch (err) {
+            fail('Verify message', err);
           }
         });
     </script>
