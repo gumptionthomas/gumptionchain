@@ -147,3 +147,8 @@ def transaction_provenance_view(txid: str) -> Any:
     # Route param (mill_hash-validated) is authoritative for txid; unpack prov
     # first so a stray 'txid' key can't override the request path.
     return jsonify({**prov, 'txid': txid})
+
+
+@blueprint.route('/verify')
+def verify_view() -> Any:
+    return render_template('verify.html', title='Verify')
