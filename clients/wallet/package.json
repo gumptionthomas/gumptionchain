@@ -1,0 +1,12 @@
+{
+  "name": "@gumptionchain/wallet",
+  "version": "0.1.0",
+  "description": "GumptionChain browser wallet — gc-sig-v1 signing, passkey storage, backup, message signing.",
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "sideEffects": false,
+  "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE"
+}
