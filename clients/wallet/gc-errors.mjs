@@ -16,3 +16,7 @@ export class BadBackupError extends Error {}
 // importEncrypted decrypt failed (wrong passphrase or tampered backup) —
 // re-thrown from the GCM tag mismatch so callers never see garbage plaintext.
 export class BadPassphraseError extends Error {}
+
+// Input is not a structurally valid gc-msg-v1 proof (un-parseable / wrong
+// shape) — distinct from a proof that parses but fails verification.
+export class BadProofError extends Error {}
