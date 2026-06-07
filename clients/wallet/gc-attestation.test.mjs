@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { Wallet } from './gc-wallet.mjs';
 import {
   buildStakeMessage, signStakeAttestation, parseStakeAttestation,
@@ -117,4 +118,13 @@ test('verifyStake reports signer-not-staker and claim-mismatch', async () => {
     }),
   });
   assert.ok(mismatch.reasons.includes('claim-mismatch'));
+});
+
+test('JS canonical messages match the committed golden vectors', () => {
+  const vec = JSON.parse(readFileSync(
+    new URL('./testdata/gc-attestation-vectors.json', import.meta.url),
+  ));
+  for (const c of vec) {
+    assert.equal(buildStakeMessage(c.claim), c.message);
+  }
 });
