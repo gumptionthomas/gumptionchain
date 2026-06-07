@@ -72,6 +72,25 @@ test('parseStakeAttestation rejects non-canonical encodings', () => {
   }), BadAttestationError);
 });
 
+test('buildStakeMessage rejects a present off-side key (even null)', () => {
+  assert.throws(() => buildStakeMessage(
+    { txid: 't', kind: 'transfer', address: 'a', amount: 1, subject: null },
+  ), BadAttestationError);
+  assert.throws(() => buildStakeMessage(
+    { txid: 't', kind: 'opposition', subject: 's', amount: 1, address: null },
+  ), BadAttestationError);
+});
+
+test('verifyStake wraps a malformed proof envelope as BadAttestationError', async () => {
+  const w = await Wallet.generate();
+  const proof = await signStakeAttestation(w, CLAIM, { timestamp: TS });
+  proof.scheme = 'gc-sig-v1'; // malformed gc-msg-v1 envelope
+  await assert.rejects(
+    () => verifyStake(proof, { fetchProvenance: async () => provenanceFor(await w.address()) }),
+    BadAttestationError,
+  );
+});
+
 test('verifyStake valid when signature + onchain + consistent all hold', async () => {
   const w = await Wallet.generate();
   const proof = await signStakeAttestation(w, CLAIM, { timestamp: TS });

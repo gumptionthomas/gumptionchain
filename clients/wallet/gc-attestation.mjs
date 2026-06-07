@@ -2,7 +2,7 @@
 // message is the canonical JSON of a stake claim. verifyStake composes the
 // signature (gc-msg-v1), on-chain provenance (injected fetchProvenance), and a
 // consistency check. Pure — no I/O. No dependencies beyond sibling modules.
-import { BadAttestationError } from './gc-errors.mjs';
+import { BadAttestationError, BadProofError } from './gc-errors.mjs';
 import { signMessage, verifyMessage } from './gc-message.mjs';
 
 const KINDS = new Set(['opposition', 'support', 'rescind', 'transfer']);
@@ -94,7 +94,10 @@ function outflowMatches(outflows, claim) {
 }
 
 // fetchProvenance(txid) MUST resolve to the #176a provenance object, or null
-// for an unknown txn. The verifier performs no transport itself.
+// for an unknown txn. The verifier performs no transport itself; mapping a
+// 404 to null is the injected adapter's job. Genuine transport errors (e.g. a
+// network failure) propagate by design — they must NOT be misreported as
+// 'txn-not-found', which would mark a real canonical stake unverifiable.
 export async function verifyStake(
   proof,
   { fetchProvenance, maxAge, minConfirmations } = {},
@@ -104,7 +107,16 @@ export async function verifyStake(
   const checks = { signature: false, onchain: false, consistent: false };
   const signer = proof.address;
 
-  const sig = await verifyMessage(proof, { maxAge });
+  let sig;
+  try {
+    sig = await verifyMessage(proof, { maxAge });
+  } catch (e) {
+    // A structurally malformed gc-msg-v1 envelope is a malformed attestation.
+    if (e instanceof BadProofError) {
+      throw new BadAttestationError('attestation is not a valid gc-msg-v1 proof');
+    }
+    throw e;
+  }
   if (sig.valid && sig.address === signer) {
     checks.signature = true;
   } else {

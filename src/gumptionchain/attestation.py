@@ -4,7 +4,11 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from gumptionchain.message import sign_message, verify_message
+from gumptionchain.message import (
+    BadProofError,
+    sign_message,
+    verify_message,
+)
 from gumptionchain.wallet import Wallet
 
 KINDS = frozenset({'opposition', 'support', 'rescind', 'transfer'})
@@ -41,14 +45,16 @@ def _validate_claim(claim: Any) -> None:
         if not isinstance(address, str) or not address:
             msg = 'transfer requires address'
             raise BadAttestationError(msg)
-        if subject is not None:
+        # Reject the off-side key by presence (matching JS's !== undefined),
+        # so {'kind':'transfer', 'subject': None} is rejected, not ignored.
+        if 'subject' in claim:
             msg = 'transfer must not set subject'
             raise BadAttestationError(msg)
     else:
         if not isinstance(subject, str) or not subject:
             msg = 'stake requires subject'
             raise BadAttestationError(msg)
-        if address is not None:
+        if 'address' in claim:
             msg = 'stake must not set address'
             raise BadAttestationError(msg)
     if handle is not None and not isinstance(handle, str):
@@ -115,12 +121,22 @@ def verify_stake(
     max_age: int | None = None,
     min_confirmations: int | None = None,
 ) -> dict[str, Any]:
+    # fetch_provenance(txid) MUST return the #176a provenance dict, or None for
+    # an unknown txn; mapping a 404 to None is the injected adapter's job.
+    # Genuine transport errors propagate by design — they must NOT be
+    # misreported as 'txn-not-found' (which would mark a real canonical stake
+    # unverifiable).
     claim = parse_stake_attestation(proof)
     reasons: list[str] = []
     checks = {'signature': False, 'onchain': False, 'consistent': False}
     signer = proof.get('address')
 
-    sig = verify_message(proof, max_age=max_age)
+    try:
+        sig = verify_message(proof, max_age=max_age)
+    except BadProofError as e:
+        # A malformed gc-msg-v1 envelope is a malformed attestation.
+        msg = 'attestation is not a valid gc-msg-v1 proof'
+        raise BadAttestationError(msg) from e
     if sig.get('valid') and sig.get('address') == signer:
         checks['signature'] = True
     else:

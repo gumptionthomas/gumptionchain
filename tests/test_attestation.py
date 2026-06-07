@@ -146,3 +146,35 @@ def test_parse_rejects_non_canonical() -> None:
                 '"subject":"goblins","amount":300}'
             }
         )
+
+
+def test_validate_rejects_present_offside_key() -> None:
+    # off-side key present (even as None) is rejected, matching JS
+    with pytest.raises(BadAttestationError):
+        build_stake_message(
+            {
+                'txid': 't',
+                'kind': 'transfer',
+                'address': 'a',
+                'amount': 1,
+                'subject': None,
+            }
+        )
+    with pytest.raises(BadAttestationError):
+        build_stake_message(
+            {
+                'txid': 't',
+                'kind': 'opposition',
+                'subject': 's',
+                'amount': 1,
+                'address': None,
+            }
+        )
+
+
+def test_verify_stake_wraps_bad_proof_envelope() -> None:
+    w = _wallet()
+    proof = sign_stake_attestation(w, CLAIM, timestamp=int(TS))
+    proof['scheme'] = 'gc-sig-v1'  # malformed gc-msg-v1 envelope
+    with pytest.raises(BadAttestationError):
+        verify_stake(proof, lambda _t: _provenance(w.address))
