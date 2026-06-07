@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -442,8 +443,10 @@ class TransactionProvenanceView(MethodView):
                 return make_json_response(
                     {'error': 'transaction not found'}, 404
                 )
+            # deepcopy: prov is the cached object; its nested `outflows` list
+            # would otherwise be shared by reference with the cache entry.
             return make_json_response(
-                {'txid': txid, **prov, 'as_of_block': tip}
+                {'txid': txid, **copy.deepcopy(prov), 'as_of_block': tip}
             )
         except GCError as err:
             return make_error_response(err)
