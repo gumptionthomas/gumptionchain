@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 from collections.abc import Generator
 from typing import Any, ClassVar
 
@@ -605,6 +606,56 @@ class LongestChainBlockDAO(Base):
         self.position = position
 
 
+def _outflow_view(
+    *,
+    amount: int,
+    address: str | None = None,
+    opposition: str | None = None,
+    support: str | None = None,
+    rescind: str | None = None,
+    rescind_kind: str | None = None,
+) -> dict[str, Any]:
+    if opposition is not None:
+        return {'kind': 'opposition', 'subject': opposition, 'amount': amount}
+    if support is not None:
+        return {'kind': 'support', 'subject': support, 'amount': amount}
+    if rescind is not None:
+        return {
+            'kind': 'rescind',
+            'subject': rescind,
+            'rescind_kind': rescind_kind,
+            'amount': amount,
+        }
+    return {'kind': 'transfer', 'address': address, 'amount': amount}
+
+
+def _pending_provenance(txid: str) -> dict[str, Any] | None:
+    pending = PendingTxnDAO.get(txid)
+    if pending is None:
+        return None
+    data = json.loads(pending.json_data)
+    outflows = [
+        _outflow_view(
+            amount=o['amount'],
+            address=o.get('address'),
+            opposition=o.get('opposition'),
+            support=o.get('support'),
+            rescind=o.get('rescind'),
+            rescind_kind=o.get('rescind_kind'),
+        )
+        for o in data.get('outflows', [])
+    ]
+    return {
+        'address': data.get('address'),
+        'outflows': outflows,
+        'timestamp': data.get('timestamp'),
+        'status': 'pending',
+        'block_hash': None,
+        'height': None,
+        'confirmations': 0,
+    }
+
+
 class ChainDAO(Base):
     __tablename__ = 'chain'
 
@@ -906,6 +957,72 @@ class ChainDAO(Base):
 
     def get_transaction(self, txid: str) -> TransactionDAO | None:
         return self.block.get_transaction_in_chain(txid)
+
+    @classmethod
+    def pending_provenance(cls, txid: str) -> dict[str, Any] | None:
+        return _pending_provenance(txid)
+
+    def transaction_provenance(self, txid: str) -> dict[str, Any] | None:
+        txn = self.get_transaction(txid)  # canonical (longest chain) or None
+        if txn is not None:
+            block = (
+                db.session.execute(
+                    db.select(BlockDAO)
+                    .join(
+                        LongestChainBlockDAO,
+                        LongestChainBlockDAO.block_id == BlockDAO.id,
+                    )
+                    .join(BlockDAO.transactions)
+                    .where(TransactionDAO.txid == txid)
+                )
+                .scalars()
+                .first()
+            )
+            tip_height = self.block.idx
+            height = block.idx if block is not None else None
+            confirmations = tip_height - height + 1 if height is not None else 0
+            return {
+                'address': txn.address,
+                'outflows': [
+                    _outflow_view(
+                        amount=o.amount,
+                        address=o.address,
+                        opposition=o.opposition,
+                        support=o.support,
+                        rescind=o.rescind,
+                        rescind_kind=o.rescind_kind,
+                    )
+                    for o in txn.outflows
+                ],
+                'timestamp': txn.timestamp.isoformat(),
+                'status': 'canonical',
+                'block_hash': block.block_hash if block is not None else None,
+                'height': height,
+                'confirmations': confirmations,
+            }
+        orphan = TransactionDAO.get(txid)
+        if orphan is not None:
+            block_hash = orphan.blocks[0].block_hash if orphan.blocks else None
+            return {
+                'address': orphan.address,
+                'outflows': [
+                    _outflow_view(
+                        amount=o.amount,
+                        address=o.address,
+                        opposition=o.opposition,
+                        support=o.support,
+                        rescind=o.rescind,
+                        rescind_kind=o.rescind_kind,
+                    )
+                    for o in orphan.outflows
+                ],
+                'timestamp': orphan.timestamp.isoformat(),
+                'status': 'orphaned',
+                'block_hash': block_hash,
+                'height': None,
+                'confirmations': 0,
+            }
+        return _pending_provenance(txid)
 
     def address_transactions(
         self, address: str

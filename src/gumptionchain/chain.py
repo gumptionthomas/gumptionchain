@@ -515,6 +515,12 @@ class Chain:
     def support_balance(self, subject: str) -> int:
         return int(self.to_dao().support_balance(subject))
 
+    def transaction_provenance(self, txid: str) -> dict[str, Any] | None:
+        dao = self.to_dao()
+        if dao is not None:
+            return dao.transaction_provenance(txid)
+        return ChainDAO.pending_provenance(txid)
+
     def create_transfer(
         self, wallet: Wallet, amount: int, dest_address: str
     ) -> Transaction:

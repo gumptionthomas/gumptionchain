@@ -5,6 +5,7 @@ import pytest
 from _sa_helpers import _count_select
 from sqlalchemy import event
 
+from gumptionchain.api_client import ApiClient
 from gumptionchain.block import TXN_TIMEOUT, Block
 from gumptionchain.chain import (
     GENESIS_HASH,
@@ -29,7 +30,7 @@ from gumptionchain.exceptions import (
     SpentTransactionError,
 )
 from gumptionchain.milling import mill_hash_str
-from gumptionchain.models import TransactionDAO
+from gumptionchain.models import ChainDAO, TransactionDAO
 from gumptionchain.payload import Inflow, Outflow
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import now, now_iso
@@ -1631,3 +1632,94 @@ def test_unrescinded_address_outflows_no_n_plus_1(
         # N+1 was ~12 (3 stakes x ~4 lazy loads). Bound leaves slack for
         # incidental queries without re-admitting per-row Transaction loads.
         assert _count_select_statements(_drain) <= 5
+
+
+def test_transaction_provenance_canonical(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    with app.app_context():
+        m, _b1 = mill_block(wallet)  # coinbase funds `wallet`
+        txn = m.longest_chain.create_opposition(wallet, 300, subject)
+        txn.sign()
+        ApiClient(host, wallet).post_transaction(txn)
+        m, _b2 = mill_block(wallet)  # mines txn into the tip block
+
+        prov = ChainDAO.longest().transaction_provenance(txn.txid)
+        assert prov is not None
+        assert prov['status'] == 'canonical'
+        assert prov['address'] == wallet.address
+        # create_opposition emits the opposition outflow plus a change
+        # transfer back to the funding wallet (coinbase >> 300 grains).
+        assert {
+            'kind': 'opposition',
+            'subject': subject,
+            'amount': 300,
+        } in prov['outflows']
+        assert prov['confirmations'] == 1
+        assert prov['block_hash'] == _b2.block_hash
+
+        m, _b3 = mill_block(wallet)  # tip advances
+        prov2 = ChainDAO.longest().transaction_provenance(txn.txid)
+        assert prov2['confirmations'] == 2
+
+
+def test_transaction_provenance_pending(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    with app.app_context():
+        m, _b1 = mill_block(wallet)
+        txn = m.longest_chain.create_opposition(wallet, 7, subject)
+        txn.sign()
+        ApiClient(host, wallet).post_transaction(txn)  # left in mempool
+
+        prov = ChainDAO.longest().transaction_provenance(txn.txid)
+        assert prov is not None
+        assert prov['status'] == 'pending'
+        assert prov['block_hash'] is None
+        assert prov['confirmations'] == 0
+        assert {
+            'kind': 'opposition',
+            'subject': subject,
+            'amount': 7,
+        } in prov['outflows']
+
+
+def test_transaction_provenance_unknown_returns_none(
+    app, host, mill_block, requests_proxy, wallet
+):
+    with app.app_context():
+        mill_block(wallet)
+        absent = mill_hash_str('no-such-transaction')
+        assert ChainDAO.longest().transaction_provenance(absent) is None
+
+
+def test_transaction_provenance_orphaned(
+    add_chain_block, app, host, mill_block, requests_proxy, wallet
+):
+    # Mine main chain genesis->b2; b2's coinbase txn is canonical. Then build
+    # a longer fork off genesis that excludes b2, sync the materialization
+    # (Chain.to_db -> sync_longest_chain_blocks), and assert b2's coinbase txn
+    # is now orphaned. Fork construction mirrors tests/test_chain.py::test_dao.
+    with app.app_context():
+        wallet2 = Wallet()
+        _, b1 = mill_block(wallet)  # genesis
+        _, b2 = mill_block(wallet)  # b2 on main (coinbase txn)
+        coinbase_txid = b2.txns[-1].txid
+
+        # canonical first
+        assert (
+            ChainDAO.longest().transaction_provenance(coinbase_txid)['status']
+            == 'canonical'
+        )
+
+        # build a strictly-longer fork off b1 that excludes b2
+        alt = Chain(block_hash=b1.block_hash)
+        add_chain_block(chain=alt, milling_wallet=wallet2)  # alt-a
+        _, _ = add_chain_block(chain=alt, milling_wallet=wallet2)  # alt-b
+        alt.to_db()  # sync_longest_chain_blocks -> alt becomes canonical
+
+        prov = ChainDAO.longest().transaction_provenance(coinbase_txid)
+        assert prov is not None
+        assert prov['status'] == 'orphaned'
+        assert prov['height'] is None
+        assert prov['confirmations'] == 0
