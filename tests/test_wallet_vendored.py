@@ -1,6 +1,8 @@
 from pathlib import Path
 
-WALLET_DIR = Path('src/gumptionchain/static/wallet')
+WALLET_DIR = (
+    Path(__file__).resolve().parent.parent / 'src/gumptionchain/static/wallet'
+)
 REQUIRED = [
     'gc-attestation.mjs',
     'gc-message.mjs',

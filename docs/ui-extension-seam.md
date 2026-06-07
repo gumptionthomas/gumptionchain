@@ -30,10 +30,10 @@ page templates confine themselves to `content`/`title`/`scripts`.
 2. **Re-skin one page** — drop a same-named page template (e.g. `index.html`);
    it renders on base's route with base's view data.
 3. **Inject into a page without replacing it** — provide the page's optional
-   include partial (e.g. `verify/extra.html`). Base pages use
-   `{% include "verify/extra.html" ignore missing %}`; base ships no such file.
-   (Jinja blocks can't be filled by a non-descendant, so injection uses
-   optional includes, not empty blocks.)
+   include partial (e.g. `verify/extra.html`). Base pages will use
+   `{% include "verify/extra.html" ignore missing %}` (added with the verify
+   page); base ships no such file. (Jinja blocks can't be filled by a
+   non-descendant, so injection uses optional includes, not empty blocks.)
 4. **Add new pages** — register your own blueprint.
 5. **Link to shared pages** by base endpoint name, e.g.
    `url_for('browser.verify_view')`.
