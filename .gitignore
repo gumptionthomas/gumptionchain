@@ -148,3 +148,6 @@ _build/
 
 # zed
 .zed/
+
+# Visual-companion brainstorm artifacts
+.superpowers/
