@@ -29,19 +29,22 @@
 {% block scripts -%}
 {{ super() }}
 <script type="module">
-  import { runVerify, renderVerdict } from "{{ url_for('browser.static', filename='js/verify-glue.mjs') }}";
+  import { runVerify, renderVerdict, BadAttestationError } from "{{ url_for('browser.static', filename='js/verify-glue.mjs') }}";
   document.getElementById('verify-btn').addEventListener('click', async () => {
     const verdict = document.getElementById('verdict');
     try {
       const proof = JSON.parse(document.getElementById('proof-input').value);
-      const result = await runVerify(proof);
-      renderVerdict(result, document);
-      document.getElementById('verdict-reasons').textContent =
-        result.reasons.join(', ') || 'all checks passed';
+      renderVerdict(await runVerify(proof), document);
       verdict.hidden = false;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      document.getElementById('verdict-reasons').textContent = 'Invalid proof: ' + msg;
+      // A parse / attestation error is the user's input; anything else
+      // (e.g. a provenance fetch failure) is a system error — don't blame
+      // the proof for it.
+      const userError =
+        e instanceof SyntaxError || e instanceof BadAttestationError;
+      document.getElementById('verdict-reasons').textContent =
+        (userError ? 'Invalid proof: ' : 'Could not verify: ') + msg;
       verdict.hidden = false;
     }
   });
