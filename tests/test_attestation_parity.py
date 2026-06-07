@@ -21,7 +21,7 @@ CLI = (
 )
 TS = '1700002000'
 CLAIM = {
-    'txid': 'tx1',
+    'txid': '1' * 64,
     'kind': 'opposition',
     'subject': 'göblins',
     'amount': 300,
@@ -58,7 +58,7 @@ def test_js_signed_attestation_verifies_in_python() -> None:
     )
     w = Wallet(b58ks=VECTOR_WALLET_B58)
     prov = {
-        'txid': 'tx1',
+        'txid': '1' * 64,
         'address': w.address,
         'status': 'canonical',
         'confirmations': 5,
@@ -74,7 +74,7 @@ def test_python_signed_attestation_verifies_in_js() -> None:
     w = Wallet(b58ks=VECTOR_WALLET_B58)
     proof = sign_stake_attestation(w, CLAIM, timestamp=int(TS))
     prov = {
-        'txid': 'tx1',
+        'txid': '1' * 64,
         'address': w.address,
         'status': 'canonical',
         'confirmations': 5,

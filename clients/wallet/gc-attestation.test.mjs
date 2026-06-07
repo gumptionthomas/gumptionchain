@@ -8,12 +8,14 @@ import {
 } from './gc-attestation.mjs';
 
 const TS = '1700002000';
-const CLAIM = { txid: 'tx1', kind: 'opposition', subject: 'goblins', amount: 300 };
+// A canonical txid is a 64-char lowercase-hex mill hash.
+const TX = '1'.repeat(64);
+const CLAIM = { txid: TX, kind: 'opposition', subject: 'goblins', amount: 300 };
 
 // A provenance object shaped like #176a's GET /transaction/<txid> response.
 function provenanceFor(address, { status = 'canonical', confirmations = 3 } = {}) {
   return {
-    txid: 'tx1', address, status, confirmations,
+    txid: TX, address, status, confirmations,
     outflows: [
       { kind: 'opposition', subject: 'goblins', amount: 300 },
       { kind: 'transfer', address: 'GCchangeGC', amount: 9700 },
@@ -24,25 +26,40 @@ function provenanceFor(address, { status = 'canonical', confirmations = 3 } = {}
 test('buildStakeMessage uses fixed key order, omits absent optionals', () => {
   assert.equal(
     buildStakeMessage(CLAIM),
-    '{"txid":"tx1","kind":"opposition","subject":"goblins","amount":300}',
+    `{"txid":"${TX}","kind":"opposition","subject":"goblins","amount":300}`,
   );
   assert.equal(
     buildStakeMessage({ ...CLAIM, handle: 'me.bsky.social' }),
-    '{"txid":"tx1","kind":"opposition","subject":"goblins","amount":300,'
+    `{"txid":"${TX}","kind":"opposition","subject":"goblins","amount":300,`
     + '"handle":"me.bsky.social"}',
   );
   assert.equal(
-    buildStakeMessage({ txid: 't', kind: 'transfer', address: 'GCxGC', amount: 5 }),
-    '{"txid":"t","kind":"transfer","address":"GCxGC","amount":5}',
+    buildStakeMessage({ txid: TX, kind: 'transfer', address: 'GCxGC', amount: 5 }),
+    `{"txid":"${TX}","kind":"transfer","address":"GCxGC","amount":5}`,
   );
 });
 
 test('buildStakeMessage rejects malformed claims', () => {
   assert.throws(() => buildStakeMessage({ kind: 'opposition', subject: 's', amount: 1 }), BadAttestationError);
-  assert.throws(() => buildStakeMessage({ txid: 't', kind: 'nope', subject: 's', amount: 1 }), BadAttestationError);
-  assert.throws(() => buildStakeMessage({ txid: 't', kind: 'opposition', subject: 's', amount: 0 }), BadAttestationError);
-  assert.throws(() => buildStakeMessage({ txid: 't', kind: 'opposition', address: 'a', amount: 1 }), BadAttestationError);
-  assert.throws(() => buildStakeMessage({ txid: 't', kind: 'transfer', subject: 's', amount: 1 }), BadAttestationError);
+  assert.throws(() => buildStakeMessage({ txid: TX, kind: 'nope', subject: 's', amount: 1 }), BadAttestationError);
+  assert.throws(() => buildStakeMessage({ txid: TX, kind: 'opposition', subject: 's', amount: 0 }), BadAttestationError);
+  assert.throws(() => buildStakeMessage({ txid: TX, kind: 'opposition', address: 'a', amount: 1 }), BadAttestationError);
+  assert.throws(() => buildStakeMessage({ txid: TX, kind: 'transfer', subject: 's', amount: 1 }), BadAttestationError);
+});
+
+test('buildStakeMessage rejects a malformed txid', () => {
+  // Not 64-char lowercase hex -> rejected up front (see #187), so a malformed
+  // txid can't slip through to a provenance fetch and be mis-read as not-found.
+  for (const bad of [
+    'tx1', 'g'.repeat(64), '1'.repeat(63), '1'.repeat(65),
+    'A'.repeat(64), `${'1'.repeat(63)}/`,
+  ]) {
+    assert.throws(() => buildStakeMessage({ ...CLAIM, txid: bad }), BadAttestationError);
+  }
+  assert.ok(
+    buildStakeMessage({ ...CLAIM, txid: 'a'.repeat(64) })
+      .startsWith(`{"txid":"${'a'.repeat(64)}"`),
+  );
 });
 
 test('sign -> parse round-trips the claim', async () => {
@@ -63,21 +80,21 @@ test('parseStakeAttestation rejects non-canonical encodings', () => {
   // float amount (JSON.parse coerces 300.0 -> 300; rebuild differs)
   assert.throws(() => parseStakeAttestation({
     message:
-      '{"txid":"tx1","kind":"opposition","subject":"goblins","amount":300.0}',
+      `{"txid":"${TX}","kind":"opposition","subject":"goblins","amount":300.0}`,
   }), BadAttestationError);
   // reordered keys
   assert.throws(() => parseStakeAttestation({
     message:
-      '{"kind":"opposition","txid":"tx1","subject":"goblins","amount":300}',
+      `{"kind":"opposition","txid":"${TX}","subject":"goblins","amount":300}`,
   }), BadAttestationError);
 });
 
 test('buildStakeMessage rejects a present off-side key (even null)', () => {
   assert.throws(() => buildStakeMessage(
-    { txid: 't', kind: 'transfer', address: 'a', amount: 1, subject: null },
+    { txid: TX, kind: 'transfer', address: 'a', amount: 1, subject: null },
   ), BadAttestationError);
   assert.throws(() => buildStakeMessage(
-    { txid: 't', kind: 'opposition', subject: 's', amount: 1, address: null },
+    { txid: TX, kind: 'opposition', subject: 's', amount: 1, address: null },
   ), BadAttestationError);
 });
 
@@ -145,7 +162,7 @@ test('verifyStake reports signer-not-staker and claim-mismatch', async () => {
   const addr = await w.address();
   const mismatch = await verifyStake(proof, {
     fetchProvenance: async () => ({
-      txid: 'tx1', address: addr, status: 'canonical', confirmations: 3,
+      txid: TX, address: addr, status: 'canonical', confirmations: 3,
       outflows: [{ kind: 'opposition', subject: 'orcs', amount: 300 }],
     }),
   });
