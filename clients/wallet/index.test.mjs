@@ -9,10 +9,11 @@ const FUNCTIONS = [
   'makeWebauthnPasskey', 'makeIdbStore',
   'exportEncrypted', 'importEncrypted', 'exportPlain', 'importPlain',
   'signMessage', 'verifyMessage', 'toArmored', 'fromArmored',
+  'signStakeAttestation', 'parseStakeAttestation', 'verifyStake',
 ];
 const ERRORS = [
   'UnsupportedError', 'NoWalletError', 'BadBackupError',
-  'BadPassphraseError', 'BadProofError',
+  'BadPassphraseError', 'BadProofError', 'BadAttestationError',
 ];
 
 test('barrel exports every public function', () => {

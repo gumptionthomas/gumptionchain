@@ -5,7 +5,7 @@
 //
 // The package `version` is the embedder-API semver; it is INDEPENDENT of the
 // wire scheme ids gc-sig-v1 / gc-msg-v1 bound into signatures.
-export const version = '0.1.0';
+export const version = '0.2.0';
 
 // Identity / keys
 export { Wallet } from './gc-wallet.mjs';
@@ -28,6 +28,11 @@ export {
   signMessage, verifyMessage, toArmored, fromArmored,
 } from './gc-message.mjs';
 
+// Stake attestations (gc-msg-v1 + on-chain provenance composition)
+export {
+  signStakeAttestation, parseStakeAttestation, verifyStake,
+} from './gc-attestation.mjs';
+
 // Typed errors
 export {
   UnsupportedError,
@@ -35,4 +40,5 @@ export {
   BadBackupError,
   BadPassphraseError,
   BadProofError,
+  BadAttestationError,
 } from './gc-errors.mjs';

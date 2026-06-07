@@ -1,6 +1,6 @@
 {
   "name": "@gumptionchain/wallet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GumptionChain browser wallet — gc-sig-v1 signing, passkey storage, backup, message signing.",
   "type": "module",
   "exports": {

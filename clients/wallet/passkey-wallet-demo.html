@@ -109,6 +109,47 @@
       <button id="verify-msg">Verify message</button>
     </p>
 
+    <h2>Stake attestation (#176b)</h2>
+    <p class="hint">
+      Builds a "Verified on GumptionChain" stake claim, signs it with
+      <code>currentWallet</code> into a <code>gc-msg-v1</code> proof, then
+      verifies it against on-chain provenance fetched from this node.
+      Verification needs reader access — a public node sets
+      <code>READER_ADDRESSES=["*"]</code>.
+    </p>
+    <p>
+      <input id="att-txid" type="text" placeholder="txid" style="width: 100%" />
+    </p>
+    <p>
+      <select id="att-kind">
+        <option value="opposition">opposition</option>
+        <option value="support">support</option>
+        <option value="rescind">rescind</option>
+        <option value="transfer">transfer</option>
+      </select>
+      <input id="att-subject" type="text" placeholder="subject" />
+      <input id="att-amount" type="number" placeholder="amount (grains)" />
+    </p>
+    <p>
+      <button id="att-sign">Build &amp; sign attestation</button>
+      <button id="copy-att-json">Copy JSON</button>
+    </p>
+    <p>
+      <textarea id="att-json" rows="4"
+                style="width: 100%; font-family: monospace"
+                readonly placeholder="attestation proof JSON appears here">
+      </textarea>
+    </p>
+    <p>
+      <textarea id="att-verify-text" rows="6"
+                style="width: 100%; font-family: monospace"
+                placeholder="paste an attestation proof JSON to verify">
+      </textarea>
+    </p>
+    <p>
+      <button id="att-verify">Verify attestation</button>
+    </p>
+
     <h2>Output</h2>
     <pre id="out">(idle)</pre>
 
@@ -128,6 +169,7 @@
         from './gc-backup.mjs';
       import { signMessage, verifyMessage, toArmored, fromArmored }
         from './gc-message.mjs';
+      import { signStakeAttestation, verifyStake } from './index.mjs';
 
       const rpId = location.hostname;
       const rpName = 'GumptionChain Wallet Demo';
@@ -360,6 +402,79 @@
             show(lines.join('\n'));
           } catch (err) {
             fail('Verify message', err);
+          }
+        });
+
+      const readClaim = () => {
+        const kind = document.getElementById('att-kind').value;
+        const txid = document.getElementById('att-txid').value.trim();
+        const subjectOrAddress =
+          document.getElementById('att-subject').value.trim();
+        const amount = Number(document.getElementById('att-amount').value);
+        const claim = { txid, kind, amount };
+        if (kind === 'transfer') {
+          claim.address = subjectOrAddress;
+        } else {
+          claim.subject = subjectOrAddress;
+        }
+        return claim;
+      };
+
+      document.getElementById('att-sign').addEventListener('click', async () => {
+        try {
+          const wallet = requireWallet();
+          const proof = await signStakeAttestation(wallet, readClaim());
+          document.getElementById('att-json').value =
+            JSON.stringify(proof, null, 2);
+          show(`Signed attestation.\naddress: ${proof.address}`);
+        } catch (err) {
+          fail('Build & sign attestation', err);
+        }
+      });
+
+      document
+        .getElementById('copy-att-json')
+        .addEventListener('click', () => copyField('att-json', 'JSON'));
+
+      // No transport in the verifier: fetchProvenance does the I/O. A 404
+      // (unknown txn) maps to null so verifyStake reports txn-not-found.
+      const fetchProvenance = async (txid) => {
+        const res = await fetch(`/api/transaction/${encodeURIComponent(txid)}`);
+        if (res.status === 404) {
+          return null;
+        }
+        if (!res.ok) {
+          throw new Error(`provenance fetch failed: HTTP ${res.status}`);
+        }
+        return res.json();
+      };
+
+      document
+        .getElementById('att-verify')
+        .addEventListener('click', async () => {
+          try {
+            const text =
+              document.getElementById('att-verify-text').value.trim();
+            if (!text) {
+              show('Nothing to verify — paste an attestation proof first.');
+              return;
+            }
+            const proof = JSON.parse(text);
+            const v = await verifyStake(proof, { fetchProvenance });
+            const lines = [
+              `valid: ${v.valid}`,
+              `signer: ${v.signer}`,
+              `signature: ${v.checks.signature}`,
+              `onchain: ${v.checks.onchain}`,
+              `consistent: ${v.checks.consistent}`,
+              `confirmations: ${v.confirmations}`,
+            ];
+            if (v.reasons.length) {
+              lines.push(`reasons: ${v.reasons.join(', ')}`);
+            }
+            show(lines.join('\n'));
+          } catch (err) {
+            fail('Verify attestation', err);
           }
         });
     </script>

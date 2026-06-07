@@ -20,3 +20,7 @@ export class BadPassphraseError extends Error {}
 // Input is not a structurally valid gc-msg-v1 proof (un-parseable / wrong
 // shape) — distinct from a proof that parses but fails verification.
 export class BadProofError extends Error {}
+
+// Input is not a structurally valid stake attestation (bad claim shape or a
+// proof whose message is not a parseable claim).
+export class BadAttestationError extends Error {}

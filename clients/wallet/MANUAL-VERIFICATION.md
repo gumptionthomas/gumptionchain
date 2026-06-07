@@ -87,6 +87,28 @@ manual:
 5. Tamper a character inside the JSON `message` field and verify; confirm
    `valid: false, reason: bad-signature`.
 
+## Stake attestation (#176b)
+
+Composes gc-msg-v1 signing with on-chain provenance. Verification fetches
+`GET /api/transaction/<txid>` from the node, so point the demo at a node where
+the relevant transaction is mined and reader access is granted (a public node
+sets `READER_ADDRESSES=["*"]`).
+
+1. With a wallet loaded, in **Stake attestation** enter a real mined `txid`,
+   pick the `kind`, fill `subject` (or, for `transfer`, the destination
+   `address`) and `amount` (grains) to match an outflow of that transaction,
+   then click **Build & sign attestation**. Confirm the proof JSON appears and
+   its `address` matches the loaded wallet.
+2. Copy the proof JSON into the verify box and click **Verify attestation**.
+   Confirm `valid: true` with all three checks green (`signature: true`,
+   `onchain: true`, `consistent: true`) and no `reasons`.
+3. Tamper one character inside the proof's `message` field and verify again;
+   confirm `valid: false` with `reasons: bad-signature`.
+4. Restore the proof but change the `txid` to one that is not mined (or that is
+   on an orphaned/pending branch) and verify; confirm `valid: false` with the
+   matching reason (`txn-not-found` for an unknown txn, `not-canonical` for a
+   non-canonical one).
+
 ## Notes for the tester
 
 - The passkey credential is a **separate** WebAuthn credential (ES256/RS256,
