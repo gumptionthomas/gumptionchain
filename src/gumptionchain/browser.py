@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, abort, current_app, render_template
+from flask import Blueprint, abort, current_app, jsonify, render_template
 from werkzeug.exceptions import HTTPException
 
 from gumptionchain.block import Block
@@ -10,6 +10,7 @@ from gumptionchain.chain import Chain
 from gumptionchain.database import db
 from gumptionchain.models import BlockDAO, ChainDAO, TransactionDAO
 from gumptionchain.node import Node
+from gumptionchain.provenance import lookup_provenance
 from gumptionchain.transaction import Transaction
 
 
@@ -130,3 +131,19 @@ def transaction_view(txid: str) -> Any:
         outflows=outflows,
         outflow_total=outflow_total,
     )
+
+
+@blueprint.route('/transaction/<mill_hash:txid>/provenance.json')
+def transaction_provenance_view(txid: str) -> Any:
+    try:
+        prov = lookup_provenance(txid)
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        current_app.logger.exception(e)
+        abort(500)
+    if prov is None:
+        return jsonify({'error': 'transaction not found'}), 404
+    # Route param (mill_hash-validated) is authoritative for txid; unpack prov
+    # first so a stray 'txid' key can't override the request path.
+    return jsonify({**prov, 'txid': txid})
