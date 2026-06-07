@@ -67,6 +67,23 @@ def test_max_age_enforces_freshness() -> None:
     assert verify_message(proof, max_age=5000, now=now)['valid'] is True
 
 
+def test_non_base64_signature_is_bad_signature() -> None:
+    proof = sign_message(_wallet(), 'hi', timestamp=int(TS))
+    proof['signature'] = '!!! not base64 !!!'
+    r = verify_message(proof)
+    assert r['valid'] is False
+    assert r['reason'] == 'bad-signature'
+
+
+def test_non_numeric_timestamp_is_malformed() -> None:
+    proof = sign_message(_wallet(), 'hi', timestamp=int(TS))
+    proof['timestamp'] = 'notanumber'
+    with pytest.raises(BadProofError):
+        verify_message(proof)
+    with pytest.raises(BadProofError):
+        verify_message(proof, max_age=300, now=9999999999)
+
+
 def test_domain_separation_from_gc_sig() -> None:
     # A gc-msg-v1 signature must not validate as a gc-sig-v1 canonical.
     w = _wallet()

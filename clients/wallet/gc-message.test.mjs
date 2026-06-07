@@ -58,6 +58,26 @@ test('maxAge enforces freshness when supplied', async () => {
   assert.equal(fresh.valid, true);
 });
 
+test('a non-base64 signature yields bad-signature, not an exception', async () => {
+  const w = await Wallet.generate();
+  const proof = await signMessage(w, 'hi', { timestamp: TS });
+  proof.signature = '!!! not base64 !!!';
+  const r = await verifyMessage(proof);
+  assert.equal(r.valid, false);
+  assert.equal(r.reason, 'bad-signature');
+});
+
+test('a non-numeric timestamp is rejected as a malformed proof', async () => {
+  const w = await Wallet.generate();
+  const proof = await signMessage(w, 'hi', { timestamp: TS });
+  proof.timestamp = 'notanumber';
+  await assert.rejects(() => verifyMessage(proof), BadProofError);
+  await assert.rejects(
+    () => verifyMessage(proof, { maxAge: 300, now: 9999999999 }),
+    BadProofError,
+  );
+});
+
 import { toArmored, fromArmored } from './gc-message.mjs';
 
 test('toArmored/fromArmored round-trip preserves the proof', async () => {

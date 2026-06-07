@@ -3,6 +3,7 @@ from __future__ import annotations
 import binascii
 import hashlib
 import json
+import re
 import time
 from base64 import standard_b64decode, standard_b64encode
 from typing import Any
@@ -74,6 +75,11 @@ def verify_message(
     assert isinstance(ts, str)
     assert isinstance(message, str)
     assert isinstance(sig, str)
+    if not re.fullmatch(r'[0-9]+', ts):
+        # Guarantee a numeric timestamp before any freshness math, so JS and
+        # Python agree (JS Number('x')->NaN would otherwise silently pass).
+        msg = 'malformed gc-msg-v1 proof'
+        raise BadProofError(msg)
     try:
         wallet = Wallet(b64ks=pubkey)
     except InvalidKeyError as e:

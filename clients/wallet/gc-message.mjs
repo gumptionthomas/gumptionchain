@@ -47,6 +47,7 @@ export async function verifyMessage(proof, { maxAge, now } = {}) {
     || typeof address !== 'string'
     || typeof publicKey !== 'string'
     || typeof timestamp !== 'string'
+    || !/^[0-9]+$/.test(timestamp)
     || typeof message !== 'string'
     || typeof signature !== 'string'
   ) {
@@ -63,7 +64,15 @@ export async function verifyMessage(proof, { maxAge, now } = {}) {
     return { ...result, valid: false, reason: 'address-mismatch' };
   }
   const bytes = await messageCanonical({ address, timestamp, message });
-  if (!(await verifier.verify(bytes, signature))) {
+  let signatureOk;
+  try {
+    signatureOk = await verifier.verify(bytes, signature);
+  } catch {
+    // A non-base64 / malformed signature string fails verification; mirror
+    // Python (which catches binascii errors) rather than leaking an exception.
+    signatureOk = false;
+  }
+  if (!signatureOk) {
     return { ...result, valid: false, reason: 'bad-signature' };
   }
   if (maxAge !== undefined) {
