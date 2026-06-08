@@ -158,3 +158,16 @@ def test_consumer_base_html_reskins_address_detail_page(tmp_path):
         resp = client.get(f'/address/{Wallet().address}')
         assert resp.status_code == 200
         assert b'SKINNED' in resp.data  # consumer skin won over blueprint
+
+
+def test_consumer_base_html_reskins_mempool_page(tmp_path):
+    # Seam check for the mempool/pending pool page.
+    app = _consumer_app(tmp_path)
+    with app.app_context():
+        db.create_all()
+        client = app.test_client()
+        resp = client.get('/mempool')
+        assert resp.status_code == 200
+        assert b'SKINNED' in resp.data  # consumer skin won over blueprint
+        # base mempool content still rendered
+        assert b'Mempool is empty' in resp.data
