@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import render_pagination %}
+
+{% block content -%}
+<div class="container-fluid">
+  <div class="row my-3"><div class="col">
+    <div class="card bg-light"><div class="card-body">
+      <div class="card-title h5">Blocks</div>
+      {%- if blocks_page.total %}
+      <table class="table table-hover blocks">
+        <thead><tr><th>#</th><th>Hash</th><th>Timestamp</th><th>Txns</th></tr></thead>
+        <tbody class="font-monospace">
+        {%- for block in blocks_page.items %}
+          <tr>
+            <td>{{ block.idx }}</td>
+            <td><a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.block_hash) }}">{{ block.block_hash }}</a></td>
+            <td>{{ block.timestamp | utc_datetime }}</td>
+            <td>{{ tx_counts.get(block.id, 0) }}</td>
+          </tr>
+        {%- endfor %}
+        </tbody>
+      </table>
+      {{ render_pagination(blocks_page, 'browser.blocks_view') }}
+      {%- else %}
+      <p>No blocks.</p>
+      {%- endif %}
+    </div></div>
+  </div></div>
+</div>
+{%- endblock %}
