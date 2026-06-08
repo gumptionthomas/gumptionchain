@@ -413,3 +413,17 @@ def transact_view() -> Any:
         title='Transact',
         node_host=current_app.config['NODE_HOST'],
     )
+
+
+@blueprint.route('/wallet')
+def wallet_view() -> Any:
+    # Static shell — no chain/DB work. All key handling (generate / import /
+    # enroll / unlock / lock / backup / forget) happens client-side: the
+    # passphrase and private key never reach the server. The persisted record
+    # is the gc-keyring ciphertext in the browser's IndexedDB; nothing here
+    # touches it. rp_name labels the WebAuthn passkey (RP name).
+    return render_template(
+        'wallet.html',
+        title='Wallet',
+        rp_name='GumptionChain',
+    )

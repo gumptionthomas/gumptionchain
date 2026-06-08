@@ -186,3 +186,18 @@ def test_consumer_base_html_reskins_transact_page(tmp_path):
         assert b'SKINNED' in resp.data  # consumer skin won over blueprint
         # base transact content still rendered
         assert b'never leaves your browser' in resp.data
+
+
+def test_consumer_base_html_reskins_wallet_page(tmp_path):
+    # Seam check for the /wallet management page. It is a static shell (all key
+    # work is client-side, no chain), so the consumer skin must win while
+    # base's wallet content still renders.
+    app = _consumer_app(tmp_path)
+    with app.app_context():
+        db.create_all()
+        client = app.test_client()
+        resp = client.get('/wallet')
+        assert resp.status_code == 200
+        assert b'SKINNED' in resp.data  # consumer skin won over blueprint
+        # base wallet content still rendered
+        assert b'Persist only on a node you trust' in resp.data
