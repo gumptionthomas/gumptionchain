@@ -3,6 +3,7 @@ from flask import Flask
 from gumptionchain import create_app
 from gumptionchain.database import db
 from gumptionchain.payload import encode_subject
+from gumptionchain.wallet import Wallet
 
 _CONSUMER_BASE = (
     '<!doctype html><html><head>'
@@ -133,3 +134,27 @@ def test_consumer_base_html_reskins_subject_detail_page(tmp_path):
         assert resp.status_code == 200
         assert b'SKINNED' in resp.data  # consumer skin won over blueprint
         assert b'goblins' in resp.data  # base subject content still rendered
+
+
+def test_consumer_base_html_reskins_addresses_page(tmp_path):
+    # Seam check for the addresses leaderboard index page.
+    app = _consumer_app(tmp_path)
+    with app.app_context():
+        db.create_all()
+        client = app.test_client()
+        resp = client.get('/addresses')
+        assert resp.status_code == 200
+        assert b'SKINNED' in resp.data  # consumer skin won over blueprint
+        # base addresses content still rendered
+        assert b'No addresses with a balance yet' in resp.data
+
+
+def test_consumer_base_html_reskins_address_detail_page(tmp_path):
+    # Seam check for the per-address detail page (valid GC...GC address).
+    app = _consumer_app(tmp_path)
+    with app.app_context():
+        db.create_all()
+        client = app.test_client()
+        resp = client.get(f'/address/{Wallet().address}')
+        assert resp.status_code == 200
+        assert b'SKINNED' in resp.data  # consumer skin won over blueprint
