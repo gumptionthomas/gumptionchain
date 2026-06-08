@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import sqlalchemy as sa
 from flask import Blueprint, abort, current_app, jsonify, render_template
+from flask_sqlalchemy.pagination import SelectPagination
 from werkzeug.exceptions import HTTPException
 
 from gumptionchain.block import Block
@@ -10,8 +12,38 @@ from gumptionchain.chain import Chain
 from gumptionchain.database import db
 from gumptionchain.models import BlockDAO, ChainDAO, TransactionDAO
 from gumptionchain.node import Node
+from gumptionchain.payload import decode_subject
 from gumptionchain.provenance import lookup_provenance
 from gumptionchain.transaction import Transaction
+
+
+class _RowPagination(SelectPagination):
+    """Pagination over a compound/column select (not a single ORM entity).
+
+    ``db.paginate`` applies ``.scalars()``, which collapses a multi-column
+    leaderboard row down to its first column. This variant keeps whole
+    ``Row`` objects (so templates can read ``row.subject`` / ``.total``)
+    and counts without the ORM-only ``lazyload`` option.
+    """
+
+    def _query_items(self) -> list[Any]:
+        select = self._query_args['select']
+        select = select.limit(self.per_page).offset(self._query_offset)
+        session = self._query_args['session']
+        return list(session.execute(select).all())
+
+    def _query_count(self) -> int:
+        select = self._query_args['select']
+        sub = select.order_by(None).subquery()
+        session = self._query_args['session']
+        out = session.execute(
+            sa.select(sa.func.count()).select_from(sub)
+        ).scalar()
+        return out or 0
+
+
+def paginate_rows(select: sa.sql.Select[Any]) -> _RowPagination:
+    return _RowPagination(select=select, session=db.session())
 
 
 def longest_chain() -> Chain | None:
@@ -82,6 +114,67 @@ def blocks_view() -> Any:
         title='Blocks',
         blocks_page=blocks_page,
         tx_counts=tx_counts,
+    )
+
+
+@blueprint.route('/subjects')
+def subjects_view() -> Any:
+    try:
+        lc = longest_chain()
+        subjects_page = (
+            paginate_rows(lc.subject_leaderboard()) if lc is not None else None
+        )
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'subjects.html', title='Subjects', subjects_page=subjects_page
+    )
+
+
+@blueprint.route('/subject/<subject:subject>')
+def subject_view(subject: str) -> Any:
+    try:
+        lc = longest_chain()
+        if lc is None:
+            opposition = support = 0
+            opposition_flows: list[Any] = []
+            support_flows: list[Any] = []
+        else:
+            opposition = lc.opposition_balance(subject)
+            support = lc.support_balance(subject)
+            dao = lc.to_dao()
+            opposition_flows = list(
+                db.session.scalars(
+                    dao.unrescinded_outflows(subject, 'opposition')
+                )
+            )
+            support_flows = list(
+                db.session.scalars(dao.unrescinded_outflows(subject, 'support'))
+            )
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'subject.html',
+        title=f'Subject: {decode_subject(subject)}',
+        subject=subject,
+        opposition=opposition,
+        support=support,
+        opposition_flows=opposition_flows,
+        support_flows=support_flows,
     )
 
 
