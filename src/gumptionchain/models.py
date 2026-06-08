@@ -824,6 +824,46 @@ class ChainDAO(Base):
             return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]
         return stmt  # type: ignore[no-any-return]
 
+    def subject_leaderboard(
+        self,
+        limit: int | None = None,
+    ) -> Select[Any]:
+        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
+
+        def _leg(column: Any, kind: StakeKind) -> Select[Any]:
+            stmt = self.outflows.where(column.is_not(None))
+            stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
+            stmt = stmt.where(inflows_alias.id.is_(None))
+            stmt = stmt.with_only_columns(
+                column.label('subject'),
+                OutflowDAO.amount.label('amount'),
+                db.literal(kind).label('kind'),
+            )
+            # UNION legs must not carry their own ORDER BY (the
+            # chain-scoped self.outflows select adds one); SQLite rejects
+            # an ORDER BY inside a compound SELECT operand.
+            return stmt.order_by(None)
+
+        opp = _leg(OutflowDAO.opposition, 'opposition')
+        sup = _leg(OutflowDAO.support, 'support')
+        union = opp.union_all(sup).subquery()
+        stmt = db.select(
+            union.c.subject,
+            db.func.sum(
+                db.case((union.c.kind == 'opposition', union.c.amount), else_=0)
+            ).label('opposition'),
+            db.func.sum(
+                db.case((union.c.kind == 'support', union.c.amount), else_=0)
+            ).label('support'),
+            db.func.sum(union.c.amount).label('total'),
+        )
+        stmt = stmt.group_by(union.c.subject)
+        stmt = stmt.order_by(db.desc('total'), union.c.subject)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+            return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]
+        return stmt  # type: ignore[no-any-return]
+
     def _is_longest(self) -> bool:
         """True iff this ChainDAO row is currently the longest chain.
 
