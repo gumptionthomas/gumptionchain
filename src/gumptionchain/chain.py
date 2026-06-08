@@ -35,7 +35,12 @@ from gumptionchain.exceptions import (
     SpentTransactionError,
 )
 from gumptionchain.milling import mill_hash_str
-from gumptionchain.models import BlockDAO, ChainDAO
+from gumptionchain.models import (
+    BlockDAO,
+    ChainDAO,
+    OutflowDAO,
+    TransactionDAO,
+)
 from gumptionchain.payload import Inflow, Outflow, StakeKind
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import dt_2_iso, now
@@ -509,6 +514,24 @@ class Chain:
 
     def balance(self, address: str) -> int:
         return int(self.to_dao().wallet_balance(address))
+
+    def wallet_leaderboard(self, limit: int | None = None) -> Select[Any]:
+        return self.to_dao().wallet_leaderboard(limit=limit)
+
+    def address_holdings(self, address: str) -> Select[tuple[OutflowDAO]]:
+        # unspent_outflows has no inherent order; add a deterministic sort so
+        # paginated holdings are stable across requests.
+        return (
+            self.to_dao()
+            .unspent_outflows(address)
+            .order_by(OutflowDAO.amount.desc(), OutflowDAO.txid)
+        )
+
+    def address_transactions(
+        self, address: str
+    ) -> Select[tuple[TransactionDAO]]:
+        # Already ordered (timestamp desc, id) by ChainDAO.address_transactions.
+        return self.to_dao().address_transactions(address)
 
     def opposition_balance(self, subject: str) -> int:
         return int(self.to_dao().opposition_balance(subject))
