@@ -1,20 +1,26 @@
-{% macro render_pagination(page, endpoint) -%}
+{% macro render_pagination(page, endpoint, page_param='page') -%}
 {%- if page.pages > 1 %}
+{%- set args = request.args.to_dict() %}
+{%- set _ = args.pop(page_param, none) %}
+{%- set _ = args.update(request.view_args | default({}, true)) %}
 <ul class="pagination">
+  {%- set _ = args.update({page_param: page.prev_num}) %}
   <li class="page-item {{ '' if page.has_prev else 'disabled' }}">
-    <a class="page-link" href="{{ url_for(endpoint, page=page.prev_num) }}">Previous</a>
+    <a class="page-link" href="{{ url_for(endpoint, **args) }}">Previous</a>
   </li>
   {%- for p in page.iter_pages() %}
   {%- if p %}
+  {%- set _ = args.update({page_param: p}) %}
   <li class="page-item {{ 'active' if p == page.page else '' }}">
-    <a class="page-link" href="{{ url_for(endpoint, page=p) }}">{{ p }}</a>
+    <a class="page-link" href="{{ url_for(endpoint, **args) }}">{{ p }}</a>
   </li>
   {%- else %}
   <li class="page-item disabled"><span class="page-link">…</span></li>
   {%- endif %}
   {%- endfor %}
+  {%- set _ = args.update({page_param: page.next_num}) %}
   <li class="page-item {{ '' if page.has_next else 'disabled' }}">
-    <a class="page-link" href="{{ url_for(endpoint, page=page.next_num) }}">Next</a>
+    <a class="page-link" href="{{ url_for(endpoint, **args) }}">Next</a>
   </li>
 </ul>
 {%- endif %}
