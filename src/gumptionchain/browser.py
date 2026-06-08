@@ -65,6 +65,9 @@ def chains_view() -> Any:
 def blocks_view() -> Any:
     try:
         blocks_page = db.paginate(BlockDAO.longest_chain_blocks_q())
+        tx_counts = BlockDAO.transaction_counts(
+            [block.id for block in blocks_page.items]
+        )
     except HTTPException as e:
         return e
     except Exception as e:
@@ -75,7 +78,10 @@ def blocks_view() -> Any:
         current_app.logger.exception(e)
         abort(500)
     return render_template(
-        'blocks.html', title='Blocks', blocks_page=blocks_page
+        'blocks.html',
+        title='Blocks',
+        blocks_page=blocks_page,
+        tx_counts=tx_counts,
     )
 
 

@@ -531,6 +531,27 @@ class BlockDAO(Base):
         )
 
     @classmethod
+    def transaction_counts(cls, block_ids: list[int]) -> dict[int, int]:
+        """Map block id → transaction count for the given blocks.
+
+        One grouped query over the block↔transaction association table,
+        so a list view can show per-block txn counts without firing a
+        COUNT per row against the `lazy='dynamic'` `transactions`
+        relationship (an N+1).
+        """
+        if not block_ids:
+            return {}
+        rows = db.session.execute(
+            db.select(
+                block_transactions.c.block_id,
+                db.func.count().label('ct'),
+            )
+            .where(block_transactions.c.block_id.in_(block_ids))
+            .group_by(block_transactions.c.block_id)
+        ).all()
+        return {row[0]: row[1] for row in rows}
+
+    @classmethod
     def longest_chain_transactions_q(cls) -> Select[tuple[TransactionDAO]]:
         """Transactions in the longest chain, ordered tip→genesis.
 

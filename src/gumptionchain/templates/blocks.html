@@ -15,7 +15,7 @@
             <td>{{ block.idx }}</td>
             <td><a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.block_hash) }}">{{ block.block_hash }}</a></td>
             <td>{{ block.timestamp | utc_datetime }}</td>
-            <td>{{ block.transactions.count() }}</td>
+            <td>{{ tx_counts.get(block.id, 0) }}</td>
           </tr>
         {%- endfor %}
         </tbody>
