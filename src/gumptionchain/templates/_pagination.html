@@ -1,0 +1,21 @@
+{% macro render_pagination(page, endpoint) -%}
+{%- if page.pages > 1 %}
+<ul class="pagination">
+  <li class="page-item {{ '' if page.has_prev else 'disabled' }}">
+    <a class="page-link" href="{{ url_for(endpoint, page=page.prev_num) }}">Previous</a>
+  </li>
+  {%- for p in page.iter_pages() %}
+  {%- if p %}
+  <li class="page-item {{ 'active' if p == page.page else '' }}">
+    <a class="page-link" href="{{ url_for(endpoint, page=p) }}">{{ p }}</a>
+  </li>
+  {%- else %}
+  <li class="page-item disabled"><span class="page-link">…</span></li>
+  {%- endif %}
+  {%- endfor %}
+  <li class="page-item {{ '' if page.has_next else 'disabled' }}">
+    <a class="page-link" href="{{ url_for(endpoint, page=page.next_num) }}">Next</a>
+  </li>
+</ul>
+{%- endif %}
+{%- endmacro %}
