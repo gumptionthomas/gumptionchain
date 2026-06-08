@@ -6,7 +6,7 @@
 const HKDF_INFO = new TextEncoder().encode('gc-wallet-aesgcm-v1');
 const IV_BYTES = 12;
 
-async function deriveAesKey(prfOutput) {
+export async function deriveAesKey(prfOutput) {
   const ikm = await crypto.subtle.importKey('raw', prfOutput, 'HKDF', false, [
     'deriveKey',
   ]);

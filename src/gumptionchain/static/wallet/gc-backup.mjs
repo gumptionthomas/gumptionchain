@@ -18,7 +18,7 @@ const td = new TextDecoder();
 // Re-export so consumers can import the typed errors from here.
 export { BadBackupError, BadPassphraseError } from './gc-errors.mjs';
 
-async function deriveKey(passphrase, salt, iterations) {
+export async function deriveKey(passphrase, salt, iterations) {
   const ikm = await crypto.subtle.importKey(
     'raw', te.encode(passphrase), 'PBKDF2', false, ['deriveKey'],
   );

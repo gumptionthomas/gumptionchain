@@ -3,13 +3,30 @@ import assert from 'node:assert/strict';
 import { Wallet } from './gc-wallet.mjs';
 import { base64decode, base64encode } from './gc-crypto.mjs';
 import {
-  exportEncrypted, importEncrypted, BadBackupError, BadPassphraseError,
+  exportEncrypted, importEncrypted, deriveKey,
+  BadBackupError, BadPassphraseError,
 } from './gc-backup.mjs';
+import { sealWithKey, openWithKey } from './gc-envelope.mjs';
 
 // Keep PBKDF2 cheap in tests; production default (600k) is exercised by the
 // manual browser path. The override is the documented opts.iterations seam.
 const FAST = { iterations: 1000 };
 const PASS = 'correct horse battery staple';
+
+test('exported deriveKey (PBKDF2) is deterministic for a fixed salt/iterations', async () => {
+  // The keyring reuses deriveKey to wrap the DEK under a passphrase-KEK; assert
+  // the exported derivation is stable (same salt+iterations+passphrase -> a key
+  // that decrypts the other's ciphertext) and salt-sensitive (fails closed).
+  const salt = new Uint8Array(16).fill(3);
+  const k1 = await deriveKey(PASS, salt, FAST.iterations);
+  const k2 = await deriveKey(PASS, salt, FAST.iterations);
+  const env = await sealWithKey(k1, new TextEncoder().encode('dek-raw'));
+  assert.deepEqual(
+    await openWithKey(k2, env), new TextEncoder().encode('dek-raw'),
+  );
+  const kOther = await deriveKey(PASS, new Uint8Array(16).fill(9), FAST.iterations);
+  await assert.rejects(() => openWithKey(kOther, env));
+});
 
 test('exportEncrypted -> importEncrypted recovers a wallet that signs identically', async () => {
   const wallet = await Wallet.generate();

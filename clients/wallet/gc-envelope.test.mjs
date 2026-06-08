@@ -32,7 +32,7 @@ test('each seal uses a fresh IV', async () => {
   assert.notEqual(hex(a.ciphertext), hex(b.ciphertext));
 });
 
-import { sealWithKey, openWithKey } from './gc-envelope.mjs';
+import { sealWithKey, openWithKey, deriveAesKey } from './gc-envelope.mjs';
 
 test('sealWithKey/openWithKey round-trip with a fixed CryptoKey', async () => {
   const raw = new Uint8Array(32).fill(5);
@@ -54,4 +54,17 @@ test('openWithKey fails closed on a tampered ciphertext', async () => {
   const env = await sealWithKey(key, new TextEncoder().encode('x'));
   env.ciphertext[0] ^= 0xff;
   await assert.rejects(() => openWithKey(key, env));
+});
+
+test('exported deriveAesKey backs seal/open (HKDF -> AES-GCM key reuse)', async () => {
+  // The keyring reuses deriveAesKey directly; assert the exported derivation
+  // produces a key whose sealWithKey/openWithKey round-trips and matches the
+  // seal/open PRF wrappers (same HKDF derivation under the hood).
+  const key = await deriveAesKey(PRF);
+  const msg = new TextEncoder().encode('keyring reuse');
+  const env = await sealWithKey(key, msg);
+  assert.deepEqual(await openWithKey(key, env), msg);
+  // Cross-check: open() (PRF wrapper) decrypts a sealWithKey(deriveAesKey)
+  // envelope, proving the exported path is the same derivation.
+  assert.deepEqual(await open(PRF, env), msg);
 });
