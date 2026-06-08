@@ -54,8 +54,10 @@ def test_custom_page_param_preserves_other_query_and_path_args(app):
     )
     # txn_page is the param being driven by this list
     assert 'txn_page=2' in html
-    # the sibling list's current page is preserved
-    assert 'page=2' in html
+    # the sibling list's current page is preserved — asserted on the txn_page=3
+    # link so 'page=2' can't be a substring of a 'txn_page=2' match (& is
+    # HTML-escaped to &amp; in the rendered output)
+    assert 'page=2&amp;txn_page=3' in html
     # the path arg is preserved in the generated URLs
     assert f'/subject/{subj}' in html
     # no link carries the page_param twice (the original value must be popped,
