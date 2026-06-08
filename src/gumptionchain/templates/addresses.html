@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import render_pagination %}
+
+{% block content -%}
+<div class="container-fluid">
+  <div class="row my-3"><div class="col">
+    <div class="card bg-light"><div class="card-body">
+      <div class="card-title h5">Addresses</div>
+      {% include "addresses/extra.html" ignore missing %}
+      {%- if addresses_page and addresses_page.total %}
+      <table class="table table-hover addresses">
+        <thead><tr><th>#</th><th>Address</th><th>Balance</th></tr></thead>
+        <tbody>
+        {%- for row in addresses_page.items %}
+          <tr>
+            <td>{{ loop.index + (addresses_page.page - 1) * addresses_page.per_page }}</td>
+            <td class="font-monospace"><a class="text-dark" href="{{ url_for('browser.address_view', address=row.address) }}">{{ row.address }}</a></td>
+            <td>{{ row.ct }} <small class="text-muted">grains</small></td>
+          </tr>
+        {%- endfor %}
+        </tbody>
+      </table>
+      {{ render_pagination(addresses_page, 'browser.addresses_view') }}
+      {%- else %}
+      <p>No addresses with a balance yet.</p>
+      {%- endif %}
+    </div></div>
+  </div></div>
+</div>
+{%- endblock %}

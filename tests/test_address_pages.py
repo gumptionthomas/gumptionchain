@@ -40,3 +40,26 @@ def test_address_holdings_empty_for_unknown_address(
         unknown = Wallet().address
         flows = list(db.session.scalars(lc.address_holdings(unknown)))
         assert flows == []
+
+
+# ---- addresses index ---------------------------------------------------
+
+
+def test_addresses_index_empty(test_client):
+    resp = test_client.get('/addresses')
+    assert resp.status_code == 200
+    assert b'No addresses with a balance yet' in resp.data
+
+
+def test_addresses_index_shows_milled_address(
+    app, host, mill_block, requests_proxy, wallet
+):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        balance = m.longest_chain.balance(wallet.address)
+
+        resp = app.test_client().get('/addresses')
+        assert resp.status_code == 200
+        assert wallet.address.encode() in resp.data
+        assert f'/address/{wallet.address}'.encode() in resp.data
+        assert str(balance).encode() in resp.data

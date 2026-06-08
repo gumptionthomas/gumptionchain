@@ -3,7 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 import sqlalchemy as sa
-from flask import Blueprint, abort, current_app, jsonify, render_template
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    jsonify,
+    render_template,
+    request,
+)
 from flask_sqlalchemy.pagination import SelectPagination
 from werkzeug.exceptions import HTTPException
 
@@ -151,6 +158,27 @@ def subjects_view() -> Any:
     )
 
 
+@blueprint.route('/addresses')
+def addresses_view() -> Any:
+    try:
+        lc = longest_chain()
+        addresses_page = (
+            paginate_rows(lc.wallet_leaderboard()) if lc is not None else None
+        )
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'addresses.html', title='Addresses', addresses_page=addresses_page
+    )
+
+
 @blueprint.route('/subject/<subject:subject>')
 def subject_view(subject: str) -> Any:
     try:
@@ -188,6 +216,44 @@ def subject_view(subject: str) -> Any:
         support=support,
         opposition_flows=opposition_flows,
         support_flows=support_flows,
+    )
+
+
+@blueprint.route('/address/<address:address>')
+def address_view(address: str) -> Any:
+    try:
+        lc = longest_chain()
+        if lc is None:
+            balance = 0
+            holdings_page = txns_page = None
+        else:
+            balance = lc.balance(address)
+            # error_out=False: an out-of-range page (e.g. an empty list's
+            # ?txn_page=2) returns an empty page, not a 404.
+            holdings_page = db.paginate(
+                lc.address_holdings(address), error_out=False
+            )
+            txns_page = db.paginate(
+                lc.address_transactions(address),
+                page=request.args.get('txn_page', 1, type=int),
+                error_out=False,
+            )
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'address.html',
+        title=f'Address: {address}',
+        address=address,
+        balance=balance,
+        holdings_page=holdings_page,
+        txns_page=txns_page,
     )
 
 
