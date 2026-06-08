@@ -32,6 +32,7 @@ from gumptionchain.exceptions import (
     MissingInflowOutflowError,
     MissingPreviousBlockError,
     OutOfOrderBlockError,
+    PendingFundsError,
     SpentTransactionError,
 )
 from gumptionchain.milling import mill_hash_str
@@ -515,6 +516,19 @@ class Chain:
     def balance(self, address: str) -> int:
         return int(self.to_dao().wallet_balance(address))
 
+    def _funds_error(self, address: str, amount: int) -> InsufficientFundsError:
+        # Distinguish a genuine shortfall from funds tied up in an unconfirmed
+        # txn. balance() counts confirmed-unspent outputs (it ignores pending
+        # consumption), while the builders gather with filter_pending=True. So
+        # if the confirmed balance covers the amount but the pending-filtered
+        # gather fell short, the shortfall is just change waiting on a block.
+        if self.balance(address) >= amount:
+            return PendingFundsError(
+                'your previous transaction is still confirming; its change '
+                'becomes spendable once a block is mined'
+            )
+        return InsufficientFundsError()
+
     def wallet_leaderboard(self, limit: int | None = None) -> Select[Any]:
         return self.to_dao().wallet_leaderboard(limit=limit)
 
@@ -594,7 +608,7 @@ class Chain:
             balance += outflow.amount or 0
             t.add_inflow(Inflow(outflow_txid=txid, outflow_idx=index))
         if balance < amount:
-            raise InsufficientFundsError()
+            raise self._funds_error(address, amount)
         t.add_outflow(Outflow(amount=amount, address=dest_address))
         if balance - amount:
             t.add_outflow(Outflow(amount=balance - amount, address=address))
@@ -632,7 +646,7 @@ class Chain:
                 balance += unspent_outflow.amount or 0
                 t.add_inflow(Inflow(outflow_txid=txid, outflow_idx=index))
         if balance < amount:
-            raise InsufficientFundsError()
+            raise self._funds_error(address, amount)
         t.add_outflow(Outflow(amount=amount, opposition=subject))
         if balance - amount:
             t.add_outflow(Outflow(amount=balance - amount, address=address))
@@ -703,7 +717,7 @@ class Chain:
                 balance += unspent_outflow.amount or 0
                 t.add_inflow(Inflow(outflow_txid=txid, outflow_idx=index))
         if balance < amount:
-            raise InsufficientFundsError()
+            raise self._funds_error(address, amount)
         t.add_outflow(Outflow(amount=amount, support=subject))
         if balance - amount:
             t.add_outflow(Outflow(amount=balance - amount, address=address))

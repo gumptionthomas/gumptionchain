@@ -78,6 +78,15 @@ class InsufficientFundsError(InvalidTransactionError):
     pass
 
 
+class PendingFundsError(InsufficientFundsError):
+    """Funds exist but are tied up in an unconfirmed (pending) transaction.
+
+    A subclass of InsufficientFundsError so existing handlers still treat it as
+    a funding failure, but distinguishable for an honest user message: the
+    change from a recent spend isn't spendable until a block confirms it.
+    """
+
+
 class ImbalancedTransactionError(InvalidTransactionError):
     pass
 
