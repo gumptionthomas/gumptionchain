@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_pagination.html" import render_pagination %}
+{% from "_net.html" import net_stance %}
 
 {% block content -%}
 <div class="container-fluid">
@@ -9,7 +10,7 @@
       {% include "subjects/extra.html" ignore missing %}
       {%- if subjects_page and subjects_page.total %}
       <table class="table table-hover subjects">
-        <thead><tr><th>#</th><th>Subject</th><th>Opposition</th><th>Support</th><th>Total</th></tr></thead>
+        <thead><tr><th>#</th><th>Subject</th><th>Opposition</th><th>Support</th><th>Net</th><th>Total</th></tr></thead>
         <tbody>
         {%- for row in subjects_page.items %}
           <tr>
@@ -17,6 +18,7 @@
             <td><a class="text-dark" href="{{ url_for('browser.subject_view', subject=row.subject) }}">{{ row.subject | human_subject }}</a></td>
             <td>{{ row.opposition }}</td>
             <td>{{ row.support }}</td>
+            <td>{{ net_stance(row.opposition, row.support) }}</td>
             <td>{{ row.total }}</td>
           </tr>
         {%- endfor %}

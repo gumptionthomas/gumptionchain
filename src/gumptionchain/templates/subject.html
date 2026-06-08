@@ -1,9 +1,11 @@
 {% extends "base.html" %}
+{% from "_net.html" import net_stance %}
 
 {% block content -%}
 <div class="container-fluid">
   <div class="row my-3"><div class="col">
     <h3>{{ subject | human_subject }}</h3>
+    <p class="h5">Net: {{ net_stance(opposition, support) }}</p>
   </div></div>
 
   <div class="row my-3">

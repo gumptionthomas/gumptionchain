@@ -1,0 +1,9 @@
+{# Net stance for a subject: which side leads (support vs opposition) and by
+   how much. Magnitude + word so the meaning is unambiguous (no implicit sign
+   convention). Green = net supported, red = net opposed, muted = even. #}
+{% macro net_stance(opposition, support) -%}
+{%- set net = support - opposition -%}
+{%- if net > 0 %}<span class="text-success">{{ net }} supported</span>
+{%- elif net < 0 %}<span class="text-danger">{{ -net }} opposed</span>
+{%- else %}<span class="text-muted">even</span>{% endif -%}
+{%- endmacro %}

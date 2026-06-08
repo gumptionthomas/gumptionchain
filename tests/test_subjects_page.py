@@ -43,6 +43,8 @@ def test_subjects_index_shows_stakes(
         assert b'300' in resp.data
         assert b'150' in resp.data
         assert b'450' in resp.data
+        # net stance: opposition 300 leads support 150 by 150
+        assert b'150 opposed' in resp.data
         # links to the detail page using the encoded subject
         assert f'/subject/{subject}'.encode() in resp.data
 
@@ -97,6 +99,9 @@ def test_subject_detail_shows_totals_and_links(
         assert resp.status_code == 200
         assert b'300' in resp.data  # opposition total
         assert b'150' in resp.data  # support total
+        # net stance indicator: opposition leads support by 150
+        assert b'Net:' in resp.data
+        assert b'150 opposed' in resp.data
         # link to the staking transaction
         assert f'/transaction/{txn.txid}'.encode() in resp.data
 
