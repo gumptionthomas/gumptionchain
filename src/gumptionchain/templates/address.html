@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import render_pagination %}
+
+{% block content -%}
+<div class="container-fluid">
+  <div class="row my-3"><div class="col">
+    <h3 class="font-monospace">{{ address }}</h3>
+    <p class="h4">{{ balance }} <small class="text-muted">grains</small></p>
+  </div></div>
+
+  {%- if holdings_page is not none %}
+  <div class="row my-3">
+    <div class="col">
+      <div class="card bg-light"><div class="card-body">
+        <div class="card-title h5">Holdings</div>
+        {%- if holdings_page.total %}
+        <table class="table table-hover">
+          <thead><tr><th>Amount</th><th>Transaction</th></tr></thead>
+          <tbody class="font-monospace">
+          {%- for flow in holdings_page.items %}
+            <tr>
+              <td>{{ flow.amount }}</td>
+              <td><a class="text-dark" href="{{ url_for('browser.transaction_view', txid=flow.txid) }}">{{ flow.txid }}</a></td>
+            </tr>
+          {%- endfor %}
+          </tbody>
+        </table>
+        {{ render_pagination(holdings_page, 'browser.address_view', 'page') }}
+        {%- else %}
+        <p>none</p>
+        {%- endif %}
+      </div></div>
+    </div>
+
+    <div class="col">
+      <div class="card bg-light"><div class="card-body">
+        <div class="card-title h5">Transactions</div>
+        {%- if txns_page.total %}
+        <table class="table table-hover">
+          <thead><tr><th>Transaction</th><th>Timestamp</th></tr></thead>
+          <tbody class="font-monospace">
+          {%- for txn in txns_page.items %}
+            <tr>
+              <td><a class="text-dark" href="{{ url_for('browser.transaction_view', txid=txn.txid) }}">{{ txn.txid }}</a></td>
+              <td>{{ txn.timestamp | utc_datetime }}</td>
+            </tr>
+          {%- endfor %}
+          </tbody>
+        </table>
+        {{ render_pagination(txns_page, 'browser.address_view', 'txn_page') }}
+        {%- else %}
+        <p>none</p>
+        {%- endif %}
+      </div></div>
+    </div>
+  </div>
+  {%- else %}
+  <div class="row my-3"><div class="col"><p>none</p></div></div>
+  {%- endif %}
+</div>
+{%- endblock %}

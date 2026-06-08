@@ -63,3 +63,50 @@ def test_addresses_index_shows_milled_address(
         assert wallet.address.encode() in resp.data
         assert f'/address/{wallet.address}'.encode() in resp.data
         assert str(balance).encode() in resp.data
+
+
+# ---- address detail ----------------------------------------------------
+
+
+def test_address_detail_shows_balance_and_holdings(
+    app, host, mill_block, requests_proxy, wallet
+):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        lc = m.longest_chain
+        balance = lc.balance(wallet.address)
+        flows = list(db.session.scalars(lc.address_holdings(wallet.address)))
+        a_txid = flows[0].txid
+
+        resp = app.test_client().get(f'/address/{wallet.address}')
+        assert resp.status_code == 200
+        assert wallet.address.encode() in resp.data
+        assert str(balance).encode() in resp.data
+        # a holding links to its source transaction
+        assert f'/transaction/{a_txid}'.encode() in resp.data
+
+
+def test_address_detail_unknown_valid_address_is_200_zeros(
+    app, host, mill_block, requests_proxy, wallet
+):
+    with app.app_context():
+        mill_block(wallet)
+        unknown = Wallet().address
+        resp = app.test_client().get(f'/address/{unknown}')
+        assert resp.status_code == 200
+        assert b'0' in resp.data
+        assert b'none' in resp.data
+
+
+def test_address_detail_invalid_address_is_404(test_client):
+    resp = test_client.get('/address/notvalid')
+    assert resp.status_code == 404
+
+
+def test_address_detail_accepts_txn_page_arg(
+    app, host, mill_block, requests_proxy, wallet
+):
+    with app.app_context():
+        mill_block(wallet)
+        resp = app.test_client().get(f'/address/{wallet.address}?txn_page=2')
+        assert resp.status_code == 200
