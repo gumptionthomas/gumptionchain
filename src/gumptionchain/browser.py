@@ -135,6 +135,10 @@ def transaction_view(txid: str) -> Any:
 
 @blueprint.route('/transaction/<mill_hash:txid>/provenance.json')
 def transaction_provenance_view(txid: str) -> Any:
+    # Deliberately simpler than the authed api.TransactionProvenanceView: this
+    # public read does no caching and omits `as_of_block`. The authed view's
+    # cache keys on the chain tip; replicating it here is unnecessary under the
+    # default NullCache and would couple this public read to the cache layer.
     try:
         prov = lookup_provenance(txid)
     except HTTPException as e:
@@ -147,3 +151,8 @@ def transaction_provenance_view(txid: str) -> Any:
     # Route param (mill_hash-validated) is authoritative for txid; unpack prov
     # first so a stray 'txid' key can't override the request path.
     return jsonify({**prov, 'txid': txid})
+
+
+@blueprint.route('/verify')
+def verify_view() -> Any:
+    return render_template('verify.html', title='Verify')

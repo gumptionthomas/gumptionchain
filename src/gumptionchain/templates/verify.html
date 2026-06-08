@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Verify a stake{% endblock %}
+
+{% block content -%}
+<div class="container-fluid">
+  <div class="row my-3"><div class="col">
+    <div class="card bg-light"><div class="card-body">
+      <div class="card-title h5">Verify a stake</div>
+      <p>Paste a <code>gc-msg-v1</code> stake attestation to check it against the chain.</p>
+      <textarea id="proof-input" class="form-control" rows="8"
+                placeholder='{"scheme":"gc-msg-v1", ...}'></textarea>
+      <button id="verify-btn" class="btn btn-primary mt-2">Verify</button>
+      <div id="verdict" class="mt-3" hidden>
+        <div id="verdict-seal" class="seal-dot">&#10003;</div>
+        <ul class="list-unstyled mt-2">
+          <li data-check="signature">Signature</li>
+          <li data-check="onchain">On-chain</li>
+          <li data-check="consistent">Consistent</li>
+        </ul>
+        <pre id="verdict-reasons"></pre>
+      </div>
+    </div></div>
+  </div></div>
+  {% include "verify/extra.html" ignore missing %}
+</div>
+{%- endblock %}
+
+{% block scripts -%}
+{{ super() }}
+<script type="module">
+  import { runVerify, renderVerdict, BadAttestationError } from "{{ url_for('browser.static', filename='js/verify-glue.mjs') }}";
+  document.getElementById('verify-btn').addEventListener('click', async () => {
+    const verdict = document.getElementById('verdict');
+    try {
+      const proof = JSON.parse(document.getElementById('proof-input').value);
+      renderVerdict(await runVerify(proof), document);
+      verdict.hidden = false;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // A parse / attestation error is the user's input; anything else
+      // (e.g. a provenance fetch failure) is a system error — don't blame
+      // the proof for it.
+      const userError =
+        e instanceof SyntaxError || e instanceof BadAttestationError;
+      document.getElementById('verdict-reasons').textContent =
+        (userError ? 'Invalid proof: ' : 'Could not verify: ') + msg;
+      verdict.hidden = false;
+    }
+  });
+</script>
+{%- endblock %}

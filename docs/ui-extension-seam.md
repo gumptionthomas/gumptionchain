@@ -44,3 +44,14 @@ Reference base-bundled assets via `url_for('browser.static', filename=...)`
 (served from `/static/gumptionchain`), which resolves standalone or embedded.
 Wallet ESM is vendored into `static/wallet/` from `clients/wallet/` via
 `scripts/sync_wallet.py`.
+
+## CSP considerations
+
+The verify page (and any base page that wires up client JS) uses an inline
+`<script type="module">`. Base's default Content-Security-Policy (in
+`application.py`) includes `'unsafe-inline'` in `script-src`, so this works out
+of the box. Per the CSP spec, `'unsafe-inline'` is **ignored** by the browser
+once a `nonce-*` or `hash-*` source is present in the same directive — so a
+consumer that hardens its own CSP with a nonce/hash must also cover base's
+inline scripts (add a matching nonce/hash, or `'strict-dynamic'`), or those
+pages' JS will be silently blocked.
