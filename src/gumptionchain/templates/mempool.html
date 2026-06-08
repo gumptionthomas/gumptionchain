@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import render_pagination %}
+
+{% block content -%}
+<div class="container-fluid">
+  <div class="row my-3"><div class="col">
+    <div class="card bg-light"><div class="card-body">
+      <div class="card-title h5">Mempool <span class="small text-muted">({{ pending_page.total }} pending)</span></div>
+      {% include "mempool/extra.html" ignore missing %}
+      {%- if pending_page.total %}
+      <table class="table table-hover mempool">
+        <thead><tr><th>Txid</th><th>Timestamp</th><th>Inflows</th><th>Outflows</th><th>Total out</th></tr></thead>
+        <tbody class="font-monospace">
+        {%- for entry in entries %}
+          <tr>
+            <td>{{ entry.txid }}</td>
+            <td>{{ entry.timestamp | utc_datetime }}</td>
+            <td>{{ entry.inflows }}</td>
+            <td>{{ entry.outflows }}</td>
+            <td>{{ entry.total_out }} <span class="small text-muted">grains</span></td>
+          </tr>
+        {%- endfor %}
+        </tbody>
+      </table>
+      {{ render_pagination(pending_page, 'browser.mempool_view') }}
+      {%- else %}
+      <p>Mempool is empty.</p>
+      {%- endif %}
+    </div></div>
+  </div></div>
+</div>
+{%- endblock %}

@@ -14,14 +14,20 @@ from flask import (
 from flask_sqlalchemy.pagination import SelectPagination
 from werkzeug.exceptions import HTTPException
 
-from gumptionchain.block import Block
+from gumptionchain.block import Block, expiry_cutoff
 from gumptionchain.chain import Chain
 from gumptionchain.database import db
-from gumptionchain.models import BlockDAO, ChainDAO, TransactionDAO
+from gumptionchain.models import (
+    BlockDAO,
+    ChainDAO,
+    PendingTxnDAO,
+    TransactionDAO,
+)
 from gumptionchain.node import Node
 from gumptionchain.payload import decode_subject
 from gumptionchain.provenance import lookup_provenance
 from gumptionchain.transaction import Transaction
+from gumptionchain.util import now
 
 
 class _RowPagination(SelectPagination):
@@ -254,6 +260,44 @@ def address_view(address: str) -> Any:
         balance=balance,
         holdings_page=holdings_page,
         txns_page=txns_page,
+    )
+
+
+@blueprint.route('/mempool')
+def mempool_view() -> Any:
+    try:
+        # Read-only expiry filter (no prune): the API view prunes on GET,
+        # the browser read just excludes expired rows from the query.
+        pending_page = db.paginate(
+            PendingTxnDAO.pending_q(expired=expiry_cutoff(now())),
+            error_out=False,
+        )
+        entries = []
+        for row in pending_page.items:
+            txn = Transaction.from_json(row.json_data)
+            entries.append(
+                {
+                    'txid': txn.txid,
+                    'timestamp': txn.timestamp_dt,
+                    'inflows': len(txn.inflows),
+                    'outflows': len(txn.outflows),
+                    'total_out': sum(o.amount or 0 for o in txn.outflows),
+                }
+            )
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'mempool.html',
+        title='Mempool',
+        pending_page=pending_page,
+        entries=entries,
     )
 
 

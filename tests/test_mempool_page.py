@@ -52,3 +52,32 @@ def test_pending_q_expired_filter_is_read_only(app):
         assert rows == []
         # ...but NOT deleted: the query is read-only
         assert PendingTxnDAO.count() == 1
+
+
+# ---- mempool view ------------------------------------------------------
+
+
+def test_mempool_empty(test_client):
+    resp = test_client.get('/mempool')
+    assert resp.status_code == 200
+    assert b'Mempool is empty' in resp.data
+
+
+def test_mempool_shows_pending_txn(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        txn = _post_pending(host, m.longest_chain, wallet, 300, subject)
+
+        total_out = sum(o.amount or 0 for o in txn.outflows)
+
+        resp = app.test_client().get('/mempool')
+        assert resp.status_code == 200
+        body = resp.data
+        # the pending txid is shown
+        assert txn.txid.encode() in body
+        # the numeric total-out is shown
+        assert str(total_out).encode() in body
+        # link-free: no /transaction/<txid> link rendered for it
+        assert f'/transaction/{txn.txid}'.encode() not in body
