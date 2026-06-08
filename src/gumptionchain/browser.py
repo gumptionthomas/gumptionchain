@@ -63,6 +63,13 @@ blueprint = Blueprint(
 def index_view() -> Any:
     try:
         lc = longest_chain()
+        # Compute stats in the view (explicit + testable). stake_stats runs
+        # the leaderboard union-anti-join once, yielding both the distinct
+        # subject count and the total live stake; the template reads
+        # lc.length / lc.transaction_count / lc.recent_blocks(10) directly.
+        subject_count = total_staked = 0
+        if lc is not None:
+            subject_count, total_staked = lc.stake_stats()
     except HTTPException as e:
         return e
     except Exception as e:
@@ -72,7 +79,13 @@ def index_view() -> Any:
         # error response with no internal detail in the body (audit WEB2).
         current_app.logger.exception(e)
         abort(500)
-    return render_template('index.html', title='Home', lc=lc)
+    return render_template(
+        'index.html',
+        title='Home',
+        lc=lc,
+        subject_count=subject_count,
+        total_staked=total_staked,
+    )
 
 
 @blueprint.route('/chains')

@@ -24,6 +24,10 @@ blueprint templates**, so a consumer overrides base templates by filename.
 A conformant consumer skin should define every block (even if empty); base
 page templates confine themselves to `content`/`title`/`scripts`.
 
+Base also ships `_pagination.html`, a macro template providing
+`render_pagination(page, endpoint)` for Bootstrap pagination; the blocks and
+subjects lists import it via `{% from "_pagination.html" import render_pagination %}`.
+
 ## Override rules
 
 1. **Re-skin everything** — drop your own `base.html` in app `templates/`.
@@ -34,6 +38,8 @@ page templates confine themselves to `content`/`title`/`scripts`.
    `{% include "verify/extra.html" ignore missing %}` (added with the verify
    page); base ships no such file. (Jinja blocks can't be filled by a
    non-descendant, so injection uses optional includes, not empty blocks.)
+   The home page exposes `index/extra.html` and the subjects index exposes
+   `subjects/extra.html` for the same purpose.
 4. **Add new pages** — register your own blueprint.
 5. **Link to shared pages** by base endpoint name, e.g.
    `url_for('browser.verify_view')`.
