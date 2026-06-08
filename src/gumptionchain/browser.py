@@ -399,3 +399,17 @@ def transaction_provenance_view(txid: str) -> Any:
 @blueprint.route('/verify')
 def verify_view() -> Any:
     return render_template('verify.html', title='Verify')
+
+
+@blueprint.route('/transact')
+def transact_view() -> Any:
+    # Static shell — no chain/DB work. The page's client JS calls the authed
+    # build/submit API itself, signing each request with the imported key.
+    # NODE_HOST must reach the page because gc-sig-v1 is node-bound: the
+    # signature canonical includes the node's host, so the glue has to sign for
+    # *this* node.
+    return render_template(
+        'transact.html',
+        title='Transact',
+        node_host=current_app.config['NODE_HOST'],
+    )
