@@ -1,0 +1,379 @@
+// Base /transact glue: build (via the node's authed server-side endpoints),
+// sign client-side with an ephemeral imported key, and submit. Plus a
+// "broadcast a pre-signed txn" mode. The imported Wallet lives ONLY in a
+// module-scoped variable here — never persisted (no IndexedDB/localStorage),
+// never sent (only the signature + public key leave the browser).
+//
+// The pure helpers (buildQuery / submitPath / responseMessage / buildSignSubmit)
+// are exported and DOM-free so they can be unit-tested with a fake fetch. The
+// DOM wiring is in init().
+import { Wallet } from '../wallet/gc-wallet.mjs';
+import { signHeaders } from '../wallet/gc-sig.mjs';
+import { signUnsignedTxn } from '../wallet/gc-transaction.mjs';
+
+const API_PREFIX = '/api';
+
+// The fields each transaction type sends. public_key is always added from the
+// imported wallet; the rest come from the form. (subject is the RAW UTF-8
+// subject — the server encodes it itself, so it must NOT be pre-encoded.)
+const TYPE_FIELDS = {
+  transfer: ['amount', 'address'],
+  opposition: ['amount', 'subject'],
+  support: ['amount', 'subject'],
+  rescind: ['amount', 'subject', 'kind'],
+};
+
+// Build the EXACT query string sent for a build GET. The same string is used
+// for the fetch URL and the gc-sig canonical, so consistency is what matters.
+export function buildQuery(type, fields) {
+  const names = TYPE_FIELDS[type];
+  if (!names) {
+    throw new Error(`unknown transaction type: ${type}`);
+  }
+  const params = new URLSearchParams();
+  // public_key first by convention; order is irrelevant to the server (it
+  // reconstructs the canonical from the actual request), but stable for tests.
+  if (fields.publicKey != null) {
+    params.set('public_key', fields.publicKey);
+  }
+  for (const name of names) {
+    const value = fields[name];
+    if (value != null && value !== '') {
+      params.set(name, String(value));
+    }
+  }
+  return params.toString();
+}
+
+// /api/transaction/<txid>, with the txid path segment encoded so a malformed
+// txid can't reshape the request into an unintended path/query.
+export function submitPath(txid) {
+  return `${API_PREFIX}/transaction/${encodeURIComponent(txid)}`;
+}
+
+// Map a submit/build response to a single user-facing string. Each documented
+// status is surfaced distinctly (closed node, mempool full, validation).
+export function responseMessage(status, body) {
+  const detail = body && typeof body.error === 'string' ? body.error : '';
+  if (status === 200 || status === 201 || status === 202) {
+    return 'Transaction submitted and received by the node.';
+  }
+  if (status === 403) {
+    return (
+      'This node restricts transacting: your address is not authorized ' +
+      '(not in TRANSACTOR_ADDRESSES on this node).'
+    );
+  }
+  if (status === 503) {
+    return 'The node is busy: its mempool is full. Try again shortly.';
+  }
+  if (status === 400) {
+    return `The node rejected the transaction: ${detail || 'validation error'}.`;
+  }
+  return `Unexpected response from the node (HTTP ${status})${
+    detail ? `: ${detail}` : ''
+  }.`;
+}
+
+// Read a fetch Response's JSON, tolerating an empty/non-JSON body.
+async function readBody(resp) {
+  try {
+    const text = await resp.text();
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return {};
+  }
+}
+
+// nowSeconds: gc-sig timestamps are epoch SECONDS (server allows +/-300s).
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+// Send a gc-sig-v1 authed request. path/query are signed separately so the
+// canonical matches what the server reconstructs from the actual request.
+async function authedFetch(
+  fetchImpl,
+  { method, path, query, body, wallet, nodeHost, timestamp },
+) {
+  const bodyBytes =
+    body != null ? new TextEncoder().encode(body) : new Uint8Array();
+  const headers = await signHeaders(wallet, {
+    method,
+    path,
+    query,
+    body: bodyBytes,
+    nodeHost,
+    timestamp,
+  });
+  const url = query ? `${path}?${query}` : path;
+  const opts = { method, headers };
+  if (body != null) {
+    opts.body = body;
+    opts.headers = { ...headers, 'Content-Type': 'application/json' };
+  }
+  return fetchImpl(url, opts);
+}
+
+// Full build -> verify-txid -> sign -> submit flow for one transaction. Returns
+// { unsigned, signed, status, message } so the caller can show the parsed txn
+// in a confirmation area and the final result. Throws (with a user-facing
+// message) if the build GET fails — no signature/POST happens after that.
+export async function buildSignSubmit({
+  type,
+  fields,
+  wallet,
+  nodeHost,
+  fetchImpl = globalThis.fetch,
+  timestamp = nowSeconds(),
+}) {
+  const publicKey = await wallet.publicKeyB64();
+  const query = buildQuery(type, { ...fields, publicKey });
+  const buildPath = `${API_PREFIX}/transaction/${type}`;
+  const buildResp = await authedFetch(fetchImpl, {
+    method: 'GET',
+    path: buildPath,
+    query,
+    wallet,
+    nodeHost,
+    timestamp,
+  });
+  if (!buildResp.ok) {
+    const body = await readBody(buildResp);
+    throw new Error(responseMessage(buildResp.status, body));
+  }
+  const unsigned = await buildResp.json();
+  // signUnsignedTxn recomputes + verifies the txid (catches a dishonest node)
+  // before signing.
+  const signed = await signUnsignedTxn(unsigned, wallet);
+  return submitSigned({
+    signed,
+    unsigned,
+    wallet,
+    nodeHost,
+    fetchImpl,
+  });
+}
+
+// Submit an already-signed txn (shared by build-sign and broadcast modes). The
+// POST itself is gc-sig authed with the imported key (the submit endpoint is
+// authorize_transactor), so broadcast also needs a key for the request
+// envelope even though the txn is already signed.
+export async function submitSigned({
+  signed,
+  unsigned = null,
+  wallet,
+  nodeHost,
+  fetchImpl = globalThis.fetch,
+  timestamp = nowSeconds(),
+}) {
+  const body = JSON.stringify(signed);
+  const resp = await authedFetch(fetchImpl, {
+    method: 'POST',
+    path: submitPath(signed.txid),
+    query: '',
+    body,
+    wallet,
+    nodeHost,
+    timestamp,
+  });
+  const respBody = await readBody(resp);
+  return {
+    unsigned: unsigned ?? signed,
+    signed,
+    status: resp.status,
+    message: responseMessage(resp.status, respBody),
+  };
+}
+
+// --- DOM wiring ------------------------------------------------------------
+
+// Module-scoped, in-memory only. Cleared by forgetKey() / page reload.
+let importedWallet = null;
+
+function setStatus(el, text, kind = 'info') {
+  if (!el) return;
+  el.textContent = text;
+  el.dataset.kind = kind;
+}
+
+// Import from a pasted b58 private key (primary path). PEM is a follow-up.
+async function importB58(b58) {
+  return Wallet.fromPrivateKeyB58(b58.trim());
+}
+
+// Render the parsed unsigned txn for explicit confirmation before submit.
+function describeUnsigned(unsigned) {
+  const lines = [`txid: ${unsigned.txid}`];
+  const out = (unsigned.outflows ?? [])
+    .map((o) => {
+      if (o.address) return `  -> ${o.amount} grains to ${o.address}`;
+      if (o.opposition) return `  -> ${o.amount} grains OPPOSE ${o.opposition}`;
+      if (o.support) return `  -> ${o.amount} grains SUPPORT ${o.support}`;
+      if (o.rescind) {
+        return `  -> ${o.amount} grains RESCIND ${o.rescind} (${o.rescind_kind ?? ''})`;
+      }
+      return `  -> ${o.amount} grains (change)`;
+    })
+    .join('\n');
+  lines.push(`inputs: ${(unsigned.inflows ?? []).length}`);
+  lines.push('outputs:');
+  lines.push(out);
+  return lines.join('\n');
+}
+
+// init attaches the handlers. root defaults to document; nodeHost is the
+// node's configured host (gc-sig is node-bound).
+export function init(root = document, { nodeHost } = {}) {
+  const $ = (sel) => root.querySelector(sel);
+
+  // Reveal type-specific fields when the type changes.
+  const typeSelect = $('#txn-type');
+  const updateFields = () => {
+    const names = TYPE_FIELDS[typeSelect.value] ?? [];
+    for (const group of root.querySelectorAll('[data-field-group]')) {
+      const field = group.dataset.fieldGroup;
+      group.hidden = !names.includes(field);
+    }
+  };
+  if (typeSelect) {
+    typeSelect.addEventListener('change', updateFields);
+    updateFields();
+  }
+
+  // Key import (b58 textarea / .pem file) + forget.
+  const keyStatus = $('#key-status');
+  const b58Input = $('#key-b58');
+  const pemInput = $('#key-pem');
+  const importBtn = $('#import-key-btn');
+  const forgetBtn = $('#forget-key-btn');
+
+  const onImported = async () => {
+    setStatus(
+      keyStatus,
+      `Key imported (in memory only): ${await importedWallet.address()}`,
+      'ok',
+    );
+  };
+
+  if (importBtn) {
+    importBtn.addEventListener('click', async () => {
+      try {
+        const b58 = b58Input ? b58Input.value : '';
+        if (!b58.trim()) {
+          setStatus(keyStatus, 'Paste a base58 private key first.', 'error');
+          return;
+        }
+        importedWallet = await importB58(b58);
+        await onImported();
+      } catch (e) {
+        importedWallet = null;
+        setStatus(keyStatus, `Could not import key: ${msgOf(e)}`, 'error');
+      }
+    });
+  }
+  if (pemInput) {
+    pemInput.addEventListener('change', async () => {
+      // PEM (.pem upload) import is a documented follow-up; b58 is the
+      // primary path this PR ships. Surface clearly rather than half-working.
+      setStatus(
+        keyStatus,
+        'PEM upload is not supported yet — paste the base58 private key ' +
+          'instead (a follow-up will add .pem import).',
+        'error',
+      );
+      pemInput.value = '';
+    });
+  }
+  if (forgetBtn) {
+    forgetBtn.addEventListener('click', () => {
+      importedWallet = null;
+      if (b58Input) b58Input.value = '';
+      setStatus(keyStatus, 'Key forgotten — cleared from memory.', 'info');
+    });
+  }
+
+  // Build & sign & submit.
+  const buildResult = $('#build-result');
+  const confirmArea = $('#confirm-area');
+  const signBtn = $('#sign-submit-btn');
+  if (signBtn) {
+    signBtn.addEventListener('click', async () => {
+      if (!importedWallet) {
+        setStatus(buildResult, 'Import a key first.', 'error');
+        return;
+      }
+      const type = typeSelect.value;
+      const fields = collectFields(root, type);
+      try {
+        setStatus(buildResult, 'Building & signing…', 'info');
+        const result = await buildSignSubmit({
+          type,
+          fields,
+          wallet: importedWallet,
+          nodeHost,
+        });
+        if (confirmArea) confirmArea.textContent = describeUnsigned(result.unsigned);
+        setStatus(
+          buildResult,
+          result.message,
+          result.status < 400 ? 'ok' : 'error',
+        );
+      } catch (e) {
+        setStatus(buildResult, msgOf(e), 'error');
+      }
+    });
+  }
+
+  // Broadcast a pre-signed txn (reuses the imported key for the request
+  // envelope).
+  const broadcastInput = $('#broadcast-input');
+  const broadcastResult = $('#broadcast-result');
+  const broadcastBtn = $('#broadcast-btn');
+  if (broadcastBtn) {
+    broadcastBtn.addEventListener('click', async () => {
+      if (!importedWallet) {
+        setStatus(broadcastResult, 'Import a key first.', 'error');
+        return;
+      }
+      try {
+        const signed = JSON.parse(broadcastInput.value);
+        setStatus(broadcastResult, 'Submitting…', 'info');
+        const result = await submitSigned({
+          signed,
+          wallet: importedWallet,
+          nodeHost,
+        });
+        setStatus(
+          broadcastResult,
+          result.message,
+          result.status < 400 ? 'ok' : 'error',
+        );
+      } catch (e) {
+        const m = e instanceof SyntaxError ? `Invalid JSON: ${e.message}` : msgOf(e);
+        setStatus(broadcastResult, m, 'error');
+      }
+    });
+  }
+}
+
+function msgOf(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+// Read the type-specific fields out of the form into the shape buildQuery
+// expects. amount is sent as an integer string (grains).
+function collectFields(root, type) {
+  const val = (sel) => {
+    const el = root.querySelector(sel);
+    return el ? el.value : '';
+  };
+  const fields = { amount: val('#field-amount') };
+  if (type === 'transfer') {
+    fields.address = val('#field-address');
+  } else {
+    fields.subject = val('#field-subject');
+    if (type === 'rescind') {
+      fields.kind = val('#field-kind');
+    }
+  }
+  return fields;
+}
