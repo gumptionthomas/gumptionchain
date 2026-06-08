@@ -47,6 +47,39 @@ def test_subjects_index_shows_stakes(
         assert f'/subject/{subject}'.encode() in resp.data
 
 
+def test_subjects_index_paginates_across_pages(
+    app, host, mill_block, requests_proxy, wallet
+):
+    # Stake three subjects with distinct totals so ranking is deterministic,
+    # then page with per_page=2 to exercise the _RowPagination offset/count
+    # path (the leaderboard is a multi-column Core select, not an ORM entity).
+    top = encode_subject('top-subject')
+    mid = encode_subject('mid-subject')
+    low = encode_subject('low-subject')
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        _stake_opposition(host, m.longest_chain, wallet, 300, top)
+        mill_block(wallet)
+        _stake_opposition(host, m.longest_chain, wallet, 200, mid)
+        mill_block(wallet)
+        _stake_opposition(host, m.longest_chain, wallet, 100, low)
+        mill_block(wallet)
+
+        client = app.test_client()
+        page1 = client.get('/subjects?per_page=2&page=1')
+        assert page1.status_code == 200
+        assert f'/subject/{top}'.encode() in page1.data  # rank 1
+        assert f'/subject/{mid}'.encode() in page1.data  # rank 2
+        assert f'/subject/{low}'.encode() not in page1.data
+
+        page2 = client.get('/subjects?per_page=2&page=2')
+        assert page2.status_code == 200
+        # only the lowest-total subject spills onto page 2
+        assert f'/subject/{low}'.encode() in page2.data
+        assert f'/subject/{top}'.encode() not in page2.data
+        assert f'/subject/{mid}'.encode() not in page2.data
+
+
 # ---- subject detail ----------------------------------------------------
 
 
