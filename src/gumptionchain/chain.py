@@ -538,6 +538,20 @@ class Chain:
         q = self.subject_leaderboard().subquery()
         return db.session.scalar(db.select(db.func.sum(q.c.total))) or 0
 
+    def stake_stats(self) -> tuple[int, int]:
+        # Single query for both the distinct-subject count and the total live
+        # stake — the leaderboard union-anti-join is heavy, so the home view
+        # uses this instead of reading subject_count and total_staked
+        # separately (which would run the leaderboard twice).
+        sub = self.subject_leaderboard().subquery()
+        row = db.session.execute(
+            db.select(
+                db.func.count().label('n'),
+                db.func.coalesce(db.func.sum(sub.c.total), 0).label('staked'),
+            ).select_from(sub)
+        ).one()
+        return int(row.n), int(row.staked)
+
     def transaction_provenance(self, txid: str) -> dict[str, Any] | None:
         dao = self.to_dao()
         if dao is not None:

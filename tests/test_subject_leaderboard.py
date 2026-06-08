@@ -126,3 +126,35 @@ def test_chain_delegates_and_stats(
         # newest-first
         assert recent[0].idx > recent[1].idx
         assert recent[0].block_hash == lc.last_block.block_hash
+
+
+def test_stake_stats_matches_individual_properties(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    other = encode_subject('other')
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        lc = m.longest_chain
+        _stake(host, lc, wallet, oppose=(subject, 300))
+        mill_block(wallet)
+        lc = m.longest_chain
+        _stake(host, lc, wallet, support=(other, 150))
+        mill_block(wallet)
+
+        lc = m.longest_chain
+        count, staked = lc.stake_stats()
+        # two distinct subjects, 450 grains live
+        assert count == 2
+        assert staked == 450
+        # single-query path agrees with the individual properties
+        assert count == lc.subject_count
+        assert staked == lc.total_staked
+
+
+def test_stake_stats_empty_chain(app, host, mill_block, requests_proxy, wallet):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        # a chain with only coinbase blocks has no live stake
+        count, staked = m.longest_chain.stake_stats()
+        assert count == 0
+        assert staked == 0
