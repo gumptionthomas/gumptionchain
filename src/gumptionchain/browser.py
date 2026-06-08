@@ -412,6 +412,9 @@ def transact_view() -> Any:
         'transact.html',
         title='Transact',
         node_host=current_app.config['NODE_HOST'],
+        # rp_name labels the WebAuthn passkey (RP name) for the saved-wallet
+        # passkey unlock path; gc-sig is node-bound so node_host stays too.
+        rp_name='GumptionChain',
     )
 
 

@@ -35,6 +35,29 @@ def test_transact_page_renders(app, test_client):
         assert 'bootstrap' in body
 
 
+def test_transact_page_has_saved_wallet_unlock_markup(app, test_client):
+    with app.app_context():
+        resp = test_client.get('/transact')
+        assert resp.status_code == httpx.codes.OK
+        body = str(resp.data)
+        # The "Unlock saved wallet" affordance is present (revealed by JS only
+        # when a wallet is actually persisted on this origin).
+        assert 'id="saved-wallet"' in body
+        assert 'Unlock your saved wallet' in body
+        assert 'id="unlock-passphrase"' in body
+        assert 'id="unlock-saved-btn"' in body
+        # The passkey unlock button is present (JS hides it off secure origins).
+        assert 'id="unlock-saved-passkey-btn"' in body
+        # The two options read clearly as distinct: a saved unlock vs an
+        # ephemeral, this-session-only key.
+        assert 'just for this session' in body
+        # The passphrase input is masked and never autofilled.
+        assert 'type="password"' in body
+        # The RP name reaches the page for the passkey adapter.
+        assert 'data-rp-name' in body
+        assert app.config.get('NODE_HOST') is not None
+
+
 def test_transact_page_carries_configured_node_host(app, test_client):
     with app.app_context():
         node_host = app.config['NODE_HOST']

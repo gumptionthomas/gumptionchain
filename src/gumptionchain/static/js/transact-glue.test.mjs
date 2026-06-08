@@ -9,9 +9,12 @@ import {
   submitSigned,
   encodeSubject,
   signAttestation,
+  whichKeyControls,
+  unlockSaved,
 } from './transact-glue.mjs';
 import { Wallet } from '../wallet/gc-wallet.mjs';
 import { parseStakeAttestation } from '../wallet/gc-attestation.mjs';
+import { makeSession } from './wallet-session.mjs';
 
 // --- buildQuery: one query string, used for BOTH the fetch URL and the
 // gc-sig canonical, so it must round-trip exactly the fields the type needs.
@@ -327,6 +330,126 @@ test('signAttestation supports the support kind', async () => {
   const claim = parseStakeAttestation(proof);
   assert.equal(claim.kind, 'support');
   assert.equal(claim.subject, 'Y2FuY2VsIG1l');
+});
+
+// --- whichKeyControls: the saved-wallet unlock affordances show only when a
+// wallet exists; the passkey button shows only when a passkey is usable.
+
+test('whichKeyControls hides the unlock affordances when no saved wallet', () => {
+  const c = whichKeyControls({ hasWallet: false, passkeySupported: true });
+  assert.equal(c.showUnlockSaved, false);
+  assert.equal(c.showUnlockPasskey, false);
+});
+
+test('whichKeyControls shows unlock (passphrase) when a wallet exists', () => {
+  const c = whichKeyControls({ hasWallet: true, passkeySupported: false });
+  assert.equal(c.showUnlockSaved, true);
+  // No passkey support -> no passkey button even with a saved wallet.
+  assert.equal(c.showUnlockPasskey, false);
+});
+
+test('whichKeyControls shows the passkey button only when supported', () => {
+  const c = whichKeyControls({ hasWallet: true, passkeySupported: true });
+  assert.equal(c.showUnlockSaved, true);
+  assert.equal(c.showUnlockPasskey, true);
+});
+
+// --- unlockSaved: the seam between the keyring and the shared session. A fake
+// store + fake keyring prove that unlocking sets the session wallet (which the
+// build flow then guards on) without touching real IndexedDB.
+
+function fakeStore(rec = { address: 'GCsavedGC' }) {
+  return {
+    get: async () => rec,
+    put: async () => {},
+    delete: async () => {},
+  };
+}
+
+test('unlockSaved (passphrase) sets the session wallet', async () => {
+  const session = makeSession();
+  const unlockedWallet = fakeWallet();
+  let seenArgs = null;
+  const keyringImpl = {
+    unlock: async (deps, secrets) => {
+      seenArgs = { deps, secrets };
+      return unlockedWallet;
+    },
+  };
+  const store = fakeStore();
+  const wallet = await unlockSaved({
+    store,
+    session,
+    passphrase: 'correct horse',
+    keyringImpl,
+  });
+  assert.equal(wallet, unlockedWallet);
+  // The wallet is now available to the build/confirm/broadcast/attestation
+  // flow via the shared session.
+  assert.equal(session.getWallet(), unlockedWallet);
+  assert.equal(session.isUnlocked(), true);
+  // The passphrase reached the keyring; no passkey was used.
+  assert.equal(seenArgs.secrets.passphrase, 'correct horse');
+  assert.equal(seenArgs.deps.passkey, undefined);
+});
+
+test('unlockSaved (passkey) sets the session wallet via the adapter', async () => {
+  const session = makeSession();
+  const unlockedWallet = fakeWallet();
+  const passkey = { unlock: async () => new Uint8Array(32) };
+  let seenArgs = null;
+  const keyringImpl = {
+    unlock: async (deps, secrets) => {
+      seenArgs = { deps, secrets };
+      return unlockedWallet;
+    },
+  };
+  const wallet = await unlockSaved({
+    store: fakeStore(),
+    session,
+    passkey,
+    keyringImpl,
+  });
+  assert.equal(wallet, unlockedWallet);
+  assert.equal(session.getWallet(), unlockedWallet);
+  assert.equal(seenArgs.deps.passkey, passkey);
+  assert.equal(seenArgs.secrets.passphrase, undefined);
+});
+
+test('unlockSaved propagates a wrong-secret failure (session stays locked)', async () => {
+  const session = makeSession();
+  const keyringImpl = {
+    unlock: async () => {
+      throw new Error('boom: bad secret');
+    },
+  };
+  await assert.rejects(
+    () =>
+      unlockSaved({
+        store: fakeStore(),
+        session,
+        passphrase: 'wrong',
+        keyringImpl,
+      }),
+  );
+  // A failed unlock must NOT leave a wallet in the session.
+  assert.equal(session.getWallet(), null);
+  assert.equal(session.isUnlocked(), false);
+});
+
+test('locking the session after unlock clears the wallet', async () => {
+  const session = makeSession();
+  const keyringImpl = { unlock: async () => fakeWallet() };
+  await unlockSaved({
+    store: fakeStore(),
+    session,
+    passphrase: 'pw',
+    keyringImpl,
+  });
+  assert.equal(session.isUnlocked(), true);
+  session.lock();
+  assert.equal(session.getWallet(), null);
+  assert.equal(session.isUnlocked(), false);
 });
 
 test('submitSigned rejects a pasted object missing txid/signature', async () => {

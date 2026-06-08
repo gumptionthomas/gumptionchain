@@ -10,9 +10,14 @@
 import { Wallet } from '../wallet/gc-wallet.mjs';
 import * as keyring from '../wallet/gc-keyring.mjs';
 import { makeIdbStore } from '../wallet/gc-store-idb.mjs';
-import { makeWebauthnPasskey } from '../wallet/gc-passkey-webauthn.mjs';
 import { exportEncrypted, importEncrypted } from '../wallet/gc-backup.mjs';
 import { session as defaultSession } from './wallet-session.mjs';
+import { makePasskey } from './wallet-passkey.mjs';
+
+// Re-exported so existing importers (and tests) of wallet-glue keep working;
+// the implementation now lives in the shared wallet-passkey module so /transact
+// can reuse the same secure-context gating.
+export { makePasskey };
 
 // --- pure helpers ---------------------------------------------------------
 
@@ -68,23 +73,6 @@ export function writeTrustAck(storage) {
   } catch {
     // best-effort; a blocked storage just means the ack isn't remembered.
   }
-}
-
-// Build a passkey adapter for THIS origin, but only on a secure context where
-// PRF is actually supported. Returns null (not a half-working adapter) when
-// passkeys aren't usable here, so the UI degrades to passphrase-only.
-export async function makePasskey({ window: win = window, rpName } = {}) {
-  if (!win?.isSecureContext) {
-    return null;
-  }
-  const passkey = makeWebauthnPasskey({
-    rpId: win.location.hostname,
-    rpName,
-  });
-  if (!(await passkey.isSupported())) {
-    return null;
-  }
-  return passkey;
 }
 
 // --- DOM wiring -----------------------------------------------------------
