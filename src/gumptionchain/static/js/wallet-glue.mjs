@@ -156,6 +156,7 @@ export function init(
     unlockStatus: $('#unlock-status'),
     // unlocked actions
     lockBtn: $('#lock-btn'),
+    addPasskeySection: $('#add-passkey-section'),
     addPasskeyBtn: $('#add-passkey-btn'),
     addPasskeyPassphrase: $('#add-passkey-passphrase'),
     addPasskeyStatus: $('#add-passkey-status'),
@@ -191,6 +192,7 @@ export function init(
     show(els.unlockSection, c.showUnlock);
     show(els.unlockPasskeyBtn, c.showUnlockPasskey);
     show(els.lockBtn, c.showLock);
+    show(els.addPasskeySection, c.showAddPasskey);
     show(els.addPasskeyBtn, c.showAddPasskey);
     show(els.addPasskeyPassphrase, c.showAddPasskey);
     show(els.backupBtn, c.showBackup);

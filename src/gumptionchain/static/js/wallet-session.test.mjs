@@ -128,6 +128,36 @@ test('touch() before arming is a harmless no-op', () => {
   assert.doesNotThrow(() => s.touch());
 });
 
+test('re-unlock re-arms the idle timer after a prior auto-lock', () => {
+  // Regression: idle auto-lock must hold across lock -> re-unlock. Arm, let it
+  // fire (auto-lock), then setWallet again (a re-unlock) must re-arm exactly
+  // one fresh timer that auto-locks again.
+  const s = makeSession();
+  let locked = 0;
+  s.onLock(() => {
+    locked += 1;
+  });
+  s.setWallet(fakeWallet());
+  const timer = fakeTimer();
+  s.armIdle(1000, {
+    now: () => 0,
+    setTimer: timer.setTimer,
+    clearTimer: timer.clearTimer,
+  });
+  timer.fireAll(); // idle elapses -> auto-lock
+  assert.equal(locked, 1);
+  assert.equal(s.isUnlocked(), false);
+  assert.equal(timer.pending().length, 0);
+
+  // Re-unlock: setWallet must re-arm the (still-configured) idle timer.
+  s.setWallet(fakeWallet());
+  assert.equal(s.isUnlocked(), true);
+  assert.equal(timer.pending().length, 1);
+  timer.fireAll();
+  assert.equal(locked, 2); // idle auto-lock fired again
+  assert.equal(s.isUnlocked(), false);
+});
+
 // --- installAutoLock: wire fake document/window events -------------------
 
 function fakeDom() {

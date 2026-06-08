@@ -45,6 +45,13 @@ export function makeSession() {
 
   function setWallet(w) {
     wallet = w ?? null;
+    // Becoming unlocked (re)starts the idle countdown, so the documented idle
+    // auto-lock holds across lock -> re-unlock (the timer is cleared on lock
+    // and otherwise wouldn't re-arm until the next activity event). touch() is
+    // a no-op until the idle timer has been configured (installAutoLock).
+    if (wallet !== null) {
+      touch();
+    }
   }
 
   function onLock(cb) {
