@@ -9,7 +9,10 @@
 // DOM wiring is in init().
 import { Wallet } from '../wallet/gc-wallet.mjs';
 import { signHeaders } from '../wallet/gc-sig.mjs';
-import { signUnsignedTxn } from '../wallet/gc-transaction.mjs';
+import {
+  signUnsignedTxn,
+  txid as computeTxid,
+} from '../wallet/gc-transaction.mjs';
 
 const API_PREFIX = '/api';
 
@@ -113,11 +116,11 @@ async function authedFetch(
   return fetchImpl(url, opts);
 }
 
-// Full build -> verify-txid -> sign -> submit flow for one transaction. Returns
-// { unsigned, signed, status, message } so the caller can show the parsed txn
-// in a confirmation area and the final result. Throws (with a user-facing
-// message) if the build GET fails — no signature/POST happens after that.
-export async function buildSignSubmit({
+// Build (GET) an unsigned txn and independently verify its txid — WITHOUT
+// signing — so the caller can show the parsed txn for explicit human
+// confirmation before any signature. Returns { unsigned }. Throws (with a
+// user-facing message) if the build GET fails: no signature/POST happens.
+export async function buildUnsigned({
   type,
   fields,
   wallet,
@@ -141,16 +144,28 @@ export async function buildSignSubmit({
     throw new Error(responseMessage(buildResp.status, body));
   }
   const unsigned = await buildResp.json();
-  // signUnsignedTxn recomputes + verifies the txid (catches a dishonest node)
-  // before signing.
+  // Honesty check: the node-built txid must match a fresh recompute from its
+  // own fields. This is INTEGRITY only — the human confirmation step (showing
+  // the parsed txn before this is signed) is what checks intent.
+  const recomputed = await computeTxid({ ...unsigned, txid: undefined });
+  if (recomputed !== unsigned.txid) {
+    throw new Error(
+      'txid mismatch: node-built txn does not match its fields',
+    );
+  }
+  return { unsigned };
+}
+
+// Sign a previously-built, txid-verified unsigned txn and submit it. Call ONLY
+// after the user has confirmed the parsed txn returned by buildUnsigned.
+export async function signAndSubmit({
+  unsigned,
+  wallet,
+  nodeHost,
+  fetchImpl = globalThis.fetch,
+}) {
   const signed = await signUnsignedTxn(unsigned, wallet);
-  return submitSigned({
-    signed,
-    unsigned,
-    wallet,
-    nodeHost,
-    fetchImpl,
-  });
+  return submitSigned({ signed, unsigned, wallet, nodeHost, fetchImpl });
 }
 
 // Submit an already-signed txn (shared by build-sign and broadcast modes). The
@@ -165,6 +180,12 @@ export async function submitSigned({
   fetchImpl = globalThis.fetch,
   timestamp = nowSeconds(),
 }) {
+  if (!signed || !signed.txid || !signed.signature) {
+    throw new Error(
+      'This does not look like a signed transaction ' +
+        '(missing txid or signature).',
+    );
+  }
   const body = JSON.stringify(signed);
   const resp = await authedFetch(fetchImpl, {
     method: 'POST',
@@ -291,12 +312,32 @@ export function init(root = document, { nodeHost } = {}) {
     });
   }
 
-  // Build & sign & submit.
+  // Build & review -> (human confirms) -> sign & submit. Two steps so the
+  // user sees the parsed txn BEFORE their key signs it.
   const buildResult = $('#build-result');
   const confirmArea = $('#confirm-area');
-  const signBtn = $('#sign-submit-btn');
-  if (signBtn) {
-    signBtn.addEventListener('click', async () => {
+  const buildBtn = $('#build-review-btn');
+  const confirmBtn = $('#confirm-submit-btn');
+
+  // The verified-but-unsigned txn held between the build and confirm clicks.
+  let pendingUnsigned = null;
+  const resetPending = () => {
+    pendingUnsigned = null;
+    if (confirmBtn) confirmBtn.hidden = true;
+    if (confirmArea) confirmArea.textContent = '';
+  };
+  // Any edit to type/fields invalidates a pending build (so you can't confirm
+  // a txn built from different inputs than what's now on screen).
+  for (const el of root.querySelectorAll(
+    '#txn-type, [data-field-group] input, [data-field-group] select',
+  )) {
+    el.addEventListener('input', resetPending);
+    el.addEventListener('change', resetPending);
+  }
+
+  if (buildBtn) {
+    buildBtn.addEventListener('click', async () => {
+      resetPending();
       if (!importedWallet) {
         setStatus(buildResult, 'Import a key first.', 'error');
         return;
@@ -304,19 +345,53 @@ export function init(root = document, { nodeHost } = {}) {
       const type = typeSelect.value;
       const fields = collectFields(root, type);
       try {
-        setStatus(buildResult, 'Building & signing…', 'info');
-        const result = await buildSignSubmit({
+        setStatus(buildResult, 'Building…', 'info');
+        const { unsigned } = await buildUnsigned({
           type,
           fields,
           wallet: importedWallet,
           nodeHost,
         });
-        if (confirmArea) confirmArea.textContent = describeUnsigned(result.unsigned);
+        pendingUnsigned = unsigned;
+        if (confirmArea) {
+          confirmArea.textContent = describeUnsigned(unsigned);
+        }
+        if (confirmBtn) confirmBtn.hidden = false;
+        setStatus(
+          buildResult,
+          'Review the transaction below, then Confirm & submit. ' +
+            'Nothing is signed until you confirm.',
+          'info',
+        );
+      } catch (e) {
+        setStatus(buildResult, msgOf(e), 'error');
+      }
+    });
+  }
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      if (!pendingUnsigned) {
+        setStatus(buildResult, 'Build a transaction first.', 'error');
+        return;
+      }
+      if (!importedWallet) {
+        setStatus(buildResult, 'Import a key first.', 'error');
+        return;
+      }
+      try {
+        setStatus(buildResult, 'Signing & submitting…', 'info');
+        const result = await signAndSubmit({
+          unsigned: pendingUnsigned,
+          wallet: importedWallet,
+          nodeHost,
+        });
         setStatus(
           buildResult,
           result.message,
           result.status < 400 ? 'ok' : 'error',
         );
+        resetPending();
       } catch (e) {
         setStatus(buildResult, msgOf(e), 'error');
       }

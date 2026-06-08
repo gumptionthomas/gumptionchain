@@ -4,7 +4,9 @@ import {
   buildQuery,
   submitPath,
   responseMessage,
-  buildSignSubmit,
+  buildUnsigned,
+  signAndSubmit,
+  submitSigned,
 } from './transact-glue.mjs';
 
 // --- buildQuery: one query string, used for BOTH the fetch URL and the
@@ -103,10 +105,15 @@ test('responseMessage falls back for an unmapped status', () => {
   assert.match(m, /418/);
 });
 
-// --- buildSignSubmit happy path: a fake wallet + fake fetch verify that the
-// GET is gc-sig authed, the returned unsigned txn is signed, and the POST body
-// is the signed txn carrying a signature + GC-* headers.
+// --- two-step flow: buildUnsigned (GET, verify txid, NO sign) then
+// signAndSubmit (sign + POST). A fake wallet tracks sign calls so we can prove
+// nothing is signed before the confirm step.
 
+// Note: wallet.sign is used for BOTH the gc-sig request-envelope (on every
+// authed request, incl. the build GET) AND the transaction itself. So "not
+// signed before confirm" is asserted via: no POST happened, and the built txn
+// carries no `signature` — NOT via a sign-call count (which the request auth
+// would trip).
 function fakeWallet() {
   return {
     address: async () => 'GCsignerGC',
@@ -115,13 +122,15 @@ function fakeWallet() {
   };
 }
 
+const posts = (calls) => calls.filter((c) => (c.opts.method ?? 'GET') === 'POST');
+
 // Minimal unsigned txn whose self-reported txid actually matches its fields,
 // so signUnsignedTxn's honesty check passes. We compute it the same way the
 // module does (via the shared gc-transaction txid()).
 import { txid as computeTxid } from '../wallet/gc-transaction.mjs';
 
-test('buildSignSubmit: GET authed -> sign -> POST signed txn', async () => {
-  const unsigned = {
+function unsignedTransfer() {
+  return {
     timestamp: '1700000000',
     address: 'GCsignerGC',
     public_key: 'SIGNER_PUB',
@@ -129,28 +138,23 @@ test('buildSignSubmit: GET authed -> sign -> POST signed txn', async () => {
     outflows: [{ amount: 42, address: 'GCdestGC' }],
     version: '1',
   };
+}
+
+test('buildUnsigned: GET authed, verifies txid, does NOT sign or POST', async () => {
+  const unsigned = unsignedTransfer();
   unsigned.txid = await computeTxid({ ...unsigned, txid: undefined });
 
   const calls = [];
   const fakeFetch = async (url, opts = {}) => {
     calls.push({ url, opts });
-    if (opts.method === undefined || opts.method === 'GET') {
-      return {
-        status: 200,
-        ok: true,
-        json: async () => unsigned,
-        text: async () => JSON.stringify(unsigned),
-      };
-    }
     return {
-      status: 201,
+      status: 200,
       ok: true,
-      json: async () => ({ received: 'now' }),
-      text: async () => '{"received":"now"}',
+      json: async () => unsigned,
+      text: async () => JSON.stringify(unsigned),
     };
   };
-
-  const result = await buildSignSubmit({
+  const { unsigned: got } = await buildUnsigned({
     type: 'transfer',
     fields: { amount: '42', address: 'GCdestGC' },
     wallet: fakeWallet(),
@@ -159,35 +163,47 @@ test('buildSignSubmit: GET authed -> sign -> POST signed txn', async () => {
     timestamp: 1700000000,
   });
 
-  // Two calls: the build GET then the submit POST.
-  assert.equal(calls.length, 2);
+  // Nothing submitted before confirmation, and the returned txn is UNSIGNED.
+  assert.equal(posts(calls).length, 0);
+  assert.equal(got.signature, undefined);
+  // The one call was the authed build GET.
+  assert.equal(calls.length, 1);
   const get = calls[0];
-  const post = calls[1];
-
-  // GET went to the build endpoint with the public_key in the query and was
-  // gc-sig authed.
   assert.match(get.url, /\/api\/transaction\/transfer\?/);
   assert.match(get.url, /public_key=SIGNER_PUB/);
-  assert.equal(get.opts.headers['GC-Address'], 'GCsignerGC');
   assert.equal(get.opts.headers['GC-Signature'], 'SIGNATURE_B64');
-  assert.equal(get.opts.headers['GC-Sig-Version'], '1');
-
-  // POST went to the submit path, body is the signed txn, gc-sig authed.
-  assert.equal(post.url, submitPath(unsigned.txid));
-  assert.equal(post.opts.method, 'POST');
-  const body = JSON.parse(post.opts.body);
-  assert.equal(body.signature, 'SIGNATURE_B64');
-  assert.equal(body.txid, unsigned.txid);
-  assert.equal(post.opts.headers['GC-Signature'], 'SIGNATURE_B64');
-
-  // The result surfaces the success status + parsed unsigned txn (for the
-  // confirmation UX) + a user-facing message.
-  assert.equal(result.status, 201);
-  assert.equal(result.unsigned.txid, unsigned.txid);
-  assert.match(result.message, /submitted|accepted|received/i);
+  assert.equal(got.txid, unsigned.txid);
 });
 
-test('buildSignSubmit surfaces a build-GET error without POSTing', async () => {
+test('buildUnsigned rejects a node whose txid does not match its fields', async () => {
+  const unsigned = unsignedTransfer();
+  unsigned.txid = 'f'.repeat(64); // lie
+  const calls = [];
+  const fakeFetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      status: 200,
+      ok: true,
+      json: async () => unsigned,
+      text: async () => JSON.stringify(unsigned),
+    };
+  };
+  await assert.rejects(
+    () =>
+      buildUnsigned({
+        type: 'transfer',
+        fields: { amount: '42', address: 'GCdestGC' },
+        wallet: fakeWallet(),
+        nodeHost: 'http://node.example',
+        fetchImpl: fakeFetch,
+        timestamp: 1700000000,
+      }),
+    /txid mismatch/,
+  );
+  assert.equal(posts(calls).length, 0); // a dishonest txn is never submitted
+});
+
+test('buildUnsigned surfaces a build-GET error without signing/POSTing', async () => {
   const calls = [];
   const fakeFetch = async (url, opts = {}) => {
     calls.push({ url, opts });
@@ -200,7 +216,7 @@ test('buildSignSubmit surfaces a build-GET error without POSTing', async () => {
   };
   await assert.rejects(
     () =>
-      buildSignSubmit({
+      buildUnsigned({
         type: 'transfer',
         fields: { amount: '1', address: 'GCdestGC' },
         wallet: fakeWallet(),
@@ -210,6 +226,59 @@ test('buildSignSubmit surfaces a build-GET error without POSTing', async () => {
       }),
     /not authorized|restricts/i,
   );
-  // Only the GET happened — no signed POST after an auth failure.
+  assert.equal(calls.length, 1); // only the GET
+  assert.equal(posts(calls).length, 0); // nothing submitted
+});
+
+test('signAndSubmit: signs the confirmed txn and POSTs it', async () => {
+  const unsigned = unsignedTransfer();
+  unsigned.txid = await computeTxid({ ...unsigned, txid: undefined });
+
+  const calls = [];
+  const fakeFetch = async (url, opts = {}) => {
+    calls.push({ url, opts });
+    return {
+      status: 201,
+      ok: true,
+      json: async () => ({ received: 'now' }),
+      text: async () => '{"received":"now"}',
+    };
+  };
+  const result = await signAndSubmit({
+    unsigned,
+    wallet: fakeWallet(),
+    nodeHost: 'http://node.example',
+    fetchImpl: fakeFetch,
+  });
+
+  // Exactly one call — the submit POST carrying the now-signed txn.
   assert.equal(calls.length, 1);
+  const post = calls[0];
+  assert.equal(post.url, submitPath(unsigned.txid));
+  assert.equal(post.opts.method, 'POST');
+  const body = JSON.parse(post.opts.body);
+  assert.equal(body.signature, 'SIGNATURE_B64');
+  assert.equal(body.txid, unsigned.txid);
+  assert.equal(post.opts.headers['GC-Signature'], 'SIGNATURE_B64');
+  assert.equal(result.status, 201);
+  assert.match(result.message, /submitted|accepted|received/i);
+});
+
+test('submitSigned rejects a pasted object missing txid/signature', async () => {
+  let fetched = false;
+  const fakeFetch = async () => {
+    fetched = true;
+    return { status: 201, ok: true, text: async () => '{}' };
+  };
+  await assert.rejects(
+    () =>
+      submitSigned({
+        signed: { outflows: [] }, // valid JSON, but not a signed txn
+        wallet: fakeWallet(),
+        nodeHost: 'http://node.example',
+        fetchImpl: fakeFetch,
+      }),
+    /signed transaction|txid or signature/i,
+  );
+  assert.equal(fetched, false); // never POSTed to /api/transaction/undefined
 });
