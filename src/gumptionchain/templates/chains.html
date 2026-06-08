@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_pagination.html" import render_pagination %}
 
 {% block content -%}
 <div class="container-fluid">
@@ -26,33 +27,9 @@
     </div></div>
   </div></div>
   {% endfor -%}
-  <ul class="pagination">
-    <li class="page-item {{ '' if chains_page.has_prev else 'disabled' }}">
-      <a class="page-link" href="{{ url_for('browser.index_view', page=chains_page.prev_num) }}">Previous</a>
-    </li>
-    {%- for page in chains_page.iter_pages() %}
-    {%- if page -%}
-    {%- if page != chains_page.page %}
-    <li class="page-item">
-      <a class="page-link" href="{{ url_for('browser.index_view', page=page) }}">{{ page }}</a>
-    </li>
-    {%- else %}
-    <li class="page-item active">
-      <a class="page-link" tabindex="-1" href="{{ url_for('browser.index_view', page=page) }}">{{ page }}</a>
-    </li>
-    {%- endif %}
-    {%- else %}
-    <span class=ellipsis>…</span>
-    {%- endif %}
-    {%- endfor %}
-    <li class="page-item {{ '' if chains_page.has_next else 'disabled' }}">
-      <a class="page-link" href="{{ url_for('browser.index_view', page=chains_page.next_num) }}">Next</a>
-    </li>
-  </ul>
+  {{ render_pagination(chains_page, 'browser.chains_view') }}
   {%- else %}
-    <tr>
-      No chains
-    </tr>
+  <p>No chains</p>
   {%- endif %}
 </div>
 {%- endblock %}
