@@ -17,6 +17,15 @@ def test_transact_page_renders(app, test_client):
         # Build & sign + broadcast + attestation sections.
         assert 'id="broadcast"' in body
         assert 'id="attestation"' in body
+        # The attestation section is wired (not a "coming soon" placeholder):
+        # it has its inputs and a Sign attestation button.
+        assert 'Coming soon' not in body
+        assert 'id="att-txid"' in body
+        assert 'id="att-kind"' in body
+        assert 'id="att-subject"' in body
+        assert 'id="att-amount"' in body
+        assert 'id="att-sign-btn"' in body
+        assert 'Sign attestation' in body
         # The page exposes the node host (gc-sig is node-bound).
         assert 'data-node-host' in body
         # Glue module is wired in from the blueprint static js dir.

@@ -7,7 +7,11 @@ import {
   buildUnsigned,
   signAndSubmit,
   submitSigned,
+  encodeSubject,
+  signAttestation,
 } from './transact-glue.mjs';
+import { Wallet } from '../wallet/gc-wallet.mjs';
+import { parseStakeAttestation } from '../wallet/gc-attestation.mjs';
 
 // --- buildQuery: one query string, used for BOTH the fetch URL and the
 // gc-sig canonical, so it must round-trip exactly the fields the type needs.
@@ -262,6 +266,67 @@ test('signAndSubmit: signs the confirmed txn and POSTs it', async () => {
   assert.equal(post.opts.headers['GC-Signature'], 'SIGNATURE_B64');
   assert.equal(result.status, 201);
   assert.match(result.message, /submitted|accepted|received/i);
+});
+
+// --- encodeSubject: must produce the base64url, padding-stripped form that
+// Python's encode_subject produces, since /verify compares the claim's subject
+// against on-chain provenance (which is the ENCODED form). The literals here
+// are locked to a Python pytest (tests/test_encode_subject_parity.py).
+
+test('encodeSubject matches Python encode_subject for ascii', () => {
+  assert.equal(encodeSubject('goblins'), 'Z29ibGlucw');
+});
+
+test('encodeSubject matches Python for a value with a space', () => {
+  assert.equal(encodeSubject('cancel me'), 'Y2FuY2VsIG1l');
+});
+
+test('encodeSubject matches Python for a multi-byte (UTF-8) value', () => {
+  assert.equal(encodeSubject('café'), 'Y2Fmw6k');
+});
+
+test('encodeSubject is base64url with no padding (no +, /, =)', () => {
+  const enc = encodeSubject('the quick brown fox????');
+  assert.equal(/[+/=]/.test(enc), false);
+});
+
+// --- signAttestation: encodes the RAW subject, builds a claim with the ENCODED
+// subject, signs it, and round-trips through parseStakeAttestation.
+
+test('signAttestation builds a claim with the ENCODED subject', async () => {
+  const wallet = await Wallet.generate();
+  const proof = await signAttestation({
+    txid: '1'.repeat(64),
+    kind: 'opposition',
+    rawSubject: 'goblins',
+    amount: 300,
+    wallet,
+    timestamp: '1700002000',
+  });
+  // The signed message's subject is the encoded form, not the raw input.
+  const claim = parseStakeAttestation(proof);
+  assert.equal(claim.subject, 'Z29ibGlucw');
+  assert.notEqual(claim.subject, 'goblins');
+  assert.equal(claim.txid, '1'.repeat(64));
+  assert.equal(claim.kind, 'opposition');
+  assert.equal(claim.amount, 300);
+  // The proof is a gc-msg-v1 envelope signed by this wallet.
+  assert.equal(proof.scheme, 'gc-msg-v1');
+  assert.equal(proof.address, await wallet.address());
+});
+
+test('signAttestation supports the support kind', async () => {
+  const wallet = await Wallet.generate();
+  const proof = await signAttestation({
+    txid: '2'.repeat(64),
+    kind: 'support',
+    rawSubject: 'cancel me',
+    amount: 5,
+    wallet,
+  });
+  const claim = parseStakeAttestation(proof);
+  assert.equal(claim.kind, 'support');
+  assert.equal(claim.subject, 'Y2FuY2VsIG1l');
 });
 
 test('submitSigned rejects a pasted object missing txid/signature', async () => {

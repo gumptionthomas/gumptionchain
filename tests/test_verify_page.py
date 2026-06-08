@@ -15,3 +15,12 @@ def test_verify_page_renders(app, test_client):
         assert 'verdict-reasons' in body
         # super() in the scripts block must keep base's bundled JS (Bootstrap).
         assert 'bootstrap' in body
+
+
+def test_verify_page_links_to_the_attestation_signer(app, test_client):
+    with app.app_context():
+        resp = test_client.get('/verify')
+        assert resp.status_code == httpx.codes.OK
+        body = str(resp.data)
+        # /verify points producers at the signer on /transact#attestation.
+        assert '/transact#attestation' in body

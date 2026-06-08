@@ -115,7 +115,47 @@
   <div class="row my-3"><div class="col">
     <section id="attestation" class="card"><div class="card-body">
       <div class="card-title h5">Sign a stake attestation</div>
-      <p class="text-muted">Coming soon.</p>
+      <p class="small text-muted">
+        Produce a signed <code>gc-msg-v1</code> proof that you staked on a
+        subject &mdash; the producer side of
+        <a href="{{ url_for('browser.verify_view') }}">Verify</a>. Reuses the
+        key you imported above. The subject is the same RAW subject you staked.
+      </p>
+
+      <div class="mb-3">
+        <label for="att-txid" class="form-label">Transaction id (txid)</label>
+        <input id="att-txid" type="text" class="form-control"
+               placeholder="64-char hex txid of your stake">
+      </div>
+
+      <div class="mb-3">
+        <label for="att-kind" class="form-label">Kind</label>
+        <select id="att-kind" class="form-select">
+          <option value="opposition">opposition</option>
+          <option value="support">support</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label for="att-subject" class="form-label">Subject</label>
+        <input id="att-subject" type="text" class="form-control"
+               placeholder="goblins">
+      </div>
+
+      <div class="mb-3">
+        <label for="att-amount" class="form-label">Amount (grains)</label>
+        <input id="att-amount" type="number" min="1" step="1"
+               class="form-control" placeholder="300">
+      </div>
+
+      <button id="att-sign-btn" class="btn btn-primary">Sign attestation</button>
+      <button id="att-copy-btn" class="btn btn-outline-secondary" hidden>Copy</button>
+
+      <div class="mt-3">
+        <div id="att-result" class="mb-2"></div>
+        <pre id="att-proof" class="small bg-light p-2"></pre>
+        <p class="small text-muted">Paste this into /verify.</p>
+      </div>
     </div></section>
   </div></div>
 

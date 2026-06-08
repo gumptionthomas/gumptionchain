@@ -9,6 +9,8 @@
 // DOM wiring is in init().
 import { Wallet } from '../wallet/gc-wallet.mjs';
 import { signHeaders } from '../wallet/gc-sig.mjs';
+import { base64encode } from '../wallet/gc-crypto.mjs';
+import { signStakeAttestation } from '../wallet/gc-attestation.mjs';
 import {
   signUnsignedTxn,
   txid as computeTxid,
@@ -203,6 +205,42 @@ export async function submitSigned({
     status: resp.status,
     message: responseMessage(resp.status, respBody),
   };
+}
+
+// --- Attestation (the producer side of /verify) ----------------------------
+
+// Encode a RAW subject to the base64url, padding-stripped form. This MUST match
+// Python's payload.encode_subject (urlsafe_b64encode(raw.encode()).rstrip('=')),
+// because /verify compares an attestation's claim against on-chain provenance
+// whose subject is the ENCODED form. The literals are locked to a pytest
+// (tests/test_encode_subject_parity.py) so the two stay in sync.
+export function encodeSubject(raw) {
+  return base64encode(new TextEncoder().encode(raw))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+// Sign a stake attestation. Takes a RAW subject (consistent with the txn
+// builder, which sends the raw subject and lets the server encode it), encodes
+// it, and builds the claim with the ENCODED subject before signing — so the
+// proof's claim matches on-chain provenance at /verify. Returns the gc-msg-v1
+// proof object.
+export async function signAttestation({
+  txid,
+  kind,
+  rawSubject,
+  amount,
+  wallet,
+  timestamp,
+}) {
+  const claim = {
+    txid,
+    kind,
+    subject: encodeSubject(rawSubject),
+    amount,
+  };
+  return signStakeAttestation(wallet, claim, { timestamp });
 }
 
 // --- DOM wiring ------------------------------------------------------------
@@ -425,6 +463,64 @@ export function init(root = document, { nodeHost } = {}) {
       } catch (e) {
         const m = e instanceof SyntaxError ? `Invalid JSON: ${e.message}` : msgOf(e);
         setStatus(broadcastResult, m, 'error');
+      }
+    });
+  }
+
+  // Sign a stake attestation (producer side of /verify). Reuses the imported
+  // key. The subject input is RAW (like the txn builder); signAttestation
+  // encodes it so the claim matches on-chain provenance at /verify.
+  const attTxid = $('#att-txid');
+  const attKind = $('#att-kind');
+  const attSubject = $('#att-subject');
+  const attAmount = $('#att-amount');
+  const attBtn = $('#att-sign-btn');
+  const attResult = $('#att-result');
+  const attProof = $('#att-proof');
+  const attCopyBtn = $('#att-copy-btn');
+
+  if (attBtn) {
+    attBtn.addEventListener('click', async () => {
+      if (attProof) attProof.textContent = '';
+      if (attCopyBtn) attCopyBtn.hidden = true;
+      if (!importedWallet) {
+        setStatus(attResult, 'Import a key first.', 'error');
+        return;
+      }
+      try {
+        setStatus(attResult, 'Signing attestation…', 'info');
+        const proof = await signAttestation({
+          txid: attTxid ? attTxid.value.trim() : '',
+          kind: attKind ? attKind.value : 'opposition',
+          rawSubject: attSubject ? attSubject.value : '',
+          amount: attAmount ? Number(attAmount.value) : NaN,
+          wallet: importedWallet,
+        });
+        if (attProof) attProof.textContent = JSON.stringify(proof, null, 2);
+        if (attCopyBtn) attCopyBtn.hidden = false;
+        setStatus(
+          attResult,
+          'Attestation signed. Paste this into /verify.',
+          'ok',
+        );
+      } catch (e) {
+        setStatus(attResult, msgOf(e), 'error');
+      }
+    });
+  }
+
+  if (attCopyBtn) {
+    attCopyBtn.addEventListener('click', async () => {
+      const text = attProof ? attProof.textContent : '';
+      try {
+        await navigator.clipboard.writeText(text);
+        setStatus(attResult, 'Copied to clipboard.', 'ok');
+      } catch {
+        setStatus(
+          attResult,
+          'Could not copy automatically — select the JSON and copy it.',
+          'error',
+        );
       }
     });
   }
