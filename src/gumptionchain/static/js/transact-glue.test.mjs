@@ -119,9 +119,28 @@ test('responseMessage 400 surfaces a dict error detail (pydantic)', () => {
   assert.match(m, /amount/);
 });
 
+test('responseMessage 400 build phase says "build", not "rejected"', () => {
+  // A build-GET failure (insufficient funds etc.) happens before signing/submit
+  // — it couldn't BUILD the txn; it didn't "reject" a submitted one.
+  const m = responseMessage(400, { error: ['InsufficientFundsError'] }, 'build');
+  assert.match(m, /Couldn't build the transaction: InsufficientFundsError/);
+  assert.doesNotMatch(m, /rejected the transaction/);
+});
+
+test('responseMessage 400 submit phase says "rejected"', () => {
+  const m = responseMessage(400, { error: ['SpentTransactionError'] }, 'submit');
+  assert.match(m, /rejected the transaction: SpentTransactionError/);
+  assert.doesNotMatch(m, /build the transaction/);
+});
+
 test('responseMessage falls back for an unmapped status', () => {
   const m = responseMessage(418, {});
   assert.match(m, /418/);
+});
+
+test('responseMessage unmapped status reflects the phase', () => {
+  assert.match(responseMessage(500, {}, 'build'), /build the transaction.*500/s);
+  assert.match(responseMessage(500, {}, 'submit'), /Unexpected response.*500/s);
 });
 
 // --- two-step flow: buildUnsigned (GET, verify txid, NO sign) then

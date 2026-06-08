@@ -81,10 +81,14 @@ function errorDetail(body) {
   return '';
 }
 
-// Map a submit/build response to a single user-facing string. Each documented
-// status is surfaced distinctly (closed node, mempool full, validation).
-export function responseMessage(status, body) {
+// Map a response to a user-facing string. `phase` distinguishes the two calls
+// the node makes: 'build' is the GET that CONSTRUCTS the unsigned txn (where
+// e.g. insufficient funds surfaces — nothing has been signed/submitted yet),
+// 'submit' is the POST that admits the signed txn to the mempool. The wording
+// reflects which one failed.
+export function responseMessage(status, body, phase = 'submit') {
   const detail = errorDetail(body);
+  const building = phase === 'build';
   if (status === 200 || status === 201 || status === 202) {
     return 'Transaction submitted and received by the node.';
   }
@@ -98,11 +102,14 @@ export function responseMessage(status, body) {
     return 'The node is busy: its mempool is full. Try again shortly.';
   }
   if (status === 400) {
-    return `The node rejected the transaction: ${detail || 'validation error'}.`;
+    return building
+      ? `Couldn't build the transaction: ${detail || 'invalid request'}.`
+      : `The node rejected the transaction: ${detail || 'validation error'}.`;
   }
-  return `Unexpected response from the node (HTTP ${status})${
-    detail ? `: ${detail}` : ''
-  }.`;
+  const lead = building
+    ? "Couldn't build the transaction"
+    : 'Unexpected response from the node';
+  return `${lead} (HTTP ${status})${detail ? `: ${detail}` : ''}.`;
 }
 
 // Read a fetch Response's JSON, tolerating an empty/non-JSON body.
@@ -168,7 +175,7 @@ export async function buildUnsigned({
   });
   if (!buildResp.ok) {
     const body = await readBody(buildResp);
-    throw new Error(responseMessage(buildResp.status, body));
+    throw new Error(responseMessage(buildResp.status, body, 'build'));
   }
   const unsigned = await buildResp.json();
   // Honesty check: the node-built txid must match a fresh recompute from its
