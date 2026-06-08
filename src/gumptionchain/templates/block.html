@@ -39,7 +39,7 @@
             </tr>
             <tr>
               <th class="col-3"><i class="bi-box-arrow-in-left"></i>&nbsp;Previous Block Hash</th>
-              <td><a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.prev_hash) }}">{{ block.prev_hash }}</a></td>
+              <td>{% if block_dao.prev %}<a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.prev_hash) }}">{{ block.prev_hash }}</a>{% else %}<span class="text-muted">{{ block.prev_hash }} (genesis)</span>{% endif %}</td>
             </tr>
             <tr>
               <th class="col-3"><i class="bi-box-arrow-in-right"></i>&nbsp;Next Block Hash</th>
