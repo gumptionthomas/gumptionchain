@@ -164,6 +164,14 @@ class Transaction:
         return iso_2_dt(self.timestamp) if self.timestamp else None
 
     @property
+    def is_coinbase(self) -> bool:
+        # A coinbase mints the block reward: it carries no inflows and binds
+        # its block's prev_hash into the txid. Regular txns must leave prev_hash
+        # unset (RegularTransactionModel), so a set prev_hash is the
+        # validation-enforced coinbase marker — and it survives to_dao/from_dao.
+        return self.prev_hash is not None
+
+    @property
     def data_csv(self) -> str:
         fields = [
             str(self.timestamp),

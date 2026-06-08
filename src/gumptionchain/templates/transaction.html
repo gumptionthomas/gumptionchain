@@ -5,7 +5,7 @@
   <div class="container-fluid">
     <div class="row my-3"><div class="col">
       <div class="card bg-light"><div class="card-body">
-        <div class="h5">Transaction</div>
+        <div class="h5">Transaction{% if transaction.is_coinbase %} <span class="badge bg-info text-dark">Coinbase</span>{% endif %}</div>
         <table class="table table-hover" style="table-layout:fixed;">
           <tbody class="font-monospace">
             <tr>
@@ -61,7 +61,7 @@
             </tr>
             {%- else %}
             <tr>
-              <td>No Inflows</td>
+              <td>{% if transaction.is_coinbase %}Coinbase &mdash; newly minted (no inputs){% else %}No Inflows{% endif %}</td>
               <td></td>
               <td></td>
             </tr>

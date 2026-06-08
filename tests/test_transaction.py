@@ -26,6 +26,11 @@ def test_txn_timestamp_dt(single_txn):
     assert dt_2_iso(single_txn.timestamp_dt) == single_txn.timestamp
 
 
+def test_is_coinbase(valid_coinbase_txn, single_txn):
+    assert valid_coinbase_txn.is_coinbase  # prev_hash bound
+    assert not single_txn.is_coinbase  # regular txn, no prev_hash
+
+
 def test_txn_valid(single_txn):
     with pytest.raises(UnsealedTransactionError):
         single_txn.sign()
