@@ -61,6 +61,24 @@ def chains_view() -> Any:
     )
 
 
+@blueprint.route('/blocks')
+def blocks_view() -> Any:
+    try:
+        blocks_page = db.paginate(BlockDAO.longest_chain_blocks_q())
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        # Log the full traceback server-side, then return a controlled 500
+        # response. `return e` would hand Flask a raw Exception (not a valid
+        # response → make_response TypeError); abort(500) yields a proper
+        # error response with no internal detail in the body (audit WEB2).
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'blocks.html', title='Blocks', blocks_page=blocks_page
+    )
+
+
 @blueprint.route('/block')
 @blueprint.route('/block/<mill_hash:block_hash>')
 def block_view(block_hash: str | None = None) -> Any:
