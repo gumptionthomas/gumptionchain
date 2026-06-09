@@ -81,12 +81,14 @@ def upgrade():
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('block_hash', sa.String(length=100), nullable=False),
     sa.Column('block_id', sa.Integer(), nullable=False),
+    sa.Column('tip_idx', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['block_id'], ['block.id'], name=op.f('fk_chain_block_block_id')),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_chain'))
     )
     with op.batch_alter_table('chain', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_chain_block_hash'), ['block_hash'], unique=True)
         batch_op.create_index(batch_op.f('ix_chain_block_id'), ['block_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_chain_tip_idx'), ['tip_idx'], unique=False)
 
     op.create_table('chain_fill_block',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -180,6 +182,7 @@ def downgrade():
     op.drop_table('longest_chain_block')
     op.drop_table('chain_fill_block')
     with op.batch_alter_table('chain', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_chain_tip_idx'))
         batch_op.drop_index(batch_op.f('ix_chain_block_id'))
         batch_op.drop_index(batch_op.f('ix_chain_block_hash'))
 
