@@ -16,7 +16,9 @@ from sqlalchemy import (
     String,
     Text,
     false,
+    literal,
     or_,
+    select,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -1230,10 +1232,33 @@ class PendingTxnDAO(Base):
         )
 
     @classmethod
+    def _unconfirmed_clause(cls) -> ColumnElement[bool]:
+        # True iff this pending txid is NOT in the canonical chain.
+        # Correlated NOT EXISTS over the canonical materialization
+        # (LongestChainBlockDAO), so it is reorg-safe: an orphaned
+        # block leaves the table and its txns re-qualify as pending.
+        # Same idiom as ChainDAO._unspent_clause (#165).
+        # Uses direct sqlalchemy select/literal (not db.select/db.literal)
+        # so the return type is ColumnElement[bool], not Any.
+        confirmed = (
+            select(literal(1))
+            .select_from(TransactionDAO)
+            .join(TransactionDAO.blocks)
+            .join(
+                LongestChainBlockDAO,
+                LongestChainBlockDAO.block_id == BlockDAO.id,
+            )
+            .where(TransactionDAO.txid == cls.txid)
+        )
+        return ~confirmed.exists()
+
+    @classmethod
     def json_datas(
         cls,
         earliest: datetime.datetime | None = None,
         expired: datetime.datetime | None = None,
+        *,
+        exclude_confirmed: bool = False,
     ) -> Generator[str, None, None]:
         stmt = db.select(cls.json_data)
         if earliest is not None:
@@ -1243,6 +1268,8 @@ class PendingTxnDAO(Base):
             # expired iff its timestamp is strictly older than the cutoff,
             # so keep timestamp >= cutoff (the boundary txn is alive).
             stmt = stmt.where(cls.timestamp >= expired)
+        if exclude_confirmed:
+            stmt = stmt.where(cls._unconfirmed_clause())
         stmt = stmt.order_by(cls.timestamp, cls.txid)
         for (json_data,) in db.session.execute(stmt):
             yield json_data
@@ -1251,12 +1278,16 @@ class PendingTxnDAO(Base):
     def pending_q(
         cls,
         expired: datetime.datetime | None = None,
+        *,
+        exclude_confirmed: bool = False,
     ) -> Select[tuple[PendingTxnDAO]]:
         stmt = db.select(cls)
         if expired is not None:
             # open-boundary expiry, read-only (no prune): keep
             # timestamp >= cutoff (mirrors json_datas / txn_is_expired).
             stmt = stmt.where(cls.timestamp >= expired)
+        if exclude_confirmed:
+            stmt = stmt.where(cls._unconfirmed_clause())
         return stmt.order_by(  # type: ignore[no-any-return]
             cls.received.desc(), cls.txid
         )

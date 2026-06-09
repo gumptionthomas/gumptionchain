@@ -1,4 +1,5 @@
 import datetime
+import json
 
 from gumptionchain.api_client import ApiClient
 from gumptionchain.block import expiry_cutoff
@@ -81,3 +82,62 @@ def test_mempool_shows_pending_txn(
         assert str(total_out).encode() in body
         # link-free: no /transaction/<txid> link rendered for it
         assert f'/transaction/{txn.txid}'.encode() not in body
+
+
+def _reinsert_pending(txn):
+    # Simulate re-gossip of an already-mined txn: its pending row exists
+    # while its txid is already canonical.
+    PendingTxnDAO(
+        txid=txn.txid,
+        timestamp=txn.timestamp_dt,
+        json_data=txn.to_json(),
+    ).commit()
+
+
+def test_pending_q_exclude_confirmed(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        confirmed = _post_pending(host, m.longest_chain, wallet, 300, subject)
+        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        _reinsert_pending(confirmed)
+        unconfirmed = _post_pending(host, m.longest_chain, wallet, 200, subject)
+
+        # default (opt-out): both rows return -> no behavior change for
+        # the miller's pending_chain_txns / PendingTxnSet.__iter__
+        txids = {
+            row.txid for row in db.session.scalars(PendingTxnDAO.pending_q())
+        }
+        assert txids == {confirmed.txid, unconfirmed.txid}
+
+        # opt-in: the canonical-confirmed row is excluded
+        txids = {
+            row.txid
+            for row in db.session.scalars(
+                PendingTxnDAO.pending_q(exclude_confirmed=True)
+            )
+        }
+        assert txids == {unconfirmed.txid}
+
+
+def test_json_datas_exclude_confirmed(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        confirmed = _post_pending(host, m.longest_chain, wallet, 300, subject)
+        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        _reinsert_pending(confirmed)
+        unconfirmed = _post_pending(host, m.longest_chain, wallet, 200, subject)
+
+        # default: both
+        datas = list(PendingTxnDAO.json_datas())
+        assert len(datas) == 2
+
+        # opt-in: only the unconfirmed txn
+        datas = list(PendingTxnDAO.json_datas(exclude_confirmed=True))
+        assert len(datas) == 1
+        top_txid = json.loads(datas[0])['txid']
+        assert top_txid == unconfirmed.txid
+        assert top_txid != confirmed.txid

@@ -470,5 +470,11 @@ class PendingTxnSet(MutableSet[Transaction]):
         self,
         earliest: datetime | None = None,
         expired: datetime | None = None,
+        *,
+        exclude_confirmed: bool = False,
     ) -> Iterator[str]:
-        return PendingTxnDAO.json_datas(earliest=earliest, expired=expired)
+        return PendingTxnDAO.json_datas(
+            earliest=earliest,
+            expired=expired,
+            exclude_confirmed=exclude_confirmed,
+        )
