@@ -31,6 +31,7 @@ from gumptionchain.api_client import PEER_HOST_HEADER
 from gumptionchain.block import Block, expiry_cutoff
 from gumptionchain.cache import cache
 from gumptionchain.chain import Chain
+from gumptionchain.database import db
 from gumptionchain.exceptions import (
     EmptyChainError,
     GCError,
@@ -38,7 +39,7 @@ from gumptionchain.exceptions import (
     MempoolFullError,
     MissingBlockError,
 )
-from gumptionchain.models import ChainDAO
+from gumptionchain.models import BlockDAO, ChainDAO
 from gumptionchain.node import Node
 from gumptionchain.payload import (
     StakeKind,
@@ -377,6 +378,42 @@ blueprint.add_url_rule(
     '/block/<mill_hash:block_hash>/<process>',
     view_func=miller_block_view,
     methods=['POST'],
+)
+
+
+class BlocksQueryModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    from_idx: int = Field(ge=0)
+    limit: int = Field(ge=1)
+
+
+class BlocksView(MethodView):
+    def get(self, **kwargs: Any) -> Response:
+        try:
+            model = BlocksQueryModel.model_validate(
+                request.args.to_dict(flat=True)
+            )
+        except ValidationError as e:
+            return make_error_response(_pydantic_validation_error(e))
+        try:
+            limit = min(model.limit, current_app.config['SYNC_BATCH_SIZE'])
+            rows = db.session.scalars(
+                BlockDAO.longest_chain_blocks_range(model.from_idx, limit)
+            ).all()
+            return make_json_response(
+                [json.loads(Block.from_dao(b).to_json()) for b in rows]
+            )
+        except GCError as err:
+            return make_error_response(err)
+        except Exception as e:
+            exception_response(e)
+
+
+blueprint.add_url_rule(
+    '/blocks',
+    view_func=authorize_reader(BlocksView.as_view('blocks_reader')),
+    methods=['GET'],
 )
 
 

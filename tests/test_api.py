@@ -1,3 +1,5 @@
+import datetime
+import json
 from datetime import timedelta
 
 import httpx
@@ -7,11 +9,12 @@ from gumptionchain import create_app, signing
 from gumptionchain.api import Role
 from gumptionchain.api_client import ApiClient
 from gumptionchain.block import Block
+from gumptionchain.chain import Chain
 from gumptionchain.exceptions import InvalidRoleConfigError
 from gumptionchain.miller import Miller
 from gumptionchain.milling import mill_hash_str
 from gumptionchain.tasks import post_process
-from gumptionchain.transaction import Transaction
+from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import host_address, now
 from gumptionchain.wallet import Wallet
 
@@ -116,6 +119,117 @@ def test_get_invalid_block(app, host, mill_block, requests_proxy, wallet):
         _m, _b = mill_block(wallet)
         with pytest.raises(httpx.HTTPStatusError, match='404'):
             ApiClient(host, wallet).get_block(block_hash='foo')
+
+
+def test_get_blocks_range(app, host, mill_block, requests_proxy, wallet):
+    with app.app_context():
+        _m, b0 = mill_block(wallet)  # idx 0 (genesis)
+        _m, b1 = mill_block(wallet)  # idx 1
+        response = ApiClient(host, wallet).get(
+            '/api/blocks', params={'from_idx': '0', 'limit': '2'}
+        )
+        assert response.status_code == httpx.codes.OK
+        blocks = [Block.from_json(json.dumps(b)) for b in response.json()]
+        assert [b.idx for b in blocks] == [0, 1]
+        assert blocks[0].block_hash == b0.block_hash
+        assert blocks[1].block_hash == b1.block_hash
+
+
+def test_get_blocks_clamps_limit(app, host, mill_block, requests_proxy, wallet):
+    with app.app_context():
+        for _ in range(4):
+            mill_block(wallet)
+        app.config['SYNC_BATCH_SIZE'] = 2
+        response = ApiClient(host, wallet).get(
+            '/api/blocks', params={'from_idx': '0', 'limit': '1000'}
+        )
+        assert response.status_code == httpx.codes.OK
+        assert len(response.json()) == 2
+
+
+def test_get_blocks_past_tip_empty(
+    app, host, mill_block, requests_proxy, wallet
+):
+    with app.app_context():
+        mill_block(wallet)
+        response = ApiClient(host, wallet).get(
+            '/api/blocks', params={'from_idx': '50', 'limit': '10'}
+        )
+        assert response.status_code == httpx.codes.OK
+        assert response.json() == []
+
+
+def test_get_blocks_invalid_query(
+    app, host, mill_block, requests_proxy, wallet
+):
+    with app.app_context():
+        mill_block(wallet)
+        client = ApiClient(host, wallet)
+        bad_from = client.get(
+            '/api/blocks',
+            params={'from_idx': '-1', 'limit': '2'},
+            raise_for_status=False,
+        )
+        assert bad_from.status_code == httpx.codes.BAD_REQUEST
+        bad_limit = client.get(
+            '/api/blocks',
+            params={'from_idx': '0', 'limit': '0'},
+            raise_for_status=False,
+        )
+        assert bad_limit.status_code == httpx.codes.BAD_REQUEST
+
+
+def test_get_blocks_excludes_fork(
+    app, host, mill_block, requests_proxy, time_stepper, wallet
+):
+    """Only longest-chain blocks are returned; a fork block at a shared
+    height is absent."""
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        block_2a = Block()
+        chain_a.link_block(block_2a)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        block_2a.mill()
+
+        _ = next(time_step)
+        block_2b = Block()
+        chain_a.link_block(block_2b)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        block_2b.mill()
+
+        _ = next(time_step)
+        chain_a.add_block(block_2a)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        chain_b = Chain()
+        chain_b.add_block(block_2b)
+        chain_b.to_db()
+
+        response = ApiClient(host, wallet).get(
+            '/api/blocks', params={'from_idx': '1', 'limit': '1'}
+        )
+        assert response.status_code == httpx.codes.OK
+        rows = response.json()
+        assert len(rows) == 1
+        canonical = rows[0]['block_hash']
+        assert canonical in {block_2a.block_hash, block_2b.block_hash}
+        other = (
+            block_2b.block_hash
+            if canonical == block_2a.block_hash
+            else block_2a.block_hash
+        )
+        assert all(r['block_hash'] != other for r in rows)
 
 
 def test_post_block(app, host, requests_proxy, wallet):
