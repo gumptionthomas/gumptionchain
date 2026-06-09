@@ -1648,3 +1648,89 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
         # chain_a values are unchanged by chain_b's existence.
         assert dao_a.wallet_balance(wallet.address) == reward + mint
         assert dao_a.opposition_balance(subject) == cb_1_amount
+
+
+def _query_plan_rows(stmt):
+    """EXPLAIN QUERY PLAN for a Select, as a list of uppercased detail rows.
+
+    Compiles with literal binds so the SQL can be wrapped verbatim; SQLite's
+    EXPLAIN QUERY PLAN returns rows whose last column is the human-readable
+    `detail` (e.g. 'MATERIALIZE anon_3', 'SEARCH ... USING AUTOMATIC ...').
+    Returning one string per plan node lets a guard reason about a single
+    node (e.g. 'does any AUTOMATIC-index node touch inflow?').
+    """
+    compiled = stmt.compile(db.engine, compile_kwargs={'literal_binds': True})
+    rows = db.session.execute(db.text(f'EXPLAIN QUERY PLAN {compiled}')).all()
+    return [' '.join(str(col) for col in row).upper() for row in rows]
+
+
+def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
+    """The unspent/balance reads must not MATERIALIZE the whole-chain inflow
+    set nor build a per-call AUTOMATIC index over it (#165).
+
+    Before the rewrite, EXPLAIN QUERY PLAN showed the inflow anti-join as
+    ``MATERIALIZE anon_N`` (the whole-chain inflow set) followed by
+    ``SEARCH anon_N USING AUTOMATIC COVERING INDEX (outflow_id=?) LEFT-JOIN``
+    (a throwaway per-call index over that materialization). Both scale with
+    chain height regardless of result size — that is the cost #165 removes.
+
+    After the rewrite the inflow set is reached, in every one of these plans,
+    via a ``CORRELATED SCALAR SUBQUERY`` whose only inflow access is
+    ``SEARCH inflow USING INDEX ix_inflow_outflow_id (outflow_id=?)`` — an
+    index seek, no materialization, no AUTOMATIC index over inflows.
+
+    Step-9 contingency, settled against the actual SQLite plan: a residual
+    ``AUTOMATIC COVERING INDEX`` survives — but ONLY in wallet_leaderboard,
+    and ONLY over ``anon_1``, which is the chain-**transactions** membership
+    sub-select (a ``CO-ROUTINE`` over block_transaction/transaction backing
+    the txn_alias join), NOT the inflow set. That subquery is shared,
+    pre-existing, and out of scope for #165; the inflow anti-join is the
+    target. So the guards are asserted precisely:
+
+      * no ``MATERIALIZE`` anywhere (the inflow set is never materialized, and
+        the real plans confirm nothing else is either);
+      * the inflow table is always reached by ``ix_inflow_outflow_id`` (the
+        positive witness that the correlated index seek is in effect); and
+      * no AUTOMATIC index is ever built over an inflow-derived relation
+        (``INFLOW ... USING AUTOMATIC`` must be absent) — this is the precise
+        regression guard, since the only legitimate AUTOMATIC is the
+        transaction-membership ``anon_1`` one.
+
+    The two int-returning methods (wallet_balance / _stake_balance) share the
+    exact same _unspent_clause(), so the Select-returners are a sufficient
+    witness.
+    """
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+        dao_a = chain_a.to_dao()
+        assert dao_a is not None
+
+        plans = [
+            _query_plan_rows(dao_a.unspent_outflows(wallet.address)),
+            _query_plan_rows(dao_a.unrescinded_outflows(subject, 'opposition')),
+            _query_plan_rows(dao_a.wallet_leaderboard()),
+            _query_plan_rows(dao_a.subject_leaderboard()),
+        ]
+        for plan in plans:
+            text = '\n'.join(plan)
+            # The inflow set is never materialized.
+            assert 'MATERIALIZE' not in text, text
+            # The inflow anti-join is a correlated index seek on outflow_id.
+            assert 'IX_INFLOW_OUTFLOW_ID' in text, text
+            # No single plan node both builds an AUTOMATIC index AND touches
+            # inflow: i.e. no AUTOMATIC index is ever built over the inflow
+            # set. (A residual AUTOMATIC over the transaction-membership
+            # anon_1 co-routine in wallet_leaderboard is shared/out-of-scope;
+            # what #165 forbids is an AUTOMATIC index over the inflow set.)
+            automatic_over_inflow = [
+                row for row in plan if 'AUTOMATIC' in row and 'INFLOW' in row
+            ]
+            assert not automatic_over_inflow, text
