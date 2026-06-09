@@ -1,9 +1,16 @@
+import datetime
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from unittest.mock import patch
 
+from gumptionchain.application import create_clients
+from gumptionchain.block import Block
 from gumptionchain.chain import GRAIN_PER_GRIT, REWARD
 from gumptionchain.database import db
+from gumptionchain.miller import Miller
+from gumptionchain.node import Node
+from gumptionchain.util import now
 from gumptionchain.wallet import Wallet
 
 REWARD_GRIT = int(REWARD / GRAIN_PER_GRIT)
@@ -29,20 +36,127 @@ def test_init(app, runner):
         assert 'Initialized the database.' in result.output
 
 
-# def test_sync(
-#     app, remote_app, remote_requests_proxy, runner, remote_chain
-# ):
-#     with app.app_context():
-#         from gumptionchain.miller import Miller
-#         m = Miller(milling_wallet=Wallet())
-#         assert m.longest_chain is None
-#     with remote_app.app_context():
-#         result = runner.invoke(args=['sync'])
-#         assert 'Synchronized the block chain.' in result.output
-#     with app.app_context():
-#         from gumptionchain.miller import Miller
-#         m = Miller(milling_wallet=Wallet())
-#         assert m.longest_chain.block_hash == remote_chain.block_hash
+def _mill_peer_chain(remote_app, miller_2_wallet, count, time_stepper):
+    """Mill `count` blocks on remote_app's chain, returning the tip."""
+    time_step = time_stepper(start=now() - datetime.timedelta(hours=2))
+    with remote_app.app_context():
+        m = Miller(milling_wallet=miller_2_wallet)
+        last = None
+        for _ in range(count):
+            next(time_step)
+            b = m.create_block()
+            m.mill_block(b)
+            last = b
+        return last
+
+
+def _rebuild_local_clients_to_peer(app):
+    """Under the active remote_requests_proxy patch, rebuild app.clients so
+    the local node's peer ApiClient routes into remote_app (the patched
+    _make_client ignores base_url and hits remote_app)."""
+    for c in list(app.clients.values()):
+        c.close()
+    app.clients = create_clients(app)
+
+
+def test_sync_catches_up_to_peer_ahead(
+    app,
+    remote_app,
+    remote_requests_proxy,
+    runner,
+    miller_2_wallet,
+    time_machine,
+    time_stepper,
+):
+    """`sync` forward-syncs the local node up to a peer that is ahead."""
+    tip = _mill_peer_chain(remote_app, miller_2_wallet, 4, time_stepper)
+    assert tip.idx == 3
+    with app.app_context():
+        _rebuild_local_clients_to_peer(app)
+        node = Node(
+            host=app.config['NODE_HOST'],
+            peers=app.config['PEERS'],
+            clients=app.clients,
+            logger=app.logger,
+        )
+        assert node.longest_chain is None
+        runner.invoke(args=['sync'])
+        lc = node.longest_chain
+        assert lc is not None and lc.last_block is not None
+        assert lc.last_block.idx == 3
+
+
+def test_sync_noop_when_peer_not_ahead(
+    app,
+    remote_app,
+    remote_requests_proxy,
+    runner,
+    miller_2_wallet,
+    wallet,
+    time_machine,
+    time_stepper,
+):
+    """A peer no further ahead than the local tip is a no-op: sync_forward
+    is never invoked for that peer."""
+    # Peer has a 2-block chain (tip idx 1).
+    _mill_peer_chain(remote_app, miller_2_wallet, 2, time_stepper)
+    with app.app_context():
+        # Local node already has a chain whose tip idx (1) >= peer tip idx.
+        m = Miller(milling_wallet=wallet)
+        b0 = m.create_block()
+        m.mill_block(b0)
+        next(time_stepper(start=now() + datetime.timedelta(seconds=120)))
+        b1 = m.create_block()
+        m.mill_block(b1)
+        _rebuild_local_clients_to_peer(app)
+        node = Node(
+            host=app.config['NODE_HOST'],
+            peers=app.config['PEERS'],
+            clients=app.clients,
+            logger=app.logger,
+        )
+        local_tip = node.longest_chain.last_block.block_hash
+        with patch.object(Node, 'sync_forward') as spy:
+            runner.invoke(args=['sync'])
+            spy.assert_not_called()
+        # Local tip unchanged.
+        assert node.longest_chain.last_block.block_hash == local_tip
+
+
+def test_sync_miller_path_still_uses_fill_chain(
+    app, mill_block, wallet, time_machine
+):
+    """Regression guard: Miller.poll_latest_blocks (the gossip short-fill
+    path) still delegates to fill_chain — NOT sync_forward — for a
+    peer-block not yet in the DB."""
+    with app.app_context():
+        now_dt = now()
+        time_machine.move_to(now_dt - datetime.timedelta(hours=1))
+        m = Miller(milling_wallet=wallet)
+        g = m.create_block()
+        m.mill_block(g)
+
+        # A peer-block whose from_db is forced to None below, so
+        # poll_latest_blocks takes the fill_chain (gossip short-fill) branch.
+        time_machine.move_to(now_dt)
+        peer = 'http://peer.host:8000'
+        fresh = Block.from_dict(g.to_dict())
+        assert fresh.block_hash is not None
+
+        with (
+            patch.object(
+                Miller,
+                'request_latest_blocks',
+                return_value=iter([(fresh, peer)]),
+            ),
+            patch.object(Block, 'from_db', return_value=None),
+            patch.object(Miller, 'send_block'),
+            patch.object(Miller, 'fill_chain') as fill_spy,
+            patch.object(Miller, 'sync_forward') as fwd_spy,
+        ):
+            m.poll_latest_blocks()
+        fill_spy.assert_called_once()
+        fwd_spy.assert_not_called()
 
 
 def test_validate(app, mill_block, runner, wallet):

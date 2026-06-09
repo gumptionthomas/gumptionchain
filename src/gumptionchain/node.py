@@ -11,7 +11,7 @@ from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
 
 from gumptionchain.block import Block, expiry_cutoff
-from gumptionchain.chain import Chain, is_genesis_block
+from gumptionchain.chain import GENESIS_HASH, Chain, is_genesis_block
 from gumptionchain.database import db
 from gumptionchain.exceptions import (
     DuplicateMinedTransactionError,
@@ -442,3 +442,87 @@ class Node:
             if chain_fill is not None:
                 chain_fill.delete()
         return False
+
+    def sync_forward(self, client: Any, progress: Any | None = None) -> str:
+        """Network-import a peer's longest chain forward by height.
+
+        Fetch the peer's longest-chain blocks in ascending-height batches
+        (`SYNC_BATCH_SIZE` per request) and validate + commit each block
+        genesis-first via `add_block(commit=True)` — the proven per-block
+        `import` model, with a peer's HTTP API as the source instead of a
+        file.
+
+        Resumable: each block is committed as it is validated, so the
+        committed local tip *is* the progress. An interruption leaves a
+        shorter valid chain and a re-run resumes from the new tip. There is
+        no `MAX_CHAIN_FILL_DEPTH` ceiling on this path (that bounds the
+        backward `fill_chain` gossip short-fill, which is untouched).
+
+        Anti-tamper / anti-DoS comes from three checks per block:
+          1. computed-header-hash integrity (`get_header_hash() ==
+             block_hash`) — a peer can't forge a block's identity;
+          2. prev_hash linkage to the current tip (genesis links to
+             `GENESIS_HASH`) — a peer can't splice a fork into our chain;
+          3. full `validate_block` (PoW, merkle, index, txns) inside
+             `add_block` before commit — a peer can't cheaply mint garbage.
+
+        A failure of (1) or (2) means the peer's chain doesn't extend ours
+        (a fork, or a tampered/inconsistent block): this pass is extend-only,
+        so it stops and returns `'diverged'`, having committed nothing past
+        the fork point (full reorg-via-forward-sync is a follow-up). A
+        `validate_block` failure in `add_block` raises and propagates to the
+        caller (the `sync` command's per-peer try/except), having committed
+        only the valid ancestors. A clean run to the peer's tip returns
+        `'caught_up'`.
+        """
+        batch_size = current_app.config['SYNC_BATCH_SIZE']
+        last_next_idx: int | None = None
+        while True:
+            tip = self.longest_chain.last_block if self.longest_chain else None
+            next_idx = (
+                (tip.idx + 1) if tip is not None and tip.idx is not None else 0
+            )
+            # No-progress guard: if the previous (non-empty) batch failed to
+            # advance the committed tip, the same next_idx recurs — a peer
+            # serving blocks already in our DB but off the longest chain (which
+            # add_block swallows without raising) would otherwise spin forever.
+            # Stop rather than hang.
+            if next_idx == last_next_idx:
+                self.logger.warning(
+                    'sync_forward: no progress at idx %s; aborting', next_idx
+                )
+                return 'diverged'
+            last_next_idx = next_idx
+            blocks = client.get_blocks(next_idx, batch_size)
+            if not blocks:
+                return 'caught_up'
+            for block in blocks:
+                if block.get_header_hash() != block.block_hash:
+                    self.logger.warning(
+                        'sync_forward: header-hash mismatch at idx %s '
+                        '(computed %s != reported %s); aborting',
+                        block.idx,
+                        block.get_header_hash(),
+                        block.block_hash,
+                    )
+                    return 'diverged'
+                tip = (
+                    self.longest_chain.last_block
+                    if self.longest_chain
+                    else None
+                )
+                expected_prev = (
+                    tip.block_hash if tip is not None else GENESIS_HASH
+                )
+                if block.prev_hash != expected_prev:
+                    self.logger.warning(
+                        'sync_forward: diverged at idx %s '
+                        '(expected prev_hash %s, got %s); aborting',
+                        block.idx,
+                        expected_prev,
+                        block.prev_hash,
+                    )
+                    return 'diverged'
+                self.add_block(block, commit=True)
+                if progress is not None:
+                    progress.next()

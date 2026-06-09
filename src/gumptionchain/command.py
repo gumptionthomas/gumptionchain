@@ -399,10 +399,36 @@ def sync_blocks_command() -> None:
         )
         for latest_block, peer in node.request_latest_blocks():
             try:
+                tip = (
+                    node.longest_chain.last_block
+                    if node.longest_chain
+                    else None
+                )
+                local_idx = (
+                    tip.idx if tip is not None and tip.idx is not None else -1
+                )
+                peer_idx = (
+                    latest_block.idx if latest_block.idx is not None else -1
+                )
+                if peer_idx <= local_idx:
+                    # Peer is not ahead of us — nothing to forward-sync.
+                    continue
+                client = node.clients.get(peer)
+                if client is None:
+                    console.print(
+                        f'No client configured for peer {peer}; skipping.',
+                        style='error',
+                    )
+                    continue
                 progress_bar = BlockSyncProgress(peer=peer, console=console)
                 with progress_bar as progress:
-                    node.fill_chain(latest_block, progress=progress)
+                    result = node.sync_forward(client, progress=progress)
                     progress.finish()
+                if result == 'diverged':
+                    console.print(
+                        f'Peer {peer} diverged; stopped before the fork.',
+                        style='error',
+                    )
             except httpx.HTTPStatusError as e:
                 console.print(
                     f'Synchronization failed: {http_error_message(e)}',
