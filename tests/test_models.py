@@ -1517,3 +1517,237 @@ def test_tip_idx_maintained_on_extend_and_fork(app, time_stepper, wallet):
         assert fork_row is not None
         assert fork_row.id != canonical_id
         assert fork_row.tip_idx == 1
+
+
+def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
+    """Pin exact results for every unspent/balance method over a real fork
+    so both the longest-chain and ancestry routings of self.inflows run.
+
+    This is the equivalence guard for the NOT EXISTS rewrite (#165): the
+    values below are computed from the known spent/unspent partition and must
+    not change when the anti-join SQL is restructured.
+
+    Fixture shape (matches the sibling-fork pattern in test_unspent_outflows /
+    test_longest_chain_block_non_longest_extend_noop): block_1 funds wallet
+    with coinbase cb_1; block_2a and block_2b are real SIBLINGS off block_1
+    (both linked while block_1 is still the tip, before either is committed).
+    block_2a spends cb_1 entirely into an opposition stake on `subject`;
+    block_2b is an empty extension. chain_a (tip block_2a) wins the longest
+    race, so dao_a routes through longest_chain_inflows_q and dao_b (tip
+    block_2b) routes through ancestry_inflows_q.
+
+    Coinbase note: sealing block_2a over the opposition stake mints a second
+    coinbase outflow to the wallet (half the net new stake on the subject),
+    so on chain_a the wallet holds TWO unspent outflows — cb_2a's base reward
+    plus that mint — not one. The pinned values below reflect that.
+    """
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+
+        # block_1: coinbase cb_1 to wallet.
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        cb_1 = block_1.coinbase
+        cb_1_amount = next(iter(cb_1.outflows)).amount
+        chain_a.to_db()
+        reward = chain_a.block_reward()
+        # The opposition stake mints a second coinbase outflow worth half the
+        # net new stake; cb_1_amount is even, so this divides exactly.
+        mint = cb_1_amount // 2
+
+        # block_2a: spend cb_1 entirely into an opposition stake on `subject`.
+        # Linked onto block_1 (still the tip).
+        _ = next(time_step)
+        t_2a = Transaction()
+        t_2a.add_inflow(Inflow(outflow_txid=cb_1.txid, outflow_idx=0))
+        t_2a.add_outflow(Outflow(amount=cb_1_amount, opposition=subject))
+        t_2a.set_wallet(wallet)
+        t_2a.seal()
+        t_2a.sign()
+        _ = next(time_step)
+        block_2a = Block()
+        block_2a.add_txn(t_2a)
+        chain_a.link_block(block_2a)
+        metrics_2a = sum(
+            (
+                chain_a.validate_block_txn(block_2a, txn)
+                for txn in block_2a.txns
+            ),
+            CoinbaseMetrics(),
+        )
+        chain_a.seal_block(block_2a, wallet, metrics_2a)
+        block_2a.mill()
+
+        # block_2b: a REAL sibling of block_2a — linked while block_1 is still
+        # the tip (before block_2a is committed), so it also links onto
+        # block_1. An empty extension (no stake).
+        _ = next(time_step)
+        block_2b = Block()
+        chain_a.link_block(block_2b)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        block_2b.mill()
+
+        # Commit block_2a as chain_a's tip (chain_a is the longest chain).
+        _ = next(time_step)
+        chain_a.add_block(block_2a)
+        chain_a.to_db()
+        dao_a = chain_a.to_dao()
+        assert dao_a is not None
+        assert dao_a._is_longest()  # longest-chain routing
+
+        # chain_b shares block_1; its tip is block_2b (the losing sibling).
+        _ = next(time_step)
+        chain_b = Chain()
+        chain_b.add_block(block_2b)
+        chain_b.to_db()
+        dao_b = chain_b.to_dao()
+        assert dao_b is not None
+        assert not dao_b._is_longest()  # ancestry routing
+
+        # On chain_a: cb_1 is SPENT (consumed by t_2a). block_2a's coinbase
+        # yields TWO unspent outflows to wallet — base reward + the stake mint.
+        # The opposition stake (an outflow on `subject`, no address) is unspent.
+        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 2
+        assert dao_a.wallet_balance(wallet.address) == reward + mint
+        assert dao_a.opposition_balance(subject) == cb_1_amount
+        assert dao_a.support_balance(subject) == 0
+        assert (
+            _count_select(dao_a.unrescinded_outflows(subject, 'opposition'))
+            == 1
+        )
+        assert (
+            _count_select(dao_a.unrescinded_outflows(subject, 'support')) == 0
+        )
+        # Leaderboards (longest chain = chain_a).
+        wl = db.session.execute(dao_a.wallet_leaderboard()).all()
+        assert wl == [(wallet.address, reward + mint)]
+        sl = db.session.execute(dao_a.subject_leaderboard()).all()
+        # (subject, opposition, support, total)
+        assert sl == [(subject, cb_1_amount, 0, cb_1_amount)]
+
+        # On chain_b (ancestry routing): t_2a is NOT in chain_b, so cb_1 is
+        # UNSPENT; block_2b's coinbase is a single unspent reward (no stake →
+        # no mint). Two unspent transfers, no stake on subject.
+        assert _count_select(dao_b.unspent_outflows(wallet.address)) == 2
+        assert dao_b.wallet_balance(wallet.address) == 2 * reward
+        assert dao_b.opposition_balance(subject) == 0
+        assert (
+            _count_select(dao_b.unrescinded_outflows(subject, 'opposition'))
+            == 0
+        )
+        assert db.session.execute(dao_b.subject_leaderboard()).all() == []
+        assert db.session.execute(dao_b.wallet_leaderboard()).all() == [
+            (wallet.address, 2 * reward)
+        ]
+
+        # chain_a values are unchanged by chain_b's existence.
+        assert dao_a.wallet_balance(wallet.address) == reward + mint
+        assert dao_a.opposition_balance(subject) == cb_1_amount
+
+
+def _query_plan_rows(stmt):
+    """EXPLAIN QUERY PLAN for a Select, as a list of uppercased detail rows.
+
+    Compiles with literal binds so the SQL can be wrapped verbatim; SQLite's
+    EXPLAIN QUERY PLAN returns rows whose last column is the human-readable
+    `detail` (e.g. 'MATERIALIZE anon_3', 'SEARCH ... USING AUTOMATIC ...').
+    Returning one string per plan node lets a guard reason about a single
+    node (e.g. 'does any AUTOMATIC-index node touch inflow?').
+    """
+    compiled = stmt.compile(db.engine, compile_kwargs={'literal_binds': True})
+    rows = db.session.execute(db.text(f'EXPLAIN QUERY PLAN {compiled}')).all()
+    # Only the last column (`detail`) is the human-readable plan node; the
+    # leading id/parent/notused columns are integers that would just add
+    # noise to the substring guards below.
+    return [str(row[-1]).upper() for row in rows]
+
+
+def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
+    """The unspent/balance reads must not MATERIALIZE the whole-chain inflow
+    set nor build a per-call AUTOMATIC index over it (#165).
+
+    Before the rewrite, EXPLAIN QUERY PLAN showed the inflow anti-join as
+    ``MATERIALIZE anon_N`` (the whole-chain inflow set) followed by
+    ``SEARCH anon_N USING AUTOMATIC COVERING INDEX (outflow_id=?) LEFT-JOIN``
+    (a throwaway per-call index over that materialization). Both scale with
+    chain height regardless of result size — that is the cost #165 removes.
+
+    After the rewrite the inflow set is reached, in every one of these plans,
+    via a ``CORRELATED SCALAR SUBQUERY`` whose only inflow access is
+    ``SEARCH inflow USING INDEX ix_inflow_outflow_id (outflow_id=?)`` — an
+    index seek, no materialization, no AUTOMATIC index over inflows.
+
+    Step-9 contingency, settled against the actual SQLite plan: a residual
+    ``AUTOMATIC COVERING INDEX`` survives — but ONLY in wallet_leaderboard,
+    and ONLY over ``anon_1``, which is the chain-**transactions** membership
+    sub-select (a ``CO-ROUTINE`` over block_transaction/transaction backing
+    the txn_alias join), NOT the inflow set. That subquery is shared,
+    pre-existing, and out of scope for #165; the inflow anti-join is the
+    target. So the guards are asserted precisely:
+
+      * no ``MATERIALIZE`` anywhere (the inflow set is never materialized, and
+        the real plans confirm nothing else is either);
+      * the inflow table is always reached by ``ix_inflow_outflow_id`` (the
+        positive witness that the correlated index seek is in effect); and
+      * no AUTOMATIC index is ever built over the inflow set. The regression
+        node renders as ``SEARCH anon_N USING AUTOMATIC COVERING INDEX
+        (outflow_id=?) LEFT-JOIN`` — an AUTOMATIC index keyed on ``outflow_id``
+        over the materialized inflow set (the materialized set is an anonymous
+        ``anon_N`` alias, so the table name ``inflow`` does NOT appear in that
+        row — keying the guard off ``outflow_id`` is what makes it catch the
+        regression). The only legitimate AUTOMATIC post-rewrite is the
+        transaction-membership ``anon_1`` co-routine, keyed ``(id=?)``; and the
+        correlated inflow seek uses ``USING INDEX ix_inflow_outflow_id``, not
+        AUTOMATIC. So ``AUTOMATIC`` paired with ``outflow_id`` in one node is
+        the precise regression signature.
+
+    The two int-returning methods (wallet_balance / _stake_balance) share the
+    exact same _unspent_clause(), so the Select-returners are a sufficient
+    witness.
+    """
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+        dao_a = chain_a.to_dao()
+        assert dao_a is not None
+
+        plans = [
+            _query_plan_rows(dao_a.unspent_outflows(wallet.address)),
+            _query_plan_rows(dao_a.unrescinded_outflows(subject, 'opposition')),
+            _query_plan_rows(dao_a.wallet_leaderboard()),
+            _query_plan_rows(dao_a.subject_leaderboard()),
+        ]
+        for plan in plans:
+            text = '\n'.join(plan)
+            # The inflow set is never materialized.
+            assert 'MATERIALIZE' not in text, text
+            # The inflow anti-join is a correlated index seek on outflow_id.
+            assert 'IX_INFLOW_OUTFLOW_ID' in text, text
+            # No AUTOMATIC index is ever built over the inflow set. The
+            # materialize-then-auto-index regression renders as a single node
+            # `SEARCH anon_N USING AUTOMATIC COVERING INDEX (outflow_id=?)`
+            # — the materialized inflow set is an anonymous alias, so its row
+            # carries `AUTOMATIC` + `OUTFLOW_ID` but NOT the table name
+            # `inflow`. Keying off `outflow_id` (not `inflow`) is what makes
+            # this catch the regression: the only legitimate AUTOMATIC node
+            # post-rewrite is the transaction-membership anon_1 co-routine,
+            # keyed (id=?); the correlated inflow seek uses
+            # `USING INDEX ix_inflow_outflow_id`, not AUTOMATIC.
+            automatic_over_inflow = [
+                row
+                for row in plan
+                if 'AUTOMATIC' in row and 'OUTFLOW_ID' in row
+            ]
+            assert not automatic_over_inflow, text

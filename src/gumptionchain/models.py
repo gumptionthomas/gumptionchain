@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 from flask import current_app
 from sqlalchemy import (
     BigInteger,
+    ColumnElement,
     DateTime,
     ForeignKey,
     Integer,
@@ -755,24 +756,34 @@ class ChainDAO(Base):
             return BlockDAO.longest_chain_inflows_q()
         return self.block.ancestry_inflows_q()
 
+    def _unspent_clause(self) -> ColumnElement[bool]:
+        # An outflow is unspent iff no inflow in this chain consumes it.
+        # Correlated NOT EXISTS: SQLite index-seeks ix_inflow_outflow_id per
+        # candidate outflow (~0-1 consuming inflows) and checks chain
+        # membership only for those - instead of MATERIALIZE-ing the whole
+        # inflow set + building a per-call AUTOMATIC COVERING INDEX over it.
+        # self.inflows already routes longest-chain vs ancestry; .order_by(None)
+        # strips its (irrelevant inside EXISTS) ordering.
+        return ~(
+            self.inflows.order_by(None)
+            .where(InflowDAO.outflow_id == OutflowDAO.id)
+            .exists()
+        )
+
     def unspent_outflows(
         self,
         address: str,
         filter_pending: bool = False,  # noqa: FBT001
     ) -> Select[tuple[OutflowDAO]]:
-        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
         stmt = self.outflows.where(OutflowDAO.address == address)
-        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        stmt = stmt.where(inflows_alias.id.is_(None))
+        stmt = stmt.where(self._unspent_clause())
         if filter_pending:
             stmt = stmt.where(~OutflowDAO.pending.any())
         return stmt
 
     def wallet_balance(self, address: str) -> int:
-        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
         stmt = self.outflows.where(OutflowDAO.address == address)
-        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        stmt = stmt.where(inflows_alias.id.is_(None))
+        stmt = stmt.where(self._unspent_clause())
         outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
         sum_stmt = db.select(db.func.sum(OutflowDAO.amount)).join(
             outflows_alias, OutflowDAO.id == outflows_alias.id
@@ -789,10 +800,8 @@ class ChainDAO(Base):
         column = (
             OutflowDAO.support if kind == 'support' else OutflowDAO.opposition
         )
-        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
         stmt = self.outflows.where(column == subject)
-        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        stmt = stmt.where(inflows_alias.id.is_(None))
+        stmt = stmt.where(self._unspent_clause())
         if address is not None:
             txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
             stmt = stmt.join(txn_alias, OutflowDAO.transaction)
@@ -805,10 +814,8 @@ class ChainDAO(Base):
         column = (
             OutflowDAO.support if kind == 'support' else OutflowDAO.opposition
         )
-        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
         stmt = self.outflows.where(column == subject)
-        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        stmt = stmt.where(inflows_alias.id.is_(None))
+        stmt = stmt.where(self._unspent_clause())
         outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
         sum_stmt = db.select(db.func.sum(OutflowDAO.amount)).join(
             outflows_alias, OutflowDAO.id == outflows_alias.id
@@ -827,7 +834,6 @@ class ChainDAO(Base):
         latest: datetime.datetime | None = None,
         limit: int | None = None,
     ) -> Select[Any]:
-        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
         txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
         stmt = db.select(
             OutflowDAO.address,
@@ -835,8 +841,7 @@ class ChainDAO(Base):
         )
         stmt = stmt.where(OutflowDAO.address.is_not(None))
         stmt = stmt.join(txn_alias, OutflowDAO.transaction)
-        stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-        stmt = stmt.where(inflows_alias.id.is_(None))
+        stmt = stmt.where(self._unspent_clause())
         if earliest is not None:
             stmt = stmt.where(txn_alias.timestamp >= earliest)
         if latest is not None:
@@ -852,12 +857,9 @@ class ChainDAO(Base):
         self,
         limit: int | None = None,
     ) -> Select[Any]:
-        inflows_alias = db.aliased(InflowDAO, self.inflows.subquery())
-
         def _leg(column: Any, kind: StakeKind) -> Select[Any]:
             stmt = self.outflows.where(column.is_not(None))
-            stmt = stmt.join(inflows_alias, OutflowDAO.inflows, isouter=True)
-            stmt = stmt.where(inflows_alias.id.is_(None))
+            stmt = stmt.where(self._unspent_clause())
             stmt = stmt.with_only_columns(
                 column.label('subject'),
                 OutflowDAO.amount.label('amount'),
