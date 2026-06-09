@@ -1129,3 +1129,84 @@ def test_ancestry_read_paths_match_oracle_bootstrap(
         assert tip is not None
         oracle_ids = sorted(_pythonic_ancestry_ids(tip))
         assert _oracle_block_ids(tip.ancestry_blocks_q()) == oracle_ids
+
+
+def test_longest_chain_blocks_range_ascending(app, mill_block, wallet):
+    """longest_chain_blocks_range returns the canonical blocks at the
+    requested positions, ascending (genesis→tip)."""
+    with app.app_context():
+        _m, b0 = mill_block(wallet)  # idx 0 (genesis)
+        _m, b1 = mill_block(wallet)  # idx 1
+        _m, b2 = mill_block(wallet)  # idx 2
+
+        rows = db.session.scalars(
+            BlockDAO.longest_chain_blocks_range(1, 2)
+        ).all()
+        assert [r.idx for r in rows] == [1, 2]
+        assert rows[0].block_hash == b1.block_hash
+        assert rows[1].block_hash == b2.block_hash
+        # sanity: genesis is excluded by the from_idx bound.
+        assert b0.idx == 0
+
+
+def test_longest_chain_blocks_range_past_tip_empty(app, mill_block, wallet):
+    """A range entirely past the tip returns no rows."""
+    with app.app_context():
+        mill_block(wallet)  # idx 0
+        mill_block(wallet)  # idx 1
+        rows = db.session.scalars(
+            BlockDAO.longest_chain_blocks_range(5, 3)
+        ).all()
+        assert list(rows) == []
+
+
+def test_longest_chain_blocks_range_excludes_fork(app, time_stepper, wallet):
+    """A fork block at a shared height is not returned — only the
+    longest-chain (materialized) block per position."""
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        block_2a = Block()
+        chain_a.link_block(block_2a)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        block_2a.mill()
+
+        _ = next(time_step)
+        block_2b = Block()
+        chain_a.link_block(block_2b)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        block_2b.mill()
+
+        _ = next(time_step)
+        chain_a.add_block(block_2a)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        chain_b = Chain()
+        chain_b.add_block(block_2b)
+        chain_b.to_db()
+
+        # block_2a and block_2b both live at height 1, but only the
+        # longest chain's block is materialized at that position.
+        rows = db.session.scalars(
+            BlockDAO.longest_chain_blocks_range(1, 1)
+        ).all()
+        assert len(rows) == 1
+        canonical_hash = rows[0].block_hash
+        assert canonical_hash in {block_2a.block_hash, block_2b.block_hash}
+        # The fork block at the same height is absent.
+        other = (
+            block_2b.block_hash
+            if canonical_hash == block_2a.block_hash
+            else block_2a.block_hash
+        )
+        assert all(r.block_hash != other for r in rows)

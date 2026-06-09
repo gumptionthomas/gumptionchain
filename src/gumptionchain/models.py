@@ -531,6 +531,27 @@ class BlockDAO(Base):
         )
 
     @classmethod
+    def longest_chain_blocks_range(
+        cls, from_idx: int, limit: int
+    ) -> Select[tuple[BlockDAO]]:
+        """Longest-chain blocks at positions from_idx .. from_idx+limit-1,
+        ascending (genesis→tip). `position` is 0-at-genesis and equals the
+        block height, so this serves a height-range fetch (forward sync).
+        """
+        return (  # type: ignore[no-any-return]
+            db.select(BlockDAO)
+            .join(
+                LongestChainBlockDAO,
+                BlockDAO.id == LongestChainBlockDAO.block_id,
+            )
+            .where(
+                LongestChainBlockDAO.position >= from_idx,
+                LongestChainBlockDAO.position < from_idx + limit,
+            )
+            .order_by(LongestChainBlockDAO.position)
+        )
+
+    @classmethod
     def transaction_counts(cls, block_ids: list[int]) -> dict[int, int]:
         """Map block id → transaction count for the given blocks.
 
