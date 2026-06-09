@@ -711,6 +711,7 @@ class ChainDAO(Base):
         Integer, ForeignKey('block.id'), index=True
     )
     block: Mapped[BlockDAO] = relationship(back_populates='chains')
+    tip_idx: Mapped[int] = mapped_column(Integer, index=True)
 
     # Bumped on any longest_chain_block mutation; invalidates all
     # ChainDAO instances' cached _is_longest values within this
@@ -727,6 +728,7 @@ class ChainDAO(Base):
     ) -> None:
         self.block_hash = block_hash
         self.block = block_dao or BlockDAO.get(block_hash)  # type: ignore[assignment]
+        self.tip_idx = self.block.idx
 
     @property
     def blocks(self) -> Select[tuple[BlockDAO]]:
@@ -1025,6 +1027,7 @@ class ChainDAO(Base):
     def set_block_hash(self, block_hash: str) -> None:
         self.block = BlockDAO.get(block_hash)  # type: ignore[assignment]
         self.block_hash = block_hash
+        self.tip_idx = self.block.idx
 
     def get_block(
         self, block_hash: str | None = None, idx: int | None = None
@@ -1150,7 +1153,17 @@ class ChainDAO(Base):
 
     @classmethod
     def longest(cls) -> ChainDAO | None:
-        return db.session.execute(cls.chains()).scalars().first()
+        max_idx = db.select(db.func.max(cls.tip_idx)).scalar_subquery()
+        return (
+            db.session.execute(
+                db.select(cls)
+                .join(cls.block)
+                .where(cls.tip_idx == max_idx)
+                .order_by(BlockDAO.timestamp, BlockDAO.block_hash)
+            )
+            .scalars()
+            .first()
+        )
 
 
 class PendingTxnDAO(Base):
