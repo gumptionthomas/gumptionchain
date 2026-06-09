@@ -260,6 +260,122 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         ]
 
 
+def test_prune_stale_forks_on_canonical_add(app, time_stepper, wallet):
+    """Advancing the canonical chain past FORK_PRUNE_DEPTH prunes the
+    stale fork's ChainDAO row — chain rows only, no cascade to blocks.
+
+    Builds a deep fork at height 2 (a losing block_2b sharing block_1)
+    plus a shallow within-depth fork near the canonical tip, then drives
+    the canonical chain forward until tip_idx > fork_tip_idx + depth.
+    Asserts the deep fork's ChainDAO row is deleted, the canonical and
+    within-depth rows remain, and the deep fork's BlockDAO survives
+    (ancestry still resolves it).
+    """
+    app.config['FORK_PRUNE_DEPTH'] = 2
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+
+        def _extend(chain):
+            _ = next(time_step)
+            block = Block()
+            chain.link_block(block)
+            chain.seal_block(block, wallet, CoinbaseMetrics())
+            block.mill()
+            chain.add_block(block)
+            chain.to_db()
+            return block
+
+        # block_1 (idx 0), shared root.
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+
+        # block_2a (idx 1, canonical) + block_2b (idx 1, losing fork).
+        _ = next(time_step)
+        block_2a = Block()
+        chain_a.link_block(block_2a)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        block_2a.mill()
+
+        _ = next(time_step)
+        block_2b = Block()
+        chain_a.link_block(block_2b)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        block_2b.mill()
+
+        _ = next(time_step)
+        chain_a.add_block(block_2a)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        chain_b = Chain()
+        chain_b.add_block(block_2b)
+        chain_b.to_db()
+        fork_tip_hash = block_2b.block_hash
+
+        # Deep fork row exists and is at tip_idx 1.
+        deep_fork_row = ChainDAO.get(block_hash=fork_tip_hash)
+        assert deep_fork_row is not None
+        assert deep_fork_row.tip_idx == 1
+
+        # Advance canonical chain to idx 3 (block_3a, block_4a), then
+        # branch a shallow within-depth fork off block_4a at idx 4.
+        _block_3a = _extend(chain_a)
+        _block_4a = _extend(chain_a)
+
+        # Shallow fork: block_5b off block_4a (idx 4), a losing branch.
+        _ = next(time_step)
+        block_5b = Block()
+        chain_a.link_block(block_5b)
+        chain_a.seal_block(block_5b, wallet, CoinbaseMetrics())
+        block_5b.mill()
+        # block_5a (idx 4) is the canonical winner at this height.
+        _ = next(time_step)
+        block_5a = Block()
+        chain_a.link_block(block_5a)
+        chain_a.seal_block(block_5a, wallet, CoinbaseMetrics())
+        block_5a.mill()
+
+        _ = next(time_step)
+        chain_a.add_block(block_5a)
+        chain_a.to_db()
+        _ = next(time_step)
+        chain_b2 = Chain()
+        chain_b2.add_block(block_5b)
+        chain_b2.to_db()
+        shallow_fork_hash = block_5b.block_hash
+
+        # Drive canonical past depth: idx 5, 6, 7 so canonical tip_idx (7)
+        # > deep fork (1) + depth (2), and > shallow fork (4) is NOT yet
+        # 4 < 7 - 2 = 5 → shallow within depth, must survive.
+        _extend(chain_a)
+        canonical_tip = _extend(chain_a)
+        canonical_idx = canonical_tip.idx
+
+        canonical_row = ChainDAO.longest()
+        assert canonical_row is not None
+        assert canonical_row.tip_idx == canonical_idx
+
+        # Deep fork (tip_idx 1 < 7 - 2 = 5): pruned.
+        assert ChainDAO.get(block_hash=fork_tip_hash) is None
+        # Shallow fork (tip_idx 4 >= 5): NOT pruned (within depth).
+        assert ChainDAO.get(block_hash=shallow_fork_hash) is not None
+        # Canonical row survives.
+        assert ChainDAO.get(block_hash=canonical_tip.block_hash) is not None
+
+        # No cascade: the pruned fork's BlockDAO still exists and its
+        # ancestry resolves back to genesis.
+        fork_block = BlockDAO.get(block_hash=fork_tip_hash)
+        assert fork_block is not None
+        ancestry = _pythonic_ancestry_ids(fork_block)
+        assert len(ancestry) == 2  # block_2b + block_1
+
+
 def test_longest_chain_block_property_matches_prev_walk(
     app, mill_block, wallet
 ):

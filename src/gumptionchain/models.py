@@ -5,6 +5,7 @@ import json
 from collections.abc import Generator
 from typing import Any, ClassVar
 
+from flask import current_app
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -938,6 +939,20 @@ class ChainDAO(Base):
         if not self._is_longest():
             return
 
+        self._sync_materialization()
+
+        # On every canonical block accept, drop stale fork rows that
+        # can no longer win a reorg. Placed at the END (after the
+        # materialization is updated) so it can't interfere with the
+        # reorg walk. self is the canonical chain here, with a current
+        # tip_idx.
+        self._prune_stale_forks()
+
+    def _sync_materialization(self) -> None:
+        """Reconcile the longest_chain_block materialization with this
+        (canonical) chain via the smart-reorg walk. Caller has already
+        confirmed self is the longest chain.
+        """
         # Bootstrap fast-path: empty materialization → use the
         # rebuild method directly, skipping per-step lookups against
         # an empty table.
@@ -998,6 +1013,19 @@ class ChainDAO(Base):
                 )
             )
         ChainDAO._bump_generation()
+
+    def _prune_stale_forks(self) -> None:
+        # Drop non-canonical fork rows whose tip is too far behind to
+        # win a reorg. Deletes `chain` rows only — no cascade to
+        # `block` (orphan blocks remain for provenance / double-spend /
+        # fill_chain).
+        depth = current_app.config['FORK_PRUNE_DEPTH']
+        db.session.execute(
+            db.delete(ChainDAO).where(
+                ChainDAO.id != self.id,
+                ChainDAO.tip_idx < self.tip_idx - depth,
+            )
+        )
 
     def _rebuild_longest_chain_blocks(self) -> None:
         """Wipe and repopulate longest_chain_block by walking the
