@@ -1153,7 +1153,17 @@ class ChainDAO(Base):
 
     @classmethod
     def longest(cls) -> ChainDAO | None:
-        return db.session.execute(cls.chains()).scalars().first()
+        max_idx = db.select(db.func.max(cls.tip_idx)).scalar_subquery()
+        return (
+            db.session.execute(
+                db.select(cls)
+                .join(cls.block)
+                .where(cls.tip_idx == max_idx)
+                .order_by(BlockDAO.timestamp, BlockDAO.block_hash)
+            )
+            .scalars()
+            .first()
+        )
 
 
 class PendingTxnDAO(Base):

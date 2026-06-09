@@ -1216,3 +1216,187 @@ def test_longest_chain_blocks_range_excludes_fork(app, time_stepper, wallet):
         lc_blocks = db.session.scalars(BlockDAO.longest_chain_blocks_q()).all()
         lc_at_1 = next(b for b in lc_blocks if b.idx == 1)
         assert canonical_hash == lc_at_1.block_hash
+
+
+def test_longest_returns_none_on_empty_db(app):
+    """longest() on an empty chain table returns None (no rows at the MAX
+    tip_idx because there is no MAX)."""
+    with app.app_context():
+        assert ChainDAO.count() == 0
+        assert ChainDAO.longest() is None
+
+
+def test_longest_picks_highest_tip_idx(app, time_stepper, wallet):
+    """With forks at different tip heights, longest() returns the chain
+    whose tip has the highest idx — independent of insertion order."""
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+
+        # Two siblings on top of block_1: block_2a (the eventual loser, a
+        # short fork at idx 1) and block_2b (which chain_a extends further).
+        _ = next(time_step)
+        block_2a = Block()
+        chain_a.link_block(block_2a)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        block_2a.mill()
+
+        _ = next(time_step)
+        block_2b = Block()
+        chain_a.link_block(block_2b)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        block_2b.mill()
+
+        # Persist the short fork tip (block_2a) first as its own chain row.
+        _ = next(time_step)
+        fork = Chain()
+        fork.add_block(block_2a)
+        fork.to_db()
+
+        # Then extend the main chain along block_2b to a strictly greater
+        # height (idx 2), so it has the unique highest tip_idx.
+        _ = next(time_step)
+        chain_a.add_block(block_2b)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        block_3 = Block()
+        chain_a.link_block(block_3)
+        chain_a.seal_block(block_3, wallet, CoinbaseMetrics())
+        block_3.mill()
+        chain_a.add_block(block_3)
+        chain_a.to_db()
+
+        longest = ChainDAO.longest()
+        assert longest is not None
+        assert longest.tip_idx == 2
+        assert longest.block_hash == block_3.block_hash
+        # The short fork row is still present but loses on tip height.
+        assert ChainDAO.get(block_hash=block_2a.block_hash) is not None
+
+
+def test_longest_tiebreak_matches_old_chains_first(app, time_stepper, wallet):
+    """On a SAME-tip-idx tie, longest() returns the same row the old
+    chains().first() would: (earliest timestamp, then lowest block_hash).
+
+    The fixture is two sibling tips at idx 1 (block_2a, block_2b) — a
+    genuine tie. We compute the expected winner directly from the fork
+    blocks and assert longest() agrees with both that and chains().first().
+    """
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        block_2a = Block()
+        chain_a.link_block(block_2a)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        block_2a.mill()
+
+        _ = next(time_step)
+        block_2b = Block()
+        chain_a.link_block(block_2b)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        block_2b.mill()
+
+        _ = next(time_step)
+        chain_a.add_block(block_2a)
+        chain_a.to_db()
+
+        _ = next(time_step)
+        chain_b = Chain()
+        chain_b.add_block(block_2b)
+        chain_b.to_db()
+
+        # Both tips live at idx 1 — a real tie on tip_idx.
+        tip_a = ChainDAO.get(block_hash=block_2a.block_hash)
+        tip_b = ChainDAO.get(block_hash=block_2b.block_hash)
+        assert tip_a is not None and tip_b is not None
+        assert tip_a.tip_idx == tip_b.tip_idx == 1
+
+        # Expected winner, computed directly from the fork blocks via the
+        # consensus tiebreak: earliest timestamp, then lowest block_hash.
+        expected = min(
+            (tip_a, tip_b),
+            key=lambda d: (d.block.timestamp, d.block.block_hash),
+        )
+
+        old_first = db.session.execute(ChainDAO.chains()).scalars().first()
+        longest = ChainDAO.longest()
+        assert longest is not None
+        assert longest.id == expected.id
+        # And it agrees with the pre-rewrite chains().first() behavior.
+        assert old_first is not None
+        assert longest.id == old_first.id
+
+
+def test_tip_idx_maintained_on_extend_and_fork(app, time_stepper, wallet):
+    """Extending the canonical chain advances the in-place row's tip_idx;
+    a fork creates a NEW row whose tip_idx is the fork tip's height."""
+    with app.app_context():
+        time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
+        _ = next(time_step)
+        chain_a = Chain()
+        block_1 = Block()
+        chain_a.link_block(block_1)
+        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        block_1.mill()
+        chain_a.add_block(block_1)
+        chain_a.to_db()
+
+        row = ChainDAO.get(block_hash=block_1.block_hash)
+        assert row is not None
+        assert row.tip_idx == 0
+        canonical_id = row.id
+
+        # Build a sibling fork off block_1 before extending the canonical
+        # chain, so the extend mutates in place and the fork is a new row.
+        _ = next(time_step)
+        block_2a = Block()
+        chain_a.link_block(block_2a)
+        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        block_2a.mill()
+
+        _ = next(time_step)
+        block_2b = Block()
+        chain_a.link_block(block_2b)
+        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        block_2b.mill()
+
+        # Extend the canonical chain in place along block_2a.
+        _ = next(time_step)
+        chain_a.add_block(block_2a)
+        chain_a.to_db()
+
+        extended = ChainDAO.get(block_hash=block_2a.block_hash)
+        assert extended is not None
+        # Same row, advanced in place to the new tip height.
+        assert extended.id == canonical_id
+        assert extended.tip_idx == 1
+        # The old tip hash no longer resolves to a chain row.
+        assert ChainDAO.get(block_hash=block_1.block_hash) is None
+
+        # The sibling fork is born as a NEW row at the fork tip's height.
+        _ = next(time_step)
+        fork = Chain()
+        fork.add_block(block_2b)
+        fork.to_db()
+
+        fork_row = ChainDAO.get(block_hash=block_2b.block_hash)
+        assert fork_row is not None
+        assert fork_row.id != canonical_id
+        assert fork_row.tip_idx == 1
