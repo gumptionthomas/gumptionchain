@@ -3,9 +3,11 @@ import json
 
 from gumptionchain.api_client import ApiClient
 from gumptionchain.block import expiry_cutoff
+from gumptionchain.chain import Chain
 from gumptionchain.database import db
 from gumptionchain.models import PendingTxnDAO
 from gumptionchain.util import now
+from gumptionchain.wallet import Wallet
 
 
 def _post_pending(host, chain, wallet, amount, subject):
@@ -157,3 +159,43 @@ def test_mempool_view_hides_confirmed_txn(
         assert resp.status_code == 200
         assert unconfirmed.txid.encode() in resp.data
         assert confirmed.txid.encode() not in resp.data
+
+
+def test_exclude_confirmed_is_reorg_safe(
+    add_chain_block, app, host, mill_block, requests_proxy, subject, wallet
+):
+    # An orphaned block leaves LongestChainBlockDAO, so its txns
+    # re-qualify as pending in the filtered reads — i.e. the filter
+    # excludes canonical membership, not any-block membership. Fork
+    # construction mirrors tests/test_chain.py::
+    # test_transaction_provenance_orphaned.
+    with app.app_context():
+        # wallet2 needs no role: add_chain_block writes via
+        # Chain.add_block directly, bypassing the HTTP/auth layer.
+        wallet2 = Wallet()
+        m, b1 = mill_block(wallet)  # genesis
+        txn = _post_pending(host, m.longest_chain, wallet, 300, subject)
+        m, _b2 = mill_block(wallet)  # b2 confirms + prunes txn
+        _reinsert_pending(txn)
+
+        # while canonical-confirmed: excluded
+        rows = db.session.scalars(
+            PendingTxnDAO.pending_q(exclude_confirmed=True)
+        ).all()
+        assert rows == []
+
+        # orphan b2 with a strictly-longer fork off b1
+        alt = Chain(block_hash=b1.block_hash)
+        add_chain_block(chain=alt, milling_wallet=wallet2)
+        _, _ = add_chain_block(chain=alt, milling_wallet=wallet2)
+        alt.to_db()  # sync_longest_chain_blocks -> alt is canonical
+
+        # txn now sits only in a non-canonical fork block -> it
+        # re-qualifies as pending
+        txids = [
+            row.txid
+            for row in db.session.scalars(
+                PendingTxnDAO.pending_q(exclude_confirmed=True)
+            )
+        ]
+        assert txids == [txn.txid]
