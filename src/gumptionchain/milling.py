@@ -142,3 +142,23 @@ def milling_generator(
         if proof_of_work is not None:
             block.solve(proof_of_work)
         yield proof_of_work
+
+
+def expected_attempts(z: int) -> int:
+    # With target '0'*z + 'F'*(64-z), success probability per attempt is
+    # ~16^-z, so the geometric expectation is exactly 16^z attempts.
+    return int(16**z)
+
+
+def recommended_z(rate_hps: float, goal_seconds: float) -> int:
+    # Largest z whose expected solve time 16^z / rate_hps is within
+    # goal_seconds. Flooring errs EASIER (numerically larger target) -
+    # the non-fatal direction (#169): a too-easy floor self-corrects at
+    # the first retarget; a too-hard floor stalls genesis. Clamps at 0.
+    # Integer loop instead of floor(log(budget, 16)) to avoid float
+    # edge cases exactly at a power-of-16 boundary (z <= 64 in practice).
+    budget = rate_hps * goal_seconds  # attempts affordable per block
+    z = 0
+    while expected_attempts(z + 1) <= budget:
+        z += 1
+    return z
