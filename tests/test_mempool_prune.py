@@ -83,6 +83,8 @@ def test_orphaned_block_txn_stays_pruned(
     # re-gossip or sender re-submit. Fork construction mirrors
     # tests/test_chain.py::test_transaction_provenance_orphaned.
     with app.app_context():
+        # wallet2 needs no role: add_chain_block writes via Chain.add_block
+        # directly, bypassing the HTTP/auth layer entirely.
         wallet2 = Wallet()
         m, b1 = mill_block(wallet)  # genesis
         txn = _post_pending(host, m.longest_chain, wallet, 300, subject)
@@ -115,5 +117,6 @@ def test_prune_handles_multiple_regular_txns(
 
         assert len(b3.regular_txns) == 2
         assert PendingTxnDAO.count() == 0
+        assert _count_ioflows() == 0
         assert m3.longest_chain.get_transaction(txn1.txid) is not None
         assert m3.longest_chain.get_transaction(txn2.txid) is not None
