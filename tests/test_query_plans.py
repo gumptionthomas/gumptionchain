@@ -133,8 +133,9 @@ def test_pending_q_exclude_confirmed_uses_index(
                 PendingTxnDAO.pending_q(exclude_confirmed=True)
             ).all()
         )
-        # Isolate the plan lines belonging to the NOT-EXISTS subquery — they
-        # will reference the 'transaction' table.
+        # Keep the statements that reference the 'transaction' table — i.e.
+        # the one carrying the NOT-EXISTS subquery. Anti-vacuity: if
+        # exclude_confirmed were dropped, no statement would qualify.
         subquery_plans = [p for s, p in plans if 'transaction' in s.lower()]
         assert subquery_plans, (
             'expected a query involving the transaction table'
@@ -142,14 +143,7 @@ def test_pending_q_exclude_confirmed_uses_index(
         joined = '\n'.join(subquery_plans)
         # The correlated lookup must use the ix_transaction_txid covering index.
         assert 'ix_transaction_txid' in joined, joined
-        # No AUTOMATIC covering index should appear on base tables (an AUTOMATIC
-        # on an anon_ materialized subquery is acceptable and out of scope, but
-        # transaction/block_transaction are base tables).
-        base_table_automatic = [
-            line
-            for line in joined.splitlines()
-            if 'AUTOMATIC' in line and ' anon_' not in line
-        ]
-        assert not base_table_automatic, '\n'.join(base_table_automatic)
-        # Full-table scan of transaction must not occur.
+        # This plan materializes nothing, so no AUTOMATIC covering index may
+        # appear anywhere; nor a full scan of transaction.
+        assert 'AUTOMATIC' not in joined, joined
         assert 'SCAN transaction' not in joined, joined
