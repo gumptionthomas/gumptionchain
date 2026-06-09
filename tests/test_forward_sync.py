@@ -268,3 +268,34 @@ def test_sync_forward_links_genesis_to_sentinel(
         lc = node.longest_chain
         assert lc is not None and lc.last_block is not None
         assert lc.last_block.idx == 0
+
+
+def test_sync_forward_stops_on_no_progress(
+    app,
+    remote_app,
+    remote_requests_proxy,
+    remote_host_netloc,
+    miller_2_wallet,
+    time_machine,
+    time_stepper,
+    monkeypatch,
+):
+    """No-progress guard: if a non-empty batch fails to advance the committed
+    tip (e.g. blocks already in the DB that add_block swallows), sync_forward
+    stops with 'diverged' instead of spinning forever. SYNC_BATCH_SIZE=1
+    isolates the guard from the per-block linkage check."""
+    start = now() - datetime.timedelta(hours=2)
+    time_step = time_stepper(start=start)
+    with remote_app.app_context():
+        _mill_chain(miller_2_wallet, 2, time_step)  # peer: genesis + block 1
+
+    app.config['SYNC_BATCH_SIZE'] = 1
+    with app.app_context():
+        node = _local_node(app)
+        client = _peer_client(remote_host_netloc, miller_2_wallet)
+        # Simulate the add_block swallow path: never advance the tip.
+        monkeypatch.setattr(node, 'add_block', lambda *a, **k: None)
+        result = node.sync_forward(client)  # must terminate, not hang
+        assert result == 'diverged'
+        # nothing committed (add_block was a no-op), no infinite loop
+        assert node.longest_chain is None

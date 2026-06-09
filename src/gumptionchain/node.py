@@ -476,11 +476,23 @@ class Node:
         `'caught_up'`.
         """
         batch_size = current_app.config['SYNC_BATCH_SIZE']
+        last_next_idx: int | None = None
         while True:
             tip = self.longest_chain.last_block if self.longest_chain else None
             next_idx = (
                 (tip.idx + 1) if tip is not None and tip.idx is not None else 0
             )
+            # No-progress guard: if the previous (non-empty) batch failed to
+            # advance the committed tip, the same next_idx recurs — a peer
+            # serving blocks already in our DB but off the longest chain (which
+            # add_block swallows without raising) would otherwise spin forever.
+            # Stop rather than hang.
+            if next_idx == last_next_idx:
+                self.logger.warning(
+                    'sync_forward: no progress at idx %s; aborting', next_idx
+                )
+                return 'diverged'
+            last_next_idx = next_idx
             blocks = client.get_blocks(next_idx, batch_size)
             if not blocks:
                 return 'caught_up'
