@@ -1210,3 +1210,9 @@ def test_longest_chain_blocks_range_excludes_fork(app, time_stepper, wallet):
             else block_2a.block_hash
         )
         assert all(r.block_hash != other for r in rows)
+        # Pin WHICH block is canonical: the range query must agree with the
+        # established longest-chain query at this height. A wrong join/filter
+        # that returned the fork block would disagree here.
+        lc_blocks = db.session.scalars(BlockDAO.longest_chain_blocks_q()).all()
+        lc_at_1 = next(b for b in lc_blocks if b.idx == 1)
+        assert canonical_hash == lc_at_1.block_hash
