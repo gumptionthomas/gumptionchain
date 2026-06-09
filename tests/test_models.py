@@ -1691,10 +1691,17 @@ def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
         the real plans confirm nothing else is either);
       * the inflow table is always reached by ``ix_inflow_outflow_id`` (the
         positive witness that the correlated index seek is in effect); and
-      * no AUTOMATIC index is ever built over an inflow-derived relation
-        (``INFLOW ... USING AUTOMATIC`` must be absent) — this is the precise
-        regression guard, since the only legitimate AUTOMATIC is the
-        transaction-membership ``anon_1`` one.
+      * no AUTOMATIC index is ever built over the inflow set. The regression
+        node renders as ``SEARCH anon_N USING AUTOMATIC COVERING INDEX
+        (outflow_id=?) LEFT-JOIN`` — an AUTOMATIC index keyed on ``outflow_id``
+        over the materialized inflow set (the materialized set is an anonymous
+        ``anon_N`` alias, so the table name ``inflow`` does NOT appear in that
+        row — keying the guard off ``outflow_id`` is what makes it catch the
+        regression). The only legitimate AUTOMATIC post-rewrite is the
+        transaction-membership ``anon_1`` co-routine, keyed ``(id=?)``; and the
+        correlated inflow seek uses ``USING INDEX ix_inflow_outflow_id``, not
+        AUTOMATIC. So ``AUTOMATIC`` paired with ``outflow_id`` in one node is
+        the precise regression signature.
 
     The two int-returning methods (wallet_balance / _stake_balance) share the
     exact same _unspent_clause(), so the Select-returners are a sufficient
@@ -1725,12 +1732,19 @@ def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
             assert 'MATERIALIZE' not in text, text
             # The inflow anti-join is a correlated index seek on outflow_id.
             assert 'IX_INFLOW_OUTFLOW_ID' in text, text
-            # No single plan node both builds an AUTOMATIC index AND touches
-            # inflow: i.e. no AUTOMATIC index is ever built over the inflow
-            # set. (A residual AUTOMATIC over the transaction-membership
-            # anon_1 co-routine in wallet_leaderboard is shared/out-of-scope;
-            # what #165 forbids is an AUTOMATIC index over the inflow set.)
+            # No AUTOMATIC index is ever built over the inflow set. The
+            # materialize-then-auto-index regression renders as a single node
+            # `SEARCH anon_N USING AUTOMATIC COVERING INDEX (outflow_id=?)`
+            # — the materialized inflow set is an anonymous alias, so its row
+            # carries `AUTOMATIC` + `OUTFLOW_ID` but NOT the table name
+            # `inflow`. Keying off `outflow_id` (not `inflow`) is what makes
+            # this catch the regression: the only legitimate AUTOMATIC node
+            # post-rewrite is the transaction-membership anon_1 co-routine,
+            # keyed (id=?); the correlated inflow seek uses
+            # `USING INDEX ix_inflow_outflow_id`, not AUTOMATIC.
             automatic_over_inflow = [
-                row for row in plan if 'AUTOMATIC' in row and 'INFLOW' in row
+                row
+                for row in plan
+                if 'AUTOMATIC' in row and 'OUTFLOW_ID' in row
             ]
             assert not automatic_over_inflow, text
