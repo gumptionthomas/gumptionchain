@@ -1,4 +1,10 @@
+import datetime
+import re
+
 from gumptionchain.api_client import ApiClient
+from gumptionchain.block import expiry_cutoff
+from gumptionchain.models import PendingTxnDAO
+from gumptionchain.util import now
 
 
 def _stake_opposition(host, chain, wallet, amount, subject):
@@ -49,3 +55,50 @@ def test_home_shows_pending_count(
         # a Pending stat card with the pool count (1 pending txn)
         assert b'Pending' in body
         assert b'>1<' in body
+
+
+def test_home_pending_count_excludes_confirmed_and_expired(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        confirmed = _stake_opposition(
+            host, m.longest_chain, wallet, 300, subject
+        )
+        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        # re-insert the confirmed txn (simulates re-gossip after mining)
+        PendingTxnDAO(
+            txid=confirmed.txid,
+            timestamp=confirmed.timestamp_dt,
+            json_data=confirmed.to_json(),
+        ).commit()
+        # an expired row (the /mempool view hides it; so must the badge)
+        PendingTxnDAO(
+            txid='a' * 64,
+            timestamp=now() - datetime.timedelta(hours=8),
+            json_data='{}',
+        ).commit()
+        # one live, unconfirmed txn
+        _stake_opposition(host, m.longest_chain, wallet, 200, subject)
+
+        # raw count sees all three; the badge count sees only the live one
+        assert PendingTxnDAO.count() == 3
+        assert (
+            PendingTxnDAO.unconfirmed_count(expired=expiry_cutoff(now())) == 1
+        )
+
+        resp = app.test_client().get('/')
+        assert resp.status_code == 200
+        # Use a regex anchored to the Pending card's HTML structure to
+        # avoid collision: subject_count=1 and pending_count=1 both render
+        # ">1<" in the page. Matching "Pending" label + value div uniquely
+        # identifies the Pending stat card regardless of other card values.
+        assert re.search(
+            rb'Pending</div>\s*<div[^>]*>\s*1\s*</div>',
+            resp.data,
+        ), 'Pending badge should show 1 (live unconfirmed only)'
+        # also verify the raw pool size (3) is NOT shown in the badge
+        assert not re.search(
+            rb'Pending</div>\s*<div[^>]*>\s*3\s*</div>',
+            resp.data,
+        ), 'Pending badge must not show the raw pool count (3)'

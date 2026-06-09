@@ -84,7 +84,10 @@ def index_view() -> Any:
         if lc is not None:
             subject_count, total_staked = lc.stake_stats()
         # Pending-pool size is independent of the chain (always available).
-        pending_count = PendingTxnDAO.count()
+        # Count what /mempool displays: unexpired + unconfirmed (#208).
+        pending_count = PendingTxnDAO.unconfirmed_count(
+            expired=expiry_cutoff(now())
+        )
     except HTTPException as e:
         return e
     except Exception as e:
@@ -270,9 +273,12 @@ def address_view(address: str) -> Any:
 def mempool_view() -> Any:
     try:
         # Read-only expiry filter (no prune): the API view prunes on GET,
-        # the browser read just excludes expired rows from the query.
+        # the browser read just excludes expired rows from the query,
+        # and excludes canonical-confirmed txns (#208).
         pending_page = db.paginate(
-            PendingTxnDAO.pending_q(expired=expiry_cutoff(now())),
+            PendingTxnDAO.pending_q(
+                expired=expiry_cutoff(now()), exclude_confirmed=True
+            ),
             error_out=False,
         )
         entries = []

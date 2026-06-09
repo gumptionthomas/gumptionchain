@@ -13,6 +13,7 @@ from gumptionchain.chain import Chain
 from gumptionchain.exceptions import InvalidRoleConfigError
 from gumptionchain.miller import Miller
 from gumptionchain.milling import mill_hash_str
+from gumptionchain.models import PendingTxnDAO
 from gumptionchain.tasks import post_process
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import host_address, now
@@ -341,6 +342,36 @@ def test_pending_transactions_earliest_returns_recent_txns(
         txns = [Transaction.from_dict(t) for t in response.json()]
         assert len(txns) >= 1
         assert txn in txns
+
+
+def test_pending_transactions_exclude_confirmed(
+    app, host, mill_block, requests_proxy, subject, time_stepper, wallet
+):
+    with app.app_context():
+        time_step = time_stepper()
+        _ = next(time_step)
+        m, _b = mill_block(wallet)
+        _ = next(time_step)
+        confirmed = m.longest_chain.create_opposition(wallet, 1, subject)
+        confirmed.sign()
+        ApiClient(host, wallet).post_transaction(confirmed)
+        _ = next(time_step)
+        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        # simulate re-gossip of the already-mined txn
+        PendingTxnDAO(
+            txid=confirmed.txid,
+            timestamp=confirmed.timestamp_dt,
+            json_data=confirmed.to_json(),
+        ).commit()
+        _ = next(time_step)
+        txn2 = m.longest_chain.create_opposition(wallet, 2, subject)
+        txn2.sign()
+        ApiClient(host, wallet).post_transaction(txn2)
+
+        response = ApiClient(host, wallet).get_pending_transactions()
+        assert response.status_code == httpx.codes.OK
+        txids = [t['txid'] for t in response.json()]
+        assert txids == [txn2.txid]
 
 
 # NOTE: the `app` fixture pre-loads all four *_ADDRESSES (the `wallet`

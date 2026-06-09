@@ -180,9 +180,36 @@ class Node:
         if block.block_hash and Block.from_db(block.block_hash):
             return None
         if block := self.add_block(block):  # type: ignore[assignment]
+            self._discard_confirmed_pending(block)
             new_block_signal.send(self, block=block)
             self.send_block(block, visited_hosts=visited_hosts)
         return block
+
+    def _discard_confirmed_pending(self, block: Block) -> None:
+        # A confirmed txn no longer belongs in the mempool: discard the
+        # accepted block's regular txns from the pending pool (discard
+        # is a no-op for txids not pooled here, e.g. txns first seen
+        # inside a gossip-received block). Lives in process_block — not
+        # add_block — so it fires only on live acceptance and never
+        # inside fill_chain's commit=False batch.
+        #
+        # Orphan caveat (accept + document, #208): if this block is
+        # later orphaned by a reorg, its txns are already gone from
+        # THIS node's pool and will not be re-mined here unless a peer
+        # re-gossips them or the sender re-submits. The read-time
+        # canonical filter (exclude_confirmed) keeps the mempool views
+        # correct regardless, so this is a resource trade-off, not a
+        # display or consensus bug.
+        #
+        # Fail-soft: a transient DB error during the prune must never
+        # block acceptance or gossip of an already-committed block; the
+        # read-time canonical filter is the correctness backstop.
+        try:
+            for txn in block.regular_txns:
+                self.pending_txns.discard(txn)
+        except SQLAlchemyError as e:
+            rollback_session()
+            self.logger.warning(e)
 
     def add_block(self, block: Block, *, commit: bool = True) -> Block | None:
         try:

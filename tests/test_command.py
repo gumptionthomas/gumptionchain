@@ -316,10 +316,12 @@ def test_rescind(
             runner, subject_raw, txn_wallet, txnwf, confirm=False
         )
         assert 'Rescind aborted' in result.output
-        assert len(m.pending_txns) == 1
+        assert (
+            len(m.pending_txns) == 0
+        )  # the mill confirmed + pruned the opposition (#208)
         result = run_txn_rescind(runner, subject_raw, txn_wallet, txnwf)
         assert 'Rescind created' in result.output
-        assert len(m.pending_txns) == 2
+        assert len(m.pending_txns) == 1
 
 
 def test_invalid_rescind(
@@ -405,12 +407,14 @@ def test_rescind_support_kind(
             kind='support',
         )
         assert 'Rescind aborted' in result.output
-        assert len(m.pending_txns) == 1
+        assert (
+            len(m.pending_txns) == 0
+        )  # the mill confirmed + pruned the support stake (#208)
         result = run_txn_rescind(
             runner, subject_raw, txn_wallet, txnwf, kind='support'
         )
         assert 'Rescind created' in result.output
-        assert len(m.pending_txns) == 2
+        assert len(m.pending_txns) == 1
 
 
 def test_create_wallet(app, runner):

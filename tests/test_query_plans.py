@@ -1,8 +1,10 @@
+import datetime
+
 from sqlalchemy import event
 from test_models import _build_canonical_chain_with_spend
 
 from gumptionchain.database import db
-from gumptionchain.models import BlockDAO, ChainDAO
+from gumptionchain.models import BlockDAO, ChainDAO, PendingTxnDAO
 
 
 def _explain_plans(fn):
@@ -104,3 +106,44 @@ def test_balance_read_builds_no_automatic_index(
         assert ('ix_outflow_' in joined) or (
             'ix_inflow_outflow_id' in joined
         ), joined
+
+
+def test_pending_q_exclude_confirmed_uses_index(
+    app, add_chain_block, time_stepper, wallet
+):
+    """pending_q(exclude_confirmed=True) correlated NOT EXISTS must seek via
+    ix_transaction_txid, not SCAN the transaction table or build an AUTOMATIC
+    covering index.
+    """
+    with app.app_context():
+        _chain, _block1, _block2, spend_txid = (
+            _build_canonical_chain_with_spend(
+                add_chain_block, time_stepper, wallet
+            )
+        )
+        # Insert a pending row for the canonical txn so the filter is exercised.
+        PendingTxnDAO(
+            txid=spend_txid,
+            timestamp=datetime.datetime.now(datetime.UTC),
+            json_data='{}',
+        ).commit()
+
+        plans = _explain_plans(
+            lambda: db.session.scalars(
+                PendingTxnDAO.pending_q(exclude_confirmed=True)
+            ).all()
+        )
+        # Keep the statements that reference the 'transaction' table — i.e.
+        # the one carrying the NOT-EXISTS subquery. Anti-vacuity: if
+        # exclude_confirmed were dropped, no statement would qualify.
+        subquery_plans = [p for s, p in plans if 'transaction' in s.lower()]
+        assert subquery_plans, (
+            'expected a query involving the transaction table'
+        )
+        joined = '\n'.join(subquery_plans)
+        # The correlated lookup must use the ix_transaction_txid covering index.
+        assert 'ix_transaction_txid' in joined, joined
+        # This plan materializes nothing, so no AUTOMATIC covering index may
+        # appear anywhere; nor a full scan of transaction.
+        assert 'AUTOMATIC' not in joined, joined
+        assert 'SCAN transaction' not in joined, joined

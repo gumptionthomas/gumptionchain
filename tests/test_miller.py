@@ -138,20 +138,21 @@ def test_duplicate_transaction(app, time_machine, wallet):
         assert len(m.pending_txns) == 1
         m.mill_block(b1)
         assert len(b1.txns) == 2
-        assert len(m.pending_txns) == 1
+        # b1 confirmed t0 -> pruned from the pool on acceptance (#208)
+        assert len(m.pending_txns) == 0
         b2 = m.create_block()
-        assert len(m.pending_txns) == 1
+        assert len(m.pending_txns) == 0
         m.mill_block(b2)
         assert len(b2.txns) == 1
-        assert len(m.pending_txns) == 1
+        assert len(m.pending_txns) == 0
         when_dt = when_dt + datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
-        assert len(m.pending_txns) == 1
+        assert len(m.pending_txns) == 0
         b3 = m.create_block()
-        assert len(m.pending_txns) == 1
+        assert len(m.pending_txns) == 0
         m.mill_block(b3)
         assert len(b3.txns) == 1
-        assert len(m.pending_txns) == 1
+        assert len(m.pending_txns) == 0
         when_dt = when_dt + datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
         t1 = Transaction()
@@ -163,12 +164,13 @@ def test_duplicate_transaction(app, time_machine, wallet):
         m.receive_transaction(t1.txid, t1.to_json())
         when_dt = when_dt + datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
-        assert len(m.pending_txns) == 2
-        b4 = m.create_block()
         assert len(m.pending_txns) == 1
+        b4 = m.create_block()
+        # t1 double-spends t0's confirmed inflow -> discarded at build
+        assert len(m.pending_txns) == 0
         m.mill_block(b4)
         assert len(b4.txns) == 1
-        assert len(m.pending_txns) == 1
+        assert len(m.pending_txns) == 0
 
 
 @patch('gumptionchain.miller.MAX_TRANSACTIONS', 10)

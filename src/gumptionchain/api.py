@@ -698,7 +698,7 @@ class PendingTxnView(MethodView):
             earliest = args.get('earliest')
             expired = expiry_cutoff(now())
             pending_json = node.pending_txns.query_json(
-                earliest=earliest, expired=expired
+                earliest=earliest, expired=expired, exclude_confirmed=True
             )
             return make_json_response([json.loads(j) for j in pending_json])
         except GCError as err:
