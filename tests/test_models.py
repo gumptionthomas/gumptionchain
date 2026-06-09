@@ -1661,7 +1661,10 @@ def _query_plan_rows(stmt):
     """
     compiled = stmt.compile(db.engine, compile_kwargs={'literal_binds': True})
     rows = db.session.execute(db.text(f'EXPLAIN QUERY PLAN {compiled}')).all()
-    return [' '.join(str(col) for col in row).upper() for row in rows]
+    # Only the last column (`detail`) is the human-readable plan node; the
+    # leading id/parent/notused columns are integers that would just add
+    # noise to the substring guards below.
+    return [str(row[-1]).upper() for row in rows]
 
 
 def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
