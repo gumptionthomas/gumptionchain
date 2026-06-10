@@ -137,7 +137,10 @@ testpaths = [
   "tests",
 ]
 filterwarnings = [
-  "ignore:.*SelectableGroups dict interface is deprecated.*"
+  "ignore:.*SelectableGroups dict interface is deprecated.*",
+  # Session-hygiene gate (#247/#249): an SAWarning means the unit of work
+  # refused (or fumbled) an operation on a DAO graph — lost-row risk.
+  "error::sqlalchemy.exc.SAWarning",
 ]
 env_files = [
   "tests/.test.env",

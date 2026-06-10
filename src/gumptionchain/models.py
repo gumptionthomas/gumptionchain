@@ -1024,11 +1024,18 @@ class ChainDAO(Base):
         # `block` (orphan blocks remain for provenance / double-spend /
         # fill_chain).
         depth = current_app.config['FORK_PRUNE_DEPTH']
+        # synchronize_session='fetch' (#249): without it, a pruned row's
+        # in-session instance stays persistent in the identity map; when
+        # SQLite reuses the freed rowid for the next chain INSERT, the
+        # flush collides with the stale entry ("Identity map already had
+        # an identity ... replacing it"). 'fetch' marks matched
+        # instances deleted so they leave the map at commit.
         db.session.execute(
             db.delete(ChainDAO).where(
                 ChainDAO.id != self.id,
                 ChainDAO.tip_idx < self.tip_idx - depth,
-            )
+            ),
+            execution_options={'synchronize_session': 'fetch'},
         )
 
     def _rebuild_longest_chain_blocks(self) -> None:

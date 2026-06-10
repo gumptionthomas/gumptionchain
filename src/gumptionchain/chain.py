@@ -762,6 +762,17 @@ class Chain:
                     dao = ChainDAO.get(block_hash=block_hash)
         if dao is None and create:
             dao = ChainDAO(block_hash)
+            # create=True means "make the row exist" (#249): enroll,
+            # flush, and sync the longest-chain materialization so the
+            # returned DAO is a real, queryable row. Anything less
+            # leaves a half-created chain: a transient linked into the
+            # persistent tip's chains collection makes any later
+            # autoflush warn ("add operation ... will not proceed"),
+            # and once flushed by accident, _is_longest routes reads to
+            # a stale, unsynced materialization.
+            db.session.add(dao)
+            db.session.flush()
+            dao.sync_longest_chain_blocks()
         return dao
 
     def to_db(self, *, commit: bool = True) -> None:
