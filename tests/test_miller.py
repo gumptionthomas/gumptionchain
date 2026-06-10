@@ -19,6 +19,45 @@ from gumptionchain.util import now
 from gumptionchain.wallet import Wallet
 
 
+@pytest.mark.filterwarnings('error::sqlalchemy.exc.SAWarning')
+def test_mill_confirm_emits_no_sawarnings(
+    app, time_machine, time_stepper, wallet
+):
+    # #247: milling a block that confirms a pending spend autoflushed a
+    # half-built DAO graph — a transient InflowDAO already linked into a
+    # persistent OutflowDAO.inflows — emitting an SAWarning ("add
+    # operation along 'OutflowDAO.inflows' will not proceed") from the
+    # next txn's TransactionDAO.get. The block persisted correctly via
+    # the later explicit add/commit, but the warning class can mask real
+    # lost-row bugs; the mill/confirm path must be warning-clean.
+    with app.app_context():
+        now_dt = now()
+        time_step = time_stepper(start=now_dt - datetime.timedelta(hours=1))
+        m = Miller(milling_wallet=wallet)
+        _ = next(time_step)
+        b0 = m.create_block()
+        m.mill_block(b0)
+        _ = next(time_step)
+        cb0 = b0.coinbase
+        cb0_amount = next(iter(cb0.outflows)).amount
+        remit = 2 * GPG
+        t0 = Transaction()
+        t0.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
+        t0.add_outflow(Outflow(amount=remit, address=Wallet().address))
+        t0.add_outflow(
+            Outflow(amount=cb0_amount - remit, address=wallet.address)
+        )
+        t0.set_wallet(wallet)
+        t0.seal()
+        t0.sign()
+        m.receive_transaction(t0.txid, t0.to_json())
+        b1 = m.create_block()
+        m.mill_block(b1)  # confirms t0; must not emit any SAWarning
+        _ = next(time_step)
+        assert m.longest_chain.length == 2
+        time_machine.move_to(now_dt)
+
+
 def test_miller_create_block(app, time_machine, time_stepper, wallet):
     with app.app_context():
         now_dt = now()

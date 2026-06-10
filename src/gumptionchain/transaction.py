@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from gumptionchain.database import db
 from gumptionchain.exceptions import (
     InvalidSignatureError,
     InvalidTransactionError,
@@ -285,32 +286,45 @@ class Transaction:
                 raise InvalidTransactionError(msg)
         txid = self.txid
         timestamp_dt = self.timestamp_dt
-        return TransactionDAO.get(txid) or TransactionDAO(
-            txid,
-            self.version,
-            timestamp_dt,
-            address=self.address,
-            public_key=self.public_key,
-            signature=self.signature,
-            prev_hash=self.prev_hash,
-            inflow_daos=[
-                InflowDAO(txid, idx, inflow.outflow_txid, inflow.outflow_idx)  # type: ignore[arg-type]
-                for idx, inflow in enumerate(self.inflows)
-            ],
-            outflow_daos=[
-                OutflowDAO(
-                    txid,
-                    idx,
-                    outflow.amount,  # type: ignore[arg-type]
-                    address=outflow.address,
-                    opposition=outflow.opposition,
-                    rescind=outflow.rescind,
-                    support=outflow.support,
-                    rescind_kind=outflow.rescind_kind,
-                )
-                for idx, outflow in enumerate(self.outflows)
-            ],
-        )
+        # no_autoflush across the whole get-or-build (#247): when
+        # Block.to_dao() builds several txn DAOs before the explicit
+        # session.add in commit(), an earlier sibling's transient
+        # InflowDAO is already linked into a persistent
+        # OutflowDAO.inflows collection; letting this lookup autoflush
+        # would warn ("add operation ... will not proceed") and skip
+        # that half-built cascade.
+        with db.session.no_autoflush:
+            return TransactionDAO.get(txid) or TransactionDAO(
+                txid,
+                self.version,
+                timestamp_dt,
+                address=self.address,
+                public_key=self.public_key,
+                signature=self.signature,
+                prev_hash=self.prev_hash,
+                inflow_daos=[
+                    InflowDAO(
+                        txid,
+                        idx,
+                        inflow.outflow_txid,  # type: ignore[arg-type]
+                        inflow.outflow_idx,  # type: ignore[arg-type]
+                    )
+                    for idx, inflow in enumerate(self.inflows)
+                ],
+                outflow_daos=[
+                    OutflowDAO(
+                        txid,
+                        idx,
+                        outflow.amount,  # type: ignore[arg-type]
+                        address=outflow.address,
+                        opposition=outflow.opposition,
+                        rescind=outflow.rescind,
+                        support=outflow.support,
+                        rescind_kind=outflow.rescind_kind,
+                    )
+                    for idx, outflow in enumerate(self.outflows)
+                ],
+            )
 
     def to_db(self) -> None:
         self.to_dao().commit()

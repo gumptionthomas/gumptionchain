@@ -15,6 +15,7 @@ from pydantic import (
 )
 from pymerkle import InmemoryTree, InvalidProof, verify_inclusion
 
+from gumptionchain.database import db
 from gumptionchain.exceptions import (
     ExpiredTransactionError,
     FutureTransactionError,
@@ -348,17 +349,25 @@ class Block:
         ):
             msg = 'Block missing identity fields; cannot persist'
             raise InvalidBlockError(msg)
-        return BlockDAO.get(self.block_hash) or BlockDAO(
-            self.block_hash,
-            self.version,
-            self.idx,
-            self.prev_hash,
-            self.timestamp_dt,
-            self.merkle_root,
-            self.proof_of_work,
-            self.target,
-            transaction_daos=[txn.to_dao() for txn in self.txns],
-        )
+        # no_autoflush across the whole get-or-build (#247): while the
+        # txn DAO graph is mid-construction, a transient InflowDAO is
+        # already linked into a persistent OutflowDAO.inflows collection,
+        # so any query that autoflushes here (e.g. BlockDAO.get(prev_hash)
+        # inside BlockDAO.__init__) would warn ("add operation ... will
+        # not proceed") and skip that half-built cascade. The graph is
+        # enrolled explicitly via session.add in commit().
+        with db.session.no_autoflush:
+            return BlockDAO.get(self.block_hash) or BlockDAO(
+                self.block_hash,
+                self.version,
+                self.idx,
+                self.prev_hash,
+                self.timestamp_dt,
+                self.merkle_root,
+                self.proof_of_work,
+                self.target,
+                transaction_daos=[txn.to_dao() for txn in self.txns],
+            )
 
     def to_db(self, *, commit: bool = True) -> None:
         self.to_dao().commit(commit=commit)
