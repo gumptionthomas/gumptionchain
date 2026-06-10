@@ -1,0 +1,25 @@
+# Raspberry Pi Imager customization (#254) — HAND-WRITE this file onto
+# the boot partition of a freshly flashed Raspberry Pi OS Lite card as
+# custom.toml. (The rpi-imager snap silently drops GUI customization;
+# do not rely on it.) Verify the schema against the Raspberry Pi OS
+# Bookworm documentation when the OS image major-version changes.
+config_version = 1
+
+[system]
+hostname = "gcm-NN"
+
+[user]
+name = "gc"
+# generate with: openssl passwd -6
+password = "$6$replace$me"
+
+[ssh]
+enabled = true
+# bench access only; appliances are unreachable behind the member's NAT
+authorized_keys = ["ssh-ed25519 AAAA... operator@bench"]
+
+[wlan]
+# leave commented for ethernet-only appliances
+# ssid = "member-network"
+# password = "member-psk"
+# country = "US"
