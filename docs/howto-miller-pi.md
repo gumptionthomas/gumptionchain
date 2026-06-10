@@ -74,7 +74,7 @@ Unmount and boot the Pi. Confirm you can SSH in as `gc` before continuing.
 From a shell on the Pi (or over SSH as `gc`):
 
 ```bash
-sudo apt-get install -y git
+sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/gumptionthomas/gumptionchain.git ~/gumptionchain
 sudo bash ~/gumptionchain/deploy/pi/install.sh
 ```
@@ -88,6 +88,10 @@ sudo bash ~/gumptionchain/deploy/pi/install.sh
 4. Runs `uv sync --frozen` to install Python dependencies.
 5. Copies the systemd unit files to `/etc/systemd/system/`, reloads the
    daemon, and enables the update timer.
+
+`uv` is installed into `~/.local/bin/uv`. That directory is added to your
+`PATH` on login, so **log out and back in** (or prefix commands with
+`~/.local/bin/uv`) before continuing.
 
 If `.env` and `deploy.env` are not yet present, the installer prints the
 remaining steps and exits cleanly — it will not attempt `gumptionchain init`
@@ -104,13 +108,19 @@ sudo systemctl enable --now gumptionchain-miller
 From the repo directory as the `gc` user:
 
 ```bash
+mkdir -p /home/gc/wallets
 cd ~/gumptionchain
 uv run gumptionchain wallet create -d /home/gc/wallets
 ```
 
-The `-d` / `--walletdir` option sets the directory where the `.pem` is
-written. If omitted, it falls back to the `GC_WALLET_DIR` value in your
-`.env` (which must exist first). Using an explicit path here is safe.
+The `-d` / `--walletdir` option is `click.Path(exists=True)` — the directory
+**must exist before you run the command** (hence `mkdir -p` above). If
+omitted, it falls back to the `GC_WALLET_DIR` value in your `.env` (which
+must exist first). Using an explicit path here is safe.
+
+Running the command before `.env` exists will log a `SQLALCHEMY_DATABASE_URI`
+ERROR line, but the wallet is still created and the command still prints
+`Created /home/gc/wallets/<address>.pem` — this is normal.
 
 The command prints the path to the created file, e.g.
 `/home/gc/wallets/GCabc123...GC.pem`. The file name is the wallet address.
@@ -167,12 +177,15 @@ A relative path resolves from within the installed package directory
 
 ```
 GC_MILL_ADDRESS=<your-address>
-GC_MILL_PEER=https://hub.gumption.com
+GC_MILL_PEER=https://<your-address>@hub.gumption.com
 GC_UPDATE_CHANNEL=tags
 ```
 
 `GC_MILL_ADDRESS` is the wallet address that receives coinbase rewards.
-`GC_MILL_PEER` is the URL the miller polls before each round.
+`GC_MILL_PEER` is the URL the miller polls before each round. **This value
+must exactly match the corresponding entry in `GC_PEERS` (including the
+`<your-address>@` username prefix)** — the miller looks up the peer in
+`app.clients` by the literal string, and a mismatch causes a crash-loop.
 `GC_UPDATE_CHANNEL=tags` means the updater follows the highest semver
 `v*` release tag (the standard appliance channel).
 
@@ -199,15 +212,28 @@ Watch the live log:
 journalctl -u gumptionchain-miller -f
 ```
 
-Healthy milling output looks like: repeated lines showing proof-of-work
-rounds progressing, periodic "Polling peer" messages, and eventually
-"Block accepted" when a block is mined and the hub accepts it.
+Healthy milling output looks like:
 
-**First-sync expectations:** on first start the node has no chain history.
-The miller polls the hub for the current tip and begins milling from
-genesis — this is correct behavior. It does not need a full chain copy to
-mine; it only needs the current tip from the peer, which it fetches each
-round. There is no explicit sync step for a miller-only node.
+1. **First-sync phase** — a `Synchronizing with peer <peer>` rule prints,
+   followed by a two-panel progress display: "Finding Blocks" (backward
+   walk counting ancestors from the hub's tip) then "Loading Blocks" (forward
+   apply with a progress bar). This downloads and applies every ancestor block
+   from the hub's current chain tip all the way to genesis — a full local
+   chain copy, automatically, with no separate sync command. Expected duration
+   grows with chain length.
+
+2. **Milling phase** — a `Milling as address <address>` rule prints, then
+   for each block attempt: a borderless start table (Block index, Chain hash,
+   Target, Started timestamp) followed by a spinner while hashing, then a
+   stop table (Stopped, Elapsed, Hashes). The stop table's `POW` row reads
+   the proof-of-work value when **this node wins the block**, or `SCOOPED`
+   (styled dimly) when another miller extends the chain first. A very close
+   race prints `SCOOPED (but so close)`.
+
+**First-sync expectations:** on an empty database the full first-sync
+download runs automatically before the first milling round begins — there
+is no separate `gumptionchain sync` step needed. The time this takes scales
+with chain length.
 
 Check service status at any time:
 
@@ -298,6 +324,7 @@ The miller will re-poll the hub and rebuild from its current tip.
 ```bash
 sudo systemctl stop gumptionchain-miller
 rm ~/gumptionchain/gumptionchain.db
+cd ~/gumptionchain && uv run gumptionchain init
 sudo systemctl start gumptionchain-miller
 journalctl -u gumptionchain-miller -f
 ```
@@ -315,7 +342,8 @@ a patched re-tag is published):
 cat ~/.gumptionchain-skip-tags
 
 # clear entirely (next timer run will attempt the highest available tag)
-rm ~/.gumptionchain-skip-tags
+# (sudo required: update.sh runs as root and owns this file)
+sudo rm ~/.gumptionchain-skip-tags
 ```
 
 **Hub connectivity** — if the miller is running but not submitting blocks,
