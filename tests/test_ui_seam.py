@@ -1,6 +1,7 @@
-from flask import Flask
+from flask import Flask, render_template
 
 from gumptionchain import create_app
+from gumptionchain.browser import explorer_home_context
 from gumptionchain.database import db
 from gumptionchain.payload import encode_subject
 from gumptionchain.wallet import Wallet
@@ -72,6 +73,54 @@ def test_consumer_base_html_reskins_base_pages(tmp_path):
         assert resp.status_code == 200
         assert b'SKINNED' in resp.data  # consumer skin won over blueprint
         assert b'No chain' in resp.data  # base index content still rendered
+
+
+def test_relocate_explorer_home_recipe(tmp_path):
+    # The "relocate a base page" recipe (#244): a consumer shadows
+    # index.html with its own landing (making base's home markup
+    # unreachable by name) and re-serves the stock explorer home at its
+    # own route via the _explorer_home.html partial + the public
+    # explorer_home_context() helper.
+    tdir = tmp_path / 'templates'
+    tdir.mkdir()
+    (tdir / 'base.html').write_text(_CONSUMER_BASE)
+    (tdir / 'index.html').write_text(
+        '{% extends "base.html" %}{% block content %}LANDING{% endblock %}'
+    )
+    (tdir / 'chain.html').write_text(
+        '{% extends "base.html" %}{% block content %}'
+        '{% include "_explorer_home.html" %}{% endblock %}'
+    )
+    consumer = Flask('consumer_app', template_folder=str(tdir))
+
+    @consumer.route('/chain')
+    def chain_home():
+        return render_template('chain.html', **explorer_home_context())
+
+    db_uri = f'sqlite:///{tmp_path / "seam.sqlite"}'
+    app = create_app(
+        app=consumer,
+        config_map={
+            'TESTING': True,
+            'SECRET_KEY': 'x',
+            'SQLALCHEMY_DATABASE_URI': db_uri,
+            'NODE_HOST': 'http://localhost',
+            'READER_ADDRESSES': ['*'],
+        },
+    )
+    with app.app_context():
+        db.create_all()
+        client = app.test_client()
+        # / renders the consumer's landing, not the explorer home
+        resp = client.get('/')
+        assert resp.status_code == 200
+        assert b'LANDING' in resp.data
+        assert b'No chain' not in resp.data
+        # /chain renders the stock explorer home under the consumer skin
+        resp = client.get('/chain')
+        assert resp.status_code == 200
+        assert b'SKINNED' in resp.data
+        assert b'No chain' in resp.data
 
 
 def test_consumer_base_html_reskins_blocks_page(tmp_path):
