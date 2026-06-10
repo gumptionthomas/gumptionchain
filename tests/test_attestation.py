@@ -3,8 +3,11 @@ from test_browser_wallet_vectors import VECTOR_WALLET_B58
 
 from gumptionchain.attestation import (
     BadAttestationError,
+    build_binding_message,
     build_stake_message,
+    parse_social_binding,
     parse_stake_attestation,
+    sign_social_binding,
     sign_stake_attestation,
     verify_stake,
 )
@@ -199,3 +202,180 @@ def test_verify_stake_wraps_bad_proof_envelope() -> None:
     proof['scheme'] = 'gc-sig-v1'  # malformed gc-msg-v1 envelope
     with pytest.raises(BadAttestationError):
         verify_stake(proof, lambda _t: _provenance(w.address))
+
+
+# ---------------------------------------------------------------------------
+# Social-binding envelope tests (#251)
+# ---------------------------------------------------------------------------
+
+BINDING_CLAIM = {'platform': 'github', 'handle': 'gumptionthomas'}
+
+
+def test_build_binding_message_minimal() -> None:
+    assert (
+        build_binding_message(BINDING_CLAIM)
+        == '{"platform":"github","handle":"gumptionthomas"}'
+    )
+
+
+def test_build_binding_message_with_proof_url() -> None:
+    claim = {
+        'platform': 'web',
+        'handle': 'example.com',
+        'proof_url': 'https://example.com/gc.txt',
+    }
+    assert build_binding_message(claim) == (
+        '{"platform":"web","handle":"example.com",'
+        '"proof_url":"https://example.com/gc.txt"}'
+    )
+
+
+def test_build_binding_message_utf8_unescaped() -> None:
+    msg = build_binding_message({'platform': 'web', 'handle': 'tøm'})
+    assert 'tøm' in msg
+    assert '\\u' not in msg
+
+
+def test_build_binding_message_rejects_non_dict() -> None:
+    with pytest.raises(BadAttestationError):
+        build_binding_message('github:gumptionthomas')  # type: ignore[arg-type]
+
+
+def test_build_binding_message_rejects_bad_platform() -> None:
+    # uppercase
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': 'GitHub', 'handle': 'x'})
+    # 33 chars (too long)
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': 'a' * 33, 'handle': 'x'})
+    # empty
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': '', 'handle': 'x'})
+    # missing
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'handle': 'x'})
+    # invalid char (underscore)
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': 'git_hub', 'handle': 'x'})
+
+
+def test_build_binding_message_rejects_bad_handle() -> None:
+    # empty
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': 'github', 'handle': ''})
+    # missing
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': 'github'})
+    # 257 chars (too long)
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': 'github', 'handle': 'h' * 257})
+    # non-string
+    with pytest.raises(BadAttestationError):
+        build_binding_message({'platform': 'github', 'handle': 123})  # type: ignore[dict-item]
+
+
+def test_build_binding_message_rejects_bad_proof_url() -> None:
+    # non-string
+    with pytest.raises(BadAttestationError):
+        build_binding_message(
+            {'platform': 'github', 'handle': 'x', 'proof_url': 42}  # type: ignore[dict-item]
+        )
+    # http (not https)
+    with pytest.raises(BadAttestationError):
+        build_binding_message(
+            {
+                'platform': 'github',
+                'handle': 'x',
+                'proof_url': 'http://insecure.example',
+            }
+        )
+    # 513 chars ('https://' + 'a'*505 = 513 total)
+    with pytest.raises(BadAttestationError):
+        build_binding_message(
+            {
+                'platform': 'github',
+                'handle': 'x',
+                'proof_url': 'https://' + 'a' * 505,
+            }
+        )
+    # empty string
+    with pytest.raises(BadAttestationError):
+        build_binding_message(
+            {'platform': 'github', 'handle': 'x', 'proof_url': ''}
+        )
+
+
+def test_build_binding_message_boundary_accepted() -> None:
+    # handle exactly 256 chars is accepted
+    assert build_binding_message(
+        {'platform': 'github', 'handle': 'h' * 256}
+    ).startswith('{"platform":"github"')
+    # proof_url exactly 512 chars is accepted ('https://' + 'a'*504 = 512)
+    assert build_binding_message(
+        {
+            'platform': 'github',
+            'handle': 'x',
+            'proof_url': 'https://' + 'a' * 504,
+        }
+    ).startswith('{"platform":"github"')
+
+
+def test_build_binding_message_proof_url_none_omitted() -> None:
+    # proof_url None is accepted and omitted from canonical (same as absent)
+    msg = build_binding_message(
+        {'platform': 'github', 'handle': 'gumptionthomas', 'proof_url': None}
+    )
+    assert msg == '{"platform":"github","handle":"gumptionthomas"}'
+
+
+def test_sign_parse_binding_round_trip() -> None:
+    w = _wallet()
+    proof = sign_social_binding(w, BINDING_CLAIM)
+    assert parse_social_binding(proof) == BINDING_CLAIM
+
+
+def test_parse_binding_rejects_no_message() -> None:
+    with pytest.raises(BadAttestationError):
+        parse_social_binding({'address': 'x'})
+
+
+def test_parse_binding_rejects_non_json_message() -> None:
+    with pytest.raises(BadAttestationError):
+        parse_social_binding({'message': 'not json'})
+
+
+def test_parse_binding_rejects_extra_key() -> None:
+    with pytest.raises(BadAttestationError):
+        parse_social_binding(
+            {'message': '{"platform":"github","handle":"x","txid":"abc"}'}
+        )
+
+
+def test_parse_binding_rejects_reordered_keys() -> None:
+    with pytest.raises(BadAttestationError):
+        parse_social_binding({'message': '{"handle":"x","platform":"github"}'})
+
+
+def test_parse_binding_rejects_whitespace() -> None:
+    with pytest.raises(BadAttestationError):
+        parse_social_binding({'message': '{"platform": "github","handle":"x"}'})
+
+
+def test_parse_binding_rejects_unicode_escaped() -> None:
+    # ø is the escaped form of ø — non-canonical since we use ensure_ascii=False
+    with pytest.raises(BadAttestationError):
+        parse_social_binding(
+            {'message': '{"platform":"github","handle":"t\\u00f8m"}'}
+        )
+
+
+def test_binding_domain_separation() -> None:
+    w = _wallet()
+    binding_proof = sign_social_binding(w, BINDING_CLAIM)
+    stake_proof = sign_stake_attestation(w, CLAIM)
+    # stake parser must reject a binding proof
+    with pytest.raises(BadAttestationError):
+        parse_stake_attestation(binding_proof)
+    # binding parser must reject a stake proof
+    with pytest.raises(BadAttestationError):
+        parse_social_binding(stake_proof)
