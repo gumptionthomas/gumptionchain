@@ -69,7 +69,9 @@ Installed. Before the miller can start you must:
   1. put your wallet .pem in the wallet dir,
   2. write .env and deploy.env in the repo root (see docs/howto-miller-pi.md),
   3. ask the hub operator to allowlist your address,
-then run:
+then re-run this installer (it will init the database and start the
+miller), or by hand:
+  cd ~gc/gumptionchain && uv run gumptionchain init
   sudo systemctl enable --now gumptionchain-miller
 EOF
 fi
