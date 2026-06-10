@@ -1,0 +1,33 @@
+[
+  {
+    "claim": {
+      "platform": "github",
+      "handle": "gumptionthomas"
+    },
+    "timestamp": "1700003000",
+    "message": "{\"platform\":\"github\",\"handle\":\"gumptionthomas\"}",
+    "signature": "dchY/oRfQjuCEB3rbq0k7zoOvV/8cPmxv4Jb7JI0naSc5lfUDyNMi44OQIbfR18KUKbVuQiAbIX40nyWySdCyYdM5/XxPFBg9Wa1phDoHnjXbrsJtZ/mQAaDjcgS8ZDOyrwxU/mPwM++7w20HJPHZpSR8pNM7+wimDfW+9l3HaL93WSuM3GW+SzibaL5hci7pVTJftltMvr0wVe+rEXZuXuRyo/obmpDimBB+QsJDrPkFl2agPn/dC+VVVvEAaYVqxfUrXU0GxSV8oICVta9f5M3p5oO3iV+uD5ABZsW+tGJVv19mFmVqUtHydEsQHvdjp5dSv6XBPrICdfeQFzsNg==",
+    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+  },
+  {
+    "claim": {
+      "platform": "github",
+      "handle": "gumptionthomas",
+      "proof_url": "https://gist.github.com/gumptionthomas/abc123"
+    },
+    "timestamp": "1700003001",
+    "message": "{\"platform\":\"github\",\"handle\":\"gumptionthomas\",\"proof_url\":\"https://gist.github.com/gumptionthomas/abc123\"}",
+    "signature": "TJak21enZ5EklfvaThex1BQe4F+/Z/BXjb9hlo7bGNxVepMOAQqDmP0OsS9X+Q7EbxxCOapv6snsBuduEoa+CfMBVAi8Sl3xIEkjpvdrXyQOzuO/toS5gAb9cPspv68qV4dEprqmS2OqJfqtVFa70I2rsIw22vJZ69krJHofOsFaIrpe75fx2JmOoRuALE8CSal81220aoaCsmew/2tcsvJ9h+Bk7EybINH9swFFxHLPrtCvV7b8SeclGa/2CI3euRV1aqLTO/qbkryz6CrE1ligbQrWSlml0AIjazRA3FYR0HzzhUj3ygrcSIAvV0WgcG72qO+qrl0kt1WMc2YDaQ==",
+    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+  },
+  {
+    "claim": {
+      "platform": "mastodon",
+      "handle": "@t\u00f8m@example.social"
+    },
+    "timestamp": "1700003002",
+    "message": "{\"platform\":\"mastodon\",\"handle\":\"@t\u00f8m@example.social\"}",
+    "signature": "PJ+/VP80MCEvX/ICSKOFb7hH72AT7HJEp1osca6NMIbUH75yGwzMpdOLcVIYDSZbgYi7ePduNEZRTIDfG7SC+iAoB4b97gloyDEokzEBbtcsqdhqLjTyoocYCvn3hzbLq9w+CUhOBg4fS+djjQhpn/IKvcY9zYCfv/2vnL5O/Rn92Ma+XO7dYDvfHixkcze8YytjcBi4zUr+d+/mAXki4VN9NJ3PHx6qvMkeyNzwQDHMuh01AtJtK35W67GVwbfX9IvYLlLM32edO3tDWP+0rx0MPHNqD2C4XpbJjm5COtWRz1YAkPU2m+aWWU84k5j4Rm38v22AJmyqqIvDbU2gMg==",
+    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+  }
+]
