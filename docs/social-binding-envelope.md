@@ -165,7 +165,12 @@ wrapper.
 
 ### Proof fields
 
-A signed social binding proof is a JSON object with exactly these fields.
+A signed social binding proof is a JSON object with the seven fields below.
+Verifiers validate these fields and ignore any additional keys. Note that
+extra keys are **not covered by the signature** — the canonical string
+binds only the fields below (`message` via its digest, `public_key` via
+address self-certification) — so consumers MUST NOT read or trust any
+other key found on a proof object.
 
 | Field | Type | Value |
 |---|---|---|
