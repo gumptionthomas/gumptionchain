@@ -118,7 +118,7 @@ reconstruction check catches:
 - reordered keys (e.g. `handle` before `platform`)
 - whitespace or indentation in the JSON
 - extra or unknown fields in the message
-- escaped Unicode (e.g. `ø` instead of the raw UTF-8 byte for `ø`)
+- escaped Unicode (e.g. `\u00f8` instead of the raw UTF-8 bytes for `ø`)
 
 ---
 
@@ -188,16 +188,22 @@ copy-paste-friendly text block:
 -----BEGIN GUMPTION SIGNED MESSAGE-----
 <message>
 -----BEGIN GUMPTION SIGNATURE-----
-<base64 of JSON.stringify(proof)>
+<base64 of JSON-serialized proof object>
 -----END GUMPTION SIGNED MESSAGE-----
 ```
 
-The signature block is the standard base64 encoding of the compact JSON
-serialization of the full proof object (all seven fields). The cleartext
-between the two `BEGIN` markers is `proof['message']` — the canonical claim
-string, reproduced verbatim for human inspection. `from_armored` /
-`fromArmored` rejects any armored block where the cleartext does not match
-`proof['message']` from the decoded signature block.
+The signature block is a standard base64-encoded JSON serialization of the
+full proof object (all seven fields). The exact whitespace and key order of
+that JSON are **implementation-defined and NOT canonical**: Python's
+`to_armored` uses `json.dumps` with default separators (`, ` / `: `), while
+JS's `toArmored` uses `JSON.stringify` (compact, no spaces) — the resulting
+blob bytes differ between implementations, and that is intentional. Verifiers
+MUST NOT byte-compare armor blobs; they must decode the base64, parse the
+JSON, and verify the contained proof. The cleartext between the two `BEGIN`
+markers is `proof['message']` — the canonical claim string, reproduced
+verbatim for human inspection. `from_armored` / `fromArmored` rejects any
+armored block where the cleartext does not match `proof['message']` from the
+decoded signature block.
 
 **What a directory service must verify:**
 
@@ -212,8 +218,8 @@ string, reproduced verbatim for human inspection. `from_armored` /
    `claim['platform'] == registered_platform`).
 5. Confirm the signer (`proof['address']`) is the wallet being bound.
 
-All five checks must pass for a binding to be considered verified. Steps 3–5
-are this spec's domain; steps 1–2 and 4–5 are the directory's domain.
+All five checks must pass for a binding to be considered verified. Step 3 is
+this spec's domain; steps 1–2 and 4–5 are the directory's domain.
 
 ---
 
@@ -355,8 +361,9 @@ dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBdDIzOWowZVBkT1VBeVJoaFBv
 -----END GUMPTION SIGNED MESSAGE-----
 ```
 
-(The full base64 signature block is the standard base64 encoding of
-`json.dumps(proof)` — the complete proof object above.)
+(The full base64 signature block is the standard base64 encoding of the
+complete proof object above, serialized with Python's `json.dumps` defaults —
+this example shows the Python serialization.)
 
 ---
 
