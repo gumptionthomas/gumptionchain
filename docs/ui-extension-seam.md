@@ -43,6 +43,28 @@ subjects lists import it via `{% from "_pagination.html" import render_paginatio
 4. **Add new pages** — register your own blueprint.
 5. **Link to shared pages** by base endpoint name, e.g.
    `url_for('browser.verify_view')`.
+6. **Relocate a base page** — shadowing a page template (rule 2) makes
+   base's markup for that page unreachable by name, so a consumer that
+   wants its own front door *plus* the stock page elsewhere needs the page
+   body as a partial. The explorer home ships this pair: the
+   `_explorer_home.html` partial (the full home body — stats strip,
+   chain-tip card, recent blocks, the `index/extra.html` hook, no-chain
+   branch; base's `index.html` is just a thin wrapper around it) and the
+   public context helper `gumptionchain.browser.explorer_home_context()`,
+   which returns the `{lc, subject_count, total_staked, pending_count}`
+   context `index_view` renders with. Shadow `index.html` with your
+   landing, then:
+
+   ```python
+   from gumptionchain.browser import explorer_home_context
+
+   @hub_bp.route('/chain')
+   def chain_home():
+       return render_template('chain.html', **explorer_home_context())
+   ```
+
+   where `chain.html` extends your skin and
+   `{% include "_explorer_home.html" %}` in its content block.
 
 ## Assets
 

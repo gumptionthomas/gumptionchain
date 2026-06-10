@@ -3,6 +3,7 @@ import re
 
 from gumptionchain.api_client import ApiClient
 from gumptionchain.block import expiry_cutoff
+from gumptionchain.browser import explorer_home_context
 from gumptionchain.models import PendingTxnDAO
 from gumptionchain.util import now
 
@@ -12,6 +13,41 @@ def _stake_opposition(host, chain, wallet, amount, subject):
     txn.sign()
     ApiClient(host, wallet).post_transaction(txn)
     return txn
+
+
+def test_explorer_home_context_empty_chain(app):
+    # The public seam helper (#244) is safe before any block exists.
+    with app.app_context():
+        assert explorer_home_context() == {
+            'lc': None,
+            'subject_count': 0,
+            'total_staked': 0,
+            'pending_count': 0,
+        }
+
+
+def test_explorer_home_context_seeded_chain(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    # explorer_home_context() returns exactly the four keys index_view
+    # passes to the template, computed the same way (#244).
+    with app.app_context():
+        m, _b1 = mill_block(wallet)
+        _stake_opposition(host, m.longest_chain, wallet, 300, subject)
+        m, tip = mill_block(wallet)  # confirms the stake
+        _stake_opposition(host, m.longest_chain, wallet, 200, subject)
+
+        ctx = explorer_home_context()
+        assert set(ctx) == {
+            'lc',
+            'subject_count',
+            'total_staked',
+            'pending_count',
+        }
+        assert ctx['lc'].last_block.block_hash == tip.block_hash
+        assert ctx['subject_count'] == 1
+        assert ctx['total_staked'] == 300
+        assert ctx['pending_count'] == 1
 
 
 def test_home_empty_chain(test_client):

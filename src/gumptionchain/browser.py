@@ -72,22 +72,39 @@ blueprint = Blueprint(
 )
 
 
+def explorer_home_context() -> dict[str, Any]:
+    """Template context for the explorer home (`_explorer_home.html`).
+
+    Public seam helper (`docs/ui-extension-seam.md`): a consumer that
+    shadows `index.html` with its own landing can re-serve the stock
+    explorer home at another route by rendering a template that includes
+    `_explorer_home.html` with this context.
+    """
+    lc = longest_chain()
+    # stake_stats runs the leaderboard union-anti-join once, yielding both
+    # the distinct subject count and the total live stake; the template
+    # reads lc.length / lc.transaction_count / lc.recent_blocks(10)
+    # directly.
+    subject_count = total_staked = 0
+    if lc is not None:
+        subject_count, total_staked = lc.stake_stats()
+    # Pending-pool size is independent of the chain (always available).
+    # Count what /mempool displays: unexpired + unconfirmed (#208).
+    pending_count = PendingTxnDAO.unconfirmed_count(
+        expired=expiry_cutoff(now())
+    )
+    return {
+        'lc': lc,
+        'subject_count': subject_count,
+        'total_staked': total_staked,
+        'pending_count': pending_count,
+    }
+
+
 @blueprint.route('/')
 def index_view() -> Any:
     try:
-        lc = longest_chain()
-        # Compute stats in the view (explicit + testable). stake_stats runs
-        # the leaderboard union-anti-join once, yielding both the distinct
-        # subject count and the total live stake; the template reads
-        # lc.length / lc.transaction_count / lc.recent_blocks(10) directly.
-        subject_count = total_staked = 0
-        if lc is not None:
-            subject_count, total_staked = lc.stake_stats()
-        # Pending-pool size is independent of the chain (always available).
-        # Count what /mempool displays: unexpired + unconfirmed (#208).
-        pending_count = PendingTxnDAO.unconfirmed_count(
-            expired=expiry_cutoff(now())
-        )
+        context = explorer_home_context()
     except HTTPException as e:
         return e
     except Exception as e:
@@ -97,14 +114,7 @@ def index_view() -> Any:
         # error response with no internal detail in the body (audit WEB2).
         current_app.logger.exception(e)
         abort(500)
-    return render_template(
-        'index.html',
-        title='Home',
-        lc=lc,
-        subject_count=subject_count,
-        total_staked=total_staked,
-        pending_count=pending_count,
-    )
+    return render_template('index.html', title='Home', **context)
 
 
 @blueprint.route('/chains')
