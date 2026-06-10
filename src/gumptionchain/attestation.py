@@ -186,6 +186,34 @@ def parse_social_binding(proof: Any) -> dict[str, Any]:
     return claim  # type: ignore[no-any-return]
 
 
+def verify_binding(proof: Any, max_age: int | None = None) -> dict[str, Any]:
+    # Pure half of binding verification: claim shape + gc-msg-v1
+    # signature. The proof_url side (fetch + content check) is the
+    # hub's stateful half; its verdict merges into `checks` downstream.
+    claim = parse_social_binding(proof)
+    reasons: list[str] = []
+    checks = {'signature': False}
+    signer = proof.get('address')
+    try:
+        sig = verify_message(proof, max_age=max_age)
+    except BadProofError as e:
+        msg = 'binding is not a valid gc-msg-v1 proof'
+        raise BadAttestationError(msg) from e
+    if sig.get('valid') and sig.get('address') == signer:
+        checks['signature'] = True
+    else:
+        reasons.append(
+            'expired' if sig.get('reason') == 'expired' else 'bad-signature'
+        )
+    return {
+        'valid': all(checks.values()),
+        'checks': checks,
+        'signer': signer,
+        'claim': claim,
+        'reasons': reasons,
+    }
+
+
 def _outflow_matches(
     outflows: list[dict[str, Any]], claim: dict[str, Any]
 ) -> bool:

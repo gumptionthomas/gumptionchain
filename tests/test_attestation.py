@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from test_browser_wallet_vectors import VECTOR_WALLET_B58
 
@@ -9,6 +11,7 @@ from gumptionchain.attestation import (
     parse_stake_attestation,
     sign_social_binding,
     sign_stake_attestation,
+    verify_binding,
     verify_stake,
 )
 from gumptionchain.wallet import Wallet
@@ -379,3 +382,71 @@ def test_binding_domain_separation() -> None:
     # binding parser must reject a stake proof
     with pytest.raises(BadAttestationError):
         parse_social_binding(stake_proof)
+
+
+# ---------------------------------------------------------------------------
+# verify_binding tests (#251)
+# ---------------------------------------------------------------------------
+
+TS_BINDING = 1700002000
+
+
+def test_verify_binding_valid() -> None:
+    w = _wallet()
+    proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
+    verdict = verify_binding(proof)
+    assert verdict == {
+        'valid': True,
+        'checks': {'signature': True},
+        'signer': w.address,
+        'claim': {'platform': 'github', 'handle': 'gumptionthomas'},
+        'reasons': [],
+    }
+
+
+def test_verify_binding_signer_from_proof_address() -> None:
+    w = _wallet()
+    proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
+    verdict = verify_binding(proof)
+    assert verdict['signer'] == proof['address']
+
+
+def test_verify_binding_tampered_message() -> None:
+    w = _wallet()
+    proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
+    # Swap message to a different canonical binding message (parse still passes)
+    other_claim = {'platform': 'github', 'handle': 'otheruser'}
+    proof = dict(proof)
+    proof['message'] = build_binding_message(other_claim)
+    verdict = verify_binding(proof)
+    assert verdict['valid'] is False
+    assert verdict['checks']['signature'] is False
+    assert verdict['reasons'] == ['bad-signature']
+
+
+def test_verify_binding_expired() -> None:
+    w = _wallet()
+    # Sign with a timestamp 1000 s in the past; max_age=300 must mark it expired
+    stale_ts = int(time.time()) - 1000
+    stale_proof = sign_social_binding(w, BINDING_CLAIM, timestamp=stale_ts)
+    verdict = verify_binding(stale_proof, max_age=300)
+    assert verdict['valid'] is False
+    assert verdict['reasons'] == ['expired']
+
+
+def test_verify_binding_malformed_envelope_raises() -> None:
+    w = _wallet()
+    proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
+    bad = dict(proof)
+    del bad['public_key']
+    with pytest.raises(BadAttestationError):
+        verify_binding(bad)
+
+
+def test_verify_binding_rejects_non_binding_proof() -> None:
+    # A stake proof passed to verify_binding must raise BadAttestationError
+    # (the parse_social_binding step rejects the claim shape)
+    w = _wallet()
+    stake_proof = sign_stake_attestation(w, CLAIM, timestamp=TS_BINDING)
+    with pytest.raises(BadAttestationError):
+        verify_binding(stake_proof)
