@@ -24,6 +24,16 @@ blueprint templates**, so a consumer overrides base templates by filename.
 A conformant consumer skin should define every block (even if empty); base
 page templates confine themselves to `content`/`title`/`scripts`.
 
+Note on `scripts` and `{{ super() }}`: base pages with client JS
+(`verify.html`, `transact.html`, `wallet.html`) open their `scripts` block
+with `{{ super() }}` before their inline modules. Under base's own
+`base.html`, that pulls in the jQuery slim + Bootstrap bundle CDN tags; under
+a consumer skin it resolves to *the skin's* `scripts` block — empty skin
+block means those bundles are silently dropped on base pages. Benign today
+(base page modules are self-contained ESM and don't depend on jQuery or
+Bootstrap JS), but a skin that wants Bootstrap JS behaviors in base markup
+must provide the bundles in its own `scripts` block.
+
 Base also ships `_pagination.html`, a macro template providing
 `render_pagination(page, endpoint)` for Bootstrap pagination; the blocks and
 subjects lists import it via `{% from "_pagination.html" import render_pagination %}`.
