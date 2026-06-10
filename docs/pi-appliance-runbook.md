@@ -24,7 +24,8 @@ receives a `v*` tag and rolls to the member fleet.
 
 Column notes:
 - **Channel** — `main` for gcm-01 (canary); `tags` for all member appliances.
-- **Wallet address** — the `.pem` filename without the `.pem` extension.
+- **Wallet address** — derived from the key content; matches the original
+  generated filename before the rename to `gcm-NN.pem`.
 - **Shipped** — the date the appliance left the bench. Leave `(canary)` for
   gcm-01; it never ships.
 - Wallet address and location are sensitive; keep this file in your private
@@ -48,6 +49,17 @@ The `-d` flag requires the directory to exist (it is a `click.Path(exists=True)`
 argument). The command prints the full path of the created file, e.g.:
 `Created /home/you/gc-fleet/gcm-NN/GCabc123...GC.pem`. The filename is the
 wallet address.
+
+Rename the file to the device hostname so all per-device secrets share a
+consistent naming convention:
+
+```bash
+mv ~/gc-fleet/gcm-NN/GCabc123...GC.pem ~/gc-fleet/gcm-NN/gcm-NN.pem
+```
+
+The wallet loader keys wallets by the address derived from the key's content,
+not by filename — the rename is safe and keeps per-device files predictably
+named.
 
 Record the address in the fleet roster table above.
 
@@ -248,8 +260,10 @@ The script ends with `systemctl is-active gumptionchain-miller` and the last
       ssh gc@gcm-NN.local sudo systemctl start gumptionchain-update.service
       ssh gc@gcm-NN.local journalctl -u gumptionchain-update.service --no-pager
       ```
-      Expected: either "no release target" / "already current" (exit 0), or
-      "updated to vX.Y.Z" (exit 0). No rollback, no skip-file entry.
+      Expected: either a silent exit 0 when already current (check
+      `systemctl status gumptionchain-update.service` shows
+      `status=0/SUCCESS`), or `updated to vX.Y.Z` (tags channel) / `updated
+      to <commit-sha>` (branch channel). No rollback, no skip-file entry.
 - [ ] Reboot test — services come back unattended:
       ```bash
       ssh gc@gcm-NN.local sudo reboot
@@ -432,7 +446,7 @@ the new kit. Complete these steps before building the first member appliance.
         ```bash
         deploy/pi/provision-appliance.sh \
             gcm-01.local \
-            ~/gc-fleet/gcm-01/<address>.pem \
+            ~/gc-fleet/gcm-01/gcm-01.pem \
             ~/gc-fleet/gcm-01/env \
             ~/gc-fleet/gcm-01/deploy.env
         ```
@@ -455,7 +469,8 @@ the new kit. Complete these steps before building the first member appliance.
 
 - [ ] **Cut the first `v*` release tag** once gcm-01 has soaked at least one
       full nightly update cycle cleanly (24+ hours, update journal shows
-      "updated to main tip" or "already current", no rollback):
+      a silent exit 0 when already current or `updated to <commit-sha>`
+      (branch channel), no rollback):
       ```bash
       git tag -a v0.1.0 -m "v0.1.0 — initial managed appliance release"
       git push origin v0.1.0
