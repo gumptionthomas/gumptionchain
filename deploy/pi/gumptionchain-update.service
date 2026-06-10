@@ -1,0 +1,9 @@
+[Unit]
+Description=GumptionChain channel update
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/gc/gumptionchain/deploy.env
+ExecStart=/home/gc/gumptionchain/deploy/pi/update.sh
