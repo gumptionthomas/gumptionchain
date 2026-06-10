@@ -57,7 +57,7 @@ for unit in deploy/pi/*.service deploy/pi/*.timer; do
   cp "$unit" "${UNIT_DIR}/$(basename "$unit")"
 done
 systemctl daemon-reload
-systemctl enable gumptionchain-update.timer
+systemctl enable --now gumptionchain-update.timer
 
 if [ -f "${REPO_DIR}/.env" ] && [ -f "${REPO_DIR}/deploy.env" ]; then
   as_gc "${GC_HOME}/.local/bin/uv" run gumptionchain init
