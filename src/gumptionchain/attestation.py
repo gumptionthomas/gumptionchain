@@ -118,6 +118,9 @@ def parse_stake_attestation(proof: Any) -> dict[str, Any]:
 # the hub's responsibility (gumption-hub), not this base layer.
 # ---------------------------------------------------------------------------
 
+# Platform identifier: lowercase alphanumeric + hyphen, 1-32 chars. Kept in
+# lockstep with the JS validator's PLATFORM_RE in
+# clients/wallet/gc-attestation.mjs.
 _PLATFORM_RE = re.compile(r'[a-z0-9-]{1,32}')
 _MAX_HANDLE_LEN = 256
 _MAX_PROOF_URL_LEN = 512
