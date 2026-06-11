@@ -287,6 +287,38 @@ export function whichKeyControls({ hasWallet, passkeySupported }) {
   };
 }
 
+// Pure state decision for the key panel (#262). unlockedKind is
+// null (locked / no key), 'saved' (unlocked from the keyring), or
+// 'session' (one-session key imported under Advanced).
+export function whichKeyPanel({
+  hasRecord,
+  unlockedKind,
+  passkeySupported,
+}) {
+  if (unlockedKind) {
+    return {
+      state: 'unlocked',
+      badge: unlockedKind,
+      actionsEnabled: true,
+      showUnlockPasskey: false,
+    };
+  }
+  if (hasRecord) {
+    return {
+      state: 'locked',
+      badge: null,
+      actionsEnabled: false,
+      showUnlockPasskey: !!passkeySupported,
+    };
+  }
+  return {
+    state: 'none',
+    badge: null,
+    actionsEnabled: false,
+    showUnlockPasskey: false,
+  };
+}
+
 // Unlock the saved (gc-keyring) wallet and hold it in the shared session for
 // this page's life (auto-locked like the ephemeral path). passphrase OR passkey
 // is supplied. A wrong secret rejects out of the keyring (GCM auth-tag failure)

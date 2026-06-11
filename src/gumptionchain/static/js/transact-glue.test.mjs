@@ -10,6 +10,7 @@ import {
   encodeSubject,
   signAttestation,
   whichKeyControls,
+  whichKeyPanel,
   unlockSaved,
 } from './transact-glue.mjs';
 import { Wallet } from '../wallet/gc-wallet.mjs';
@@ -500,4 +501,57 @@ test('submitSigned rejects a pasted object missing txid/signature', async () => 
     /signed transaction|txid or signature/i,
   );
   assert.equal(fetched, false); // never POSTed to /api/transaction/undefined
+});
+
+// --- whichKeyPanel: three-state signing-key panel decision function (#262).
+
+test('whichKeyPanel: no record -> none, actions disabled', () => {
+  const c = whichKeyPanel({
+    hasRecord: false,
+    unlockedKind: null,
+    passkeySupported: true,
+  });
+  assert.equal(c.state, 'none');
+  assert.equal(c.actionsEnabled, false);
+  assert.equal(c.badge, null);
+  assert.equal(c.showUnlockPasskey, false);
+});
+
+test('whichKeyPanel: record + locked -> locked, passkey button per support', () => {
+  const locked = whichKeyPanel({
+    hasRecord: true,
+    unlockedKind: null,
+    passkeySupported: true,
+  });
+  assert.equal(locked.state, 'locked');
+  assert.equal(locked.actionsEnabled, false);
+  assert.equal(locked.showUnlockPasskey, true);
+  const noPasskey = whichKeyPanel({
+    hasRecord: true,
+    unlockedKind: null,
+    passkeySupported: false,
+  });
+  assert.equal(noPasskey.showUnlockPasskey, false);
+});
+
+test('whichKeyPanel: unlocked saved -> unlocked, actions enabled, saved badge', () => {
+  const c = whichKeyPanel({
+    hasRecord: true,
+    unlockedKind: 'saved',
+    passkeySupported: true,
+  });
+  assert.equal(c.state, 'unlocked');
+  assert.equal(c.actionsEnabled, true);
+  assert.equal(c.badge, 'saved');
+});
+
+test('whichKeyPanel: session key -> unlocked even with no record', () => {
+  const c = whichKeyPanel({
+    hasRecord: false,
+    unlockedKind: 'session',
+    passkeySupported: false,
+  });
+  assert.equal(c.state, 'unlocked');
+  assert.equal(c.actionsEnabled, true);
+  assert.equal(c.badge, 'session');
 });
