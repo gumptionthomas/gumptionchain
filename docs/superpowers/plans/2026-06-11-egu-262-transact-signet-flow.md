@@ -27,8 +27,9 @@ docs PR merges). Single implementation PR.
   the DOM-free `whichKeyControls({hasWallet, passkeySupported})`
   (~line 283) used by `renderKeyControls()` (~line 423), and
   `src/gumptionchain/static/js/transact-glue.test.mjs` exists and runs
-  in CI — read it first; it likely tests `whichKeyControls` and those
-  tests must be UPDATED, not deleted, when the function is replaced.
+  in CI — read it first; its `whichKeyControls` tests stay green
+  through Tasks 1-2 and are deleted in Task 3 along with the function
+  and `renderKeyControls` (the new state model replaces all three).
 - The keyring record's `address` is plaintext (no unlock needed):
   `store.get()` → `{version, address, wallet_ct, wraps}` or `null`
   (`clients/wallet/gc-keyring.mjs:18-21`). Create =
