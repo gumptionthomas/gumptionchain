@@ -577,16 +577,21 @@ export function init(
           return;
         }
       }
+      createBtn.disabled = true; // no double-submit while enrolling
       try {
         const wallet = await Wallet.generate();
         await keyring.enroll(wallet, { store }, { passphrase });
         session.setWallet(wallet);
         unlockSource = 'saved';
-        if (createPassphrase) createPassphrase.value = '';
         if (backupNudge) show(backupNudge, true);
         await renderKeyPanel();
       } catch (e) {
         setStatus(createStatus, `Could not create: ${msgOf(e)}`, 'error');
+      } finally {
+        // Wipe the chosen passphrase (and any other password input) on
+        // success AND failure; re-enable the button.
+        clearSecrets();
+        createBtn.disabled = false;
       }
     });
   }
