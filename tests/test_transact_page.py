@@ -38,7 +38,7 @@ def test_transact_page_key_panel_states(app, test_client):
         assert 'id="key-create-passphrase"' in body
         assert 'id="key-trust-ack"' in body
         assert 'id="key-create-btn"' in body
-        assert 'Create your signing key' in body  # noqa: dup-ok
+        assert 'Create your signing key' in body
         # Explicit unlock state.
         assert 'id="unlock-passphrase"' in body
         assert 'id="unlock-saved-btn"' in body
