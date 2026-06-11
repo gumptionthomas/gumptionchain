@@ -1,0 +1,18 @@
+[Unit]
+Description=GumptionChain miller
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=gc
+WorkingDirectory=/home/gc/gumptionchain
+EnvironmentFile=/home/gc/gumptionchain/deploy.env
+ExecStart=/home/gc/.local/bin/uv run gumptionchain mill --peer ${GC_MILL_PEER} ${GC_MILL_ADDRESS}
+Restart=always
+RestartSec=10
+# 1 GB Pi 3: a leak degrades to a service restart, not a frozen box.
+MemoryMax=700M
+
+[Install]
+WantedBy=multi-user.target

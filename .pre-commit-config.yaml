@@ -21,3 +21,8 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        files: ^deploy/pi/.*\.sh$
