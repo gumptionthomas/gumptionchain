@@ -1,14 +1,14 @@
-# EGU #262 — Transact Signet Flow Implementation Plan
+# EGU #262 — Transact Signing-Key Flow Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebuild the `/transact` key UX as an explicit three-state signet
+**Goal:** Rebuild the `/transact` key UX as an explicit three-state signing-key
 panel (inline create / locked / unlocked) with markup-level action gating
 and the one-session key collapsed under an Advanced disclosure.
 
 **Architecture:** Per the approved spec
 (`docs/superpowers/specs/2026-06-11-egu-262-transact-signet-flow-design.md`).
-A pure decision function (`whichSignetPanel`) picks the visible state;
+A pure decision function (`whichKeyPanel`) picks the visible state;
 the shared `_key_import.html` partial becomes the state-machine markup
 (so `/advanced` inherits it); `transact-glue.mjs` gains create/lock
 wiring and toggles the build buttons' `disabled`. No server-side changes.
@@ -78,7 +78,7 @@ tests/test_advanced_page.py                         # Task 2
 
 ---
 
-### Task 1: `whichSignetPanel` decision function (node TDD)
+### Task 1: `whichKeyPanel` decision function (node TDD)
 
 **Files:**
 - Modify: `src/gumptionchain/static/js/transact-glue.mjs`
@@ -93,8 +93,8 @@ the function.
 `transact-glue.test.mjs`, matching its import style):
 
 ```javascript
-test('whichSignetPanel: no record -> none, actions disabled', () => {
-  const c = whichSignetPanel({
+test('whichKeyPanel: no record -> none, actions disabled', () => {
+  const c = whichKeyPanel({
     hasRecord: false,
     unlockedKind: null,
     passkeySupported: true,
@@ -105,8 +105,8 @@ test('whichSignetPanel: no record -> none, actions disabled', () => {
   assert.equal(c.showUnlockPasskey, false);
 });
 
-test('whichSignetPanel: record + locked -> locked, passkey button per support', () => {
-  const locked = whichSignetPanel({
+test('whichKeyPanel: record + locked -> locked, passkey button per support', () => {
+  const locked = whichKeyPanel({
     hasRecord: true,
     unlockedKind: null,
     passkeySupported: true,
@@ -114,7 +114,7 @@ test('whichSignetPanel: record + locked -> locked, passkey button per support', 
   assert.equal(locked.state, 'locked');
   assert.equal(locked.actionsEnabled, false);
   assert.equal(locked.showUnlockPasskey, true);
-  const noPasskey = whichSignetPanel({
+  const noPasskey = whichKeyPanel({
     hasRecord: true,
     unlockedKind: null,
     passkeySupported: false,
@@ -122,8 +122,8 @@ test('whichSignetPanel: record + locked -> locked, passkey button per support', 
   assert.equal(noPasskey.showUnlockPasskey, false);
 });
 
-test('whichSignetPanel: unlocked saved -> unlocked, actions enabled, saved badge', () => {
-  const c = whichSignetPanel({
+test('whichKeyPanel: unlocked saved -> unlocked, actions enabled, saved badge', () => {
+  const c = whichKeyPanel({
     hasRecord: true,
     unlockedKind: 'saved',
     passkeySupported: true,
@@ -133,8 +133,8 @@ test('whichSignetPanel: unlocked saved -> unlocked, actions enabled, saved badge
   assert.equal(c.badge, 'saved');
 });
 
-test('whichSignetPanel: session key -> unlocked even with no record', () => {
-  const c = whichSignetPanel({
+test('whichKeyPanel: session key -> unlocked even with no record', () => {
+  const c = whichKeyPanel({
     hasRecord: false,
     unlockedKind: 'session',
     passkeySupported: false,
@@ -145,13 +145,13 @@ test('whichSignetPanel: session key -> unlocked even with no record', () => {
 });
 ```
 
-Add `whichSignetPanel` to the file's import list from
+Add `whichKeyPanel` to the file's import list from
 `./transact-glue.mjs`.
 
 - [ ] **Step 3: Run to verify failure**
 
 Run: `node --test src/gumptionchain/static/js/transact-glue.test.mjs`
-Expected: the new tests FAIL (whichSignetPanel not exported)
+Expected: the new tests FAIL (whichKeyPanel not exported)
 
 - [ ] **Step 4: Implement** in `transact-glue.mjs`, ADDED ALONGSIDE
 `whichKeyControls` (which keeps serving the old markup until Task 3
@@ -159,10 +159,10 @@ deletes it together with `renderKeyControls` and their tests — clean
 task boundary; both functions coexist after this task):
 
 ```javascript
-// Pure state decision for the signet panel (#262). unlockedKind is
+// Pure state decision for the key panel (#262). unlockedKind is
 // null (locked / no key), 'saved' (unlocked from the keyring), or
 // 'session' (one-session key imported under Advanced).
-export function whichSignetPanel({
+export function whichKeyPanel({
   hasRecord,
   unlockedKind,
   passkeySupported,
@@ -202,7 +202,7 @@ nothing replaced yet)
 
 ```bash
 git add src/gumptionchain/static/js/transact-glue.mjs src/gumptionchain/static/js/transact-glue.test.mjs
-git commit -m "feat(transact): whichSignetPanel state decision (#262)"
+git commit -m "feat(transact): whichKeyPanel state decision (#262)"
 ```
 
 ---
@@ -219,33 +219,33 @@ git commit -m "feat(transact): whichSignetPanel state decision (#262)"
 `test_transact_page_has_saved_wallet_unlock_markup` with:
 
 ```python
-def test_transact_page_signet_panel_states(app, test_client):
+def test_transact_page_key_panel_states(app, test_client):
     with app.app_context():
         body = str(test_client.get('/transact').data)
-        # The three-state signet panel (#262): exactly one state is
+        # The three-state key panel (#262): exactly one state is
         # shown by JS; all ship in markup.
-        assert 'data-signet-state="none"' in body
-        assert 'data-signet-state="locked"' in body
-        assert 'data-signet-state="unlocked"' in body
+        assert 'data-key-state="none"' in body
+        assert 'data-key-state="locked"' in body
+        assert 'data-key-state="unlocked"' in body
         # Inline mini-create (the conversion moment).
-        assert 'id="signet-create-passphrase"' in body
-        assert 'id="signet-trust-ack"' in body
-        assert 'id="signet-create-btn"' in body
-        assert 'Create your signet' in body
+        assert 'id="key-create-passphrase"' in body
+        assert 'id="key-trust-ack"' in body
+        assert 'id="key-create-btn"' in body
+        assert 'Create your signing key' in body  # noqa: dup-ok
         # Explicit unlock state.
         assert 'id="unlock-passphrase"' in body
         assert 'id="unlock-saved-btn"' in body
         # Unlocked state: badge + explicit lock.
-        assert 'id="signet-badge"' in body
-        assert 'id="signet-lock-btn"' in body
+        assert 'id="key-badge"' in body
+        assert 'id="key-lock-btn"' in body
         # One-session key collapsed under Advanced.
         assert 'id="session-key"' in body
         assert 'class="collapse' in body
         assert 'one-session key' in body
         assert 'id="key-b58"' in body
         assert 'id="import-key-btn"' in body
-        # Signet-first copy with the bridge parenthetical.
-        assert 'signing keypair' in body
+        # Key-first copy; self-explanatory, no glossary needed.
+        assert 'Create your signing key' in body
 
 
 def test_transact_actions_disabled_until_unlocked(app, test_client):
@@ -262,9 +262,9 @@ In `tests/test_advanced_page.py`, replace the three key-area
 assertions (lines ~22-24) with:
 
 ```python
-        # The shared signet panel (#262) renders here too.
-        assert 'data-signet-state="none"' in body
-        assert 'data-signet-state="locked"' in body
+        # The shared key panel (#262) renders here too.
+        assert 'data-key-state="none"' in body
+        assert 'data-key-state="locked"' in body
         assert 'id="key-b58"' in body
         assert 'id="import-key-btn"' in body
 ```
@@ -279,48 +279,48 @@ Expected: FAIL (new ids absent)
 - [ ] **Step 3: Rewrite `_key_import.html`** in full:
 
 ```html
-{# Signet panel (#262): explicit three-state machine — no signet on
+{# Key panel (#262): explicit three-state machine — no key on
    this device (inline create) / saved + locked (explicit unlock) /
    unlocked (badge + Lock). Shared by transact.html and advanced.html;
    transact-glue.mjs shows exactly one state container and gates the
    page actions. The one-session key for power users is collapsed
    under the Advanced disclosure in every state. #}
-<div id="signet-panel">
-  <div data-signet-state="none" hidden>
-    <div class="fw-semibold">Create your signet</div>
+<div id="key-panel">
+  <div data-key-state="none" hidden>
+    <div class="fw-semibold">Create your signing key</div>
     <p class="small text-muted mb-2">
-      Your signet (a signing keypair) marks your stakes as yours. It is
-      created in your browser and saved encrypted on this device &mdash;
-      it is never sent anywhere.
+      Your signing key marks your stakes as yours. It is created in
+      your browser and saved encrypted on this device &mdash; it is
+      never sent anywhere.
     </p>
-    <label for="signet-create-passphrase" class="form-label">Passphrase</label>
-    <input id="signet-create-passphrase" type="password" autocomplete="off"
+    <label for="key-create-passphrase" class="form-label">Passphrase</label>
+    <input id="key-create-passphrase" type="password" autocomplete="off"
            class="form-control" placeholder="choose a passphrase">
     <div class="form-check mt-2">
-      <input id="signet-trust-ack" type="checkbox" class="form-check-input">
-      <label for="signet-trust-ack" class="form-check-label small">
+      <input id="key-trust-ack" type="checkbox" class="form-check-input">
+      <label for="key-trust-ack" class="form-check-label small">
         Persist only on a node you trust: this saves your encrypted
-        signet in this browser, on this site.
+        key in this browser, on this site.
       </label>
     </div>
-    <button id="signet-create-btn" class="btn btn-primary btn-sm mt-2">
-      Create your signet
+    <button id="key-create-btn" class="btn btn-primary btn-sm mt-2">
+      Create your signing key
     </button>
-    <div id="signet-create-status" class="mt-2 small"></div>
+    <div id="key-create-status" class="mt-2 small"></div>
   </div>
 
-  <div data-signet-state="locked" hidden>
+  <div data-key-state="locked" hidden>
     <div class="fw-semibold">
-      Your signet
+      Your signing key
       <span class="badge text-bg-secondary">locked</span>
     </div>
     <p class="small text-muted mb-2">
-      Saved on this device as <code data-signet-address></code>.
+      Saved on this device as <code data-key-address></code>.
       Unlock it to sign.
     </p>
     <label for="unlock-passphrase" class="form-label">Passphrase</label>
     <input id="unlock-passphrase" type="password" autocomplete="off"
-           class="form-control" placeholder="your signet passphrase">
+           class="form-control" placeholder="your key passphrase">
     <div class="mt-2">
       <button id="unlock-saved-btn" class="btn btn-primary btn-sm">
         Unlock
@@ -333,13 +333,13 @@ Expected: FAIL (new ids absent)
     <div id="unlock-status" class="mt-2 small"></div>
   </div>
 
-  <div data-signet-state="unlocked" hidden>
-    <span id="signet-badge" class="badge text-bg-success"></span>
-    <button id="signet-lock-btn" class="btn btn-outline-secondary btn-sm">
+  <div data-key-state="unlocked" hidden>
+    <span id="key-badge" class="badge text-bg-success"></span>
+    <button id="key-lock-btn" class="btn btn-outline-secondary btn-sm">
       Lock
     </button>
-    <div id="signet-backup-nudge" class="small text-muted mt-2" hidden>
-      Signet created. <a href="{{ url_for('browser.wallet_view') }}">Back
+    <div id="key-backup-nudge" class="small text-muted mt-2" hidden>
+      Key created. <a href="{{ url_for('browser.wallet_view') }}">Back
       it up on the Wallet page</a> &mdash; the backup is your only
       recovery.
     </div>
@@ -400,7 +400,7 @@ untouched):
 the card. After the form card, add:
 
 ```html
-  <!-- The signet gate (#262): filling the form is free; signing
+  <!-- The key gate (#262): filling the form is free; signing
        requires the explicit unlock above the action. -->
   <div class="row my-3"><div class="col">
     <div class="card"><div class="card-body">
@@ -441,7 +441,7 @@ report the change).
 
 ```bash
 git add src/gumptionchain/templates tests/test_transact_page.py tests/test_advanced_page.py tests/test_ui_seam.py
-git commit -m "feat(transact): three-state signet panel markup, gated actions (#262)"
+git commit -m "feat(transact): three-state key panel markup, gated actions (#262)"
 ```
 
 ---
@@ -463,55 +463,55 @@ Inside `init()`, add a module of new element lookups next to the
 existing ones, and the unlock-source tracker:
 
 ```javascript
-  const createPassphrase = $('#signet-create-passphrase');
-  const createTrustAck = $('#signet-trust-ack');
-  const createBtn = $('#signet-create-btn');
-  const createStatus = $('#signet-create-status');
-  const signetBadge = $('#signet-badge');
-  const lockBtn = $('#signet-lock-btn');
-  const backupNudge = $('#signet-backup-nudge');
+  const createPassphrase = $('#key-create-passphrase');
+  const createTrustAck = $('#key-trust-ack');
+  const createBtn = $('#key-create-btn');
+  const createStatus = $('#key-create-status');
+  const keyBadge = $('#key-badge');
+  const lockBtn = $('#key-lock-btn');
+  const backupNudge = $('#key-backup-nudge');
   const storage = win ? win.localStorage : undefined;
   // 'saved' | 'session' | null — which key source unlocked the page.
   let unlockSource = null;
 ```
 
-- [ ] **Step 2: Replace `renderKeyControls` with `renderSignetPanel`**
+- [ ] **Step 2: Replace `renderKeyControls` with `renderKeyPanel`**
 (NOW delete `whichKeyControls`, `renderKeyControls`, and the old
 whichKeyControls tests — the new state containers from Task 2 are the
 only markup left; note the interim state between Tasks 2 and 3 renders
 an all-hidden panel, which is fine inside a single PR):
 
 ```javascript
-  async function renderSignetPanel() {
+  async function renderKeyPanel() {
     let rec = null;
     try {
       rec = await store.get();
     } catch {
-      // IDB unavailable: fall through to the no-signet state; the
+      // IDB unavailable: fall through to the no-key state; the
       // Advanced one-session key still works.
       if (createStatus) {
         setStatus(
           createStatus,
-          'Saved signets are unavailable in this browser; use the ' +
+          'Saved keys are unavailable in this browser; use the ' +
             'Advanced one-session key below.',
           'error',
         );
       }
     }
-    const c = whichSignetPanel({
+    const c = whichKeyPanel({
       hasRecord: rec !== null,
       unlockedKind: session.getWallet() ? unlockSource : null,
       passkeySupported: passkey != null,
     });
-    for (const el of root.querySelectorAll('[data-signet-state]')) {
-      show(el, el.dataset.signetState === c.state);
+    for (const el of root.querySelectorAll('[data-key-state]')) {
+      show(el, el.dataset.keyState === c.state);
     }
     show(unlockPasskeyBtn, c.showUnlockPasskey);
-    const addrEl = root.querySelector('[data-signet-address]');
+    const addrEl = root.querySelector('[data-key-address]');
     if (addrEl && rec) addrEl.textContent = `${rec.address.slice(0, 12)}…`;
-    if (signetBadge && c.state === 'unlocked') {
+    if (keyBadge && c.state === 'unlocked') {
       const addr = await session.getWallet().address();
-      signetBadge.textContent =
+      keyBadge.textContent =
         c.badge === 'session'
           ? `one-session key · ${addr.slice(0, 12)}…`
           : `signing as ${addr.slice(0, 12)}…`;
@@ -524,7 +524,7 @@ an all-hidden panel, which is fine inside a single PR):
 ```
 
 Update every existing `renderKeyControls()` call site (unlock handlers,
-the `onLock` callback, the bootstrap IIFE) to `renderSignetPanel()`, and
+the `onLock` callback, the bootstrap IIFE) to `renderKeyPanel()`, and
 in the `onLock` callback also clear the source: `unlockSource = null;`.
 In the two saved-unlock handlers set `unlockSource = 'saved'` after a
 successful `unlockSaved(...)`; in the ephemeral import handler set
@@ -537,7 +537,7 @@ the build handler reveals `confirmBtn` (`confirmBtn.hidden = false`);
 verify it doesn't also need `confirmBtn.disabled = false` (it will be
 enabled already since building requires the unlocked state — but
 `resetPending()` hides it again; leave `disabled` driven ONLY by
-`renderSignetPanel` and `hidden` by the build flow, which composes
+`renderKeyPanel` and `hidden` by the build flow, which composes
 correctly).
 
 - [ ] **Step 3: The create handler** (next to the unlock handlers):
@@ -570,7 +570,7 @@ correctly).
         unlockSource = 'saved';
         createPassphrase.value = '';
         if (backupNudge) show(backupNudge, true);
-        await renderSignetPanel();
+        await renderKeyPanel();
       } catch (e) {
         setStatus(createStatus, `Could not create: ${msgOf(e)}`, 'error');
       }
@@ -607,7 +607,7 @@ state's key.
 
 ```bash
 git add src/gumptionchain/static/js
-git commit -m "feat(transact): signet panel controller — create, lock, gated actions (#262)"
+git commit -m "feat(transact): key panel controller — create, lock, gated actions (#262)"
 ```
 
 ---
@@ -619,9 +619,9 @@ git commit -m "feat(transact): signet panel controller — create, lock, gated a
 - [ ] `uv run ruff format --check src tests && uv run ruff check src tests && uv run mypy`
 - [ ] `uv run pre-commit run --all-files` (app.py findings are
   pre-existing, tracked in #256 — ignore those two)
-- [ ] File the sibling issue: "Base browser signet copy sweep —
+- [ ] File the sibling issue: "Base browser key copy sweep —
   /wallet, /advanced, /verify" referencing #262's vocabulary section
   and hub#30's scope-split comment (operator surfaces keep 'wallet').
-- [ ] PR `feat(browser): explicit signet states on /transact — inline
+- [ ] PR `feat(browser): explicit signing-key states on /transact — inline
   create, gated signing (#262)`; body includes the manual-checklist
   results; subagent review; hold for author review.

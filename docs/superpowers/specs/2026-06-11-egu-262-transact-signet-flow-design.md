@@ -1,4 +1,4 @@
-# EGU #262 — transact flow: explicit signet states
+# EGU #262 — transact flow: explicit signing-key states
 
 **Date:** 2026-06-11
 **Issue:** #262 (follows #260's /advanced split; coordinates with the
@@ -156,3 +156,17 @@ never-renamed code identifiers.
 - `/wallet`, `/advanced`, `/verify` copy sweep (sibling PR, this repo).
 - Backup/passkey enrollment inline on `/transact` (stays on `/wallet`).
 - Any change to the build/submit API or auth scheme.
+
+## Vocabulary amendment (2026-06-11, post-approval)
+
+**Signet is retired** before reaching base (vocab tax, onboarding
+confusion, the Bitcoin Signet collision — recorded on hub#30). The
+panel ships **"signing key" / "your key"** copy instead: "Create your
+signing key", "Your signing key · locked", badges unchanged. The
+bridge parenthetical is unnecessary (the term self-explains) and is
+dropped. "Wallet" remains acceptable in balance contexts and on
+operator surfaces; it is simply not the onboarding word. Identifiers
+use a `key-` prefix (`data-key-state`, `key-create-btn`,
+`whichKeyPanel`) — the plan reflects this. The "sibling signet sweep"
+PR is cancelled: base pages already say wallet, which is acceptable
+outside onboarding.
