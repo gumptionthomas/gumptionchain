@@ -8,10 +8,8 @@
 
   <div class="row my-3"><div class="col">
     <div class="alert alert-warning" role="alert">
-      <strong>Your private key never leaves your browser.</strong>
-      This node does not store it, and reloading or closing this tab clears it.
-      Only your signature and public key are ever sent. Keys are imported into
-      memory for this session only &mdash; nothing is saved.
+      <strong>Your private key never leaves your browser</strong> &mdash;
+      signing happens here, and only signatures are sent.
     </div>
   </div></div>
 
@@ -55,14 +53,25 @@
           <option value="support">support</option>
         </select>
       </div>
+    </div></div>
+  </div></div>
 
-      <hr>
-
+  <!-- The key gate (#262): filling the form is free; signing
+       requires the explicit unlock above the action. -->
+  <div class="row my-3"><div class="col">
+    <div class="card"><div class="card-body">
       {% include "_key_import.html" %}
+    </div></div>
+  </div></div>
 
-      <button id="build-review-btn" class="btn btn-primary">Build &amp; review</button>
-      <button id="confirm-submit-btn" class="btn btn-success" hidden>Confirm &amp; submit</button>
-
+  <div class="row my-3"><div class="col">
+    <div class="card"><div class="card-body">
+      <button id="build-review-btn" class="btn btn-primary" disabled>
+        Build &amp; review
+      </button>
+      <button id="confirm-submit-btn" class="btn btn-success" hidden disabled>
+        Confirm &amp; submit
+      </button>
       <div class="mt-3">
         <pre id="confirm-area" class="small bg-light p-2"></pre>
         <div id="build-result" class="mt-2"></div>

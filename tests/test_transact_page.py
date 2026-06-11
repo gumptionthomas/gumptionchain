@@ -26,27 +26,43 @@ def test_transact_page_renders(app, test_client):
         assert 'bootstrap' in body
 
 
-def test_transact_page_has_saved_wallet_unlock_markup(app, test_client):
+def test_transact_page_key_panel_states(app, test_client):
     with app.app_context():
-        resp = test_client.get('/transact')
-        assert resp.status_code == httpx.codes.OK
-        body = str(resp.data)
-        # The "Unlock saved wallet" affordance is present (revealed by JS only
-        # when a wallet is actually persisted on this origin).
-        assert 'id="saved-wallet"' in body
-        assert 'Unlock your saved wallet' in body
+        body = str(test_client.get('/transact').data)
+        # The three-state key panel (#262): exactly one state is
+        # shown by JS; all ship in markup.
+        assert 'data-key-state="none"' in body
+        assert 'data-key-state="locked"' in body
+        assert 'data-key-state="unlocked"' in body
+        # Inline mini-create (the conversion moment).
+        assert 'id="key-create-passphrase"' in body
+        assert 'id="key-trust-ack"' in body
+        assert 'id="key-create-btn"' in body
+        assert 'Create your signing key' in body  # noqa: dup-ok
+        # Explicit unlock state.
         assert 'id="unlock-passphrase"' in body
         assert 'id="unlock-saved-btn"' in body
-        # The passkey unlock button is present (JS hides it off secure origins).
-        assert 'id="unlock-saved-passkey-btn"' in body
-        # The two options read clearly as distinct: a saved unlock vs an
-        # ephemeral, this-session-only key.
-        assert 'just for this session' in body
-        # The passphrase input is masked and never autofilled.
-        assert 'type="password"' in body
-        # The RP name reaches the page for the passkey adapter.
-        assert 'data-rp-name' in body
-        assert app.config.get('NODE_HOST') is not None
+        # Unlocked state: badge + explicit lock.
+        assert 'id="key-badge"' in body
+        assert 'id="key-lock-btn"' in body
+        # One-session key collapsed under Advanced.
+        assert 'id="session-key"' in body
+        assert 'class="collapse' in body
+        assert 'one-session key' in body
+        assert 'id="key-b58"' in body
+        assert 'id="import-key-btn"' in body
+        # Key-first copy; self-explanatory, no glossary needed.
+        assert 'Create your signing key' in body
+
+
+def test_transact_actions_disabled_until_unlocked(app, test_client):
+    with app.app_context():
+        body = str(test_client.get('/transact').data)
+        # Markup-level gating: build/confirm ship disabled; the glue
+        # enables them only in the unlocked state.
+        assert 'id="build-review-btn"' in body
+        assert 'disabled' in body.split('id="build-review-btn"')[1][:120]
+        assert 'disabled' in body.split('id="confirm-submit-btn"')[1][:120]
 
 
 def test_transact_page_carries_configured_node_host(app, test_client):

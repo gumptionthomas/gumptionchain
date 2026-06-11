@@ -18,8 +18,9 @@ def test_advanced_page_renders(app, test_client):
         assert 'id="att-subject"' in body
         assert 'id="att-amount"' in body
         assert 'id="att-sign-btn"' in body
-        # Both sections need a signing key: the shared key area is here.
-        assert 'id="saved-wallet"' in body
+        # The shared key panel (#262) renders here too.
+        assert 'data-key-state="none"' in body
+        assert 'data-key-state="locked"' in body
         assert 'id="key-b58"' in body
         assert 'id="import-key-btn"' in body
         # The security framing travels with the key area.

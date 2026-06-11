@@ -1,55 +1,95 @@
-{# Shared signing-key area (#260): saved-wallet unlock + ephemeral
-   session import. Included by transact.html and advanced.html; the
-   transact-glue module binds these ids defensively on both pages. #}
-      <!-- Key area: two ways to obtain a signing key for this page session.
-           Either is held in memory only and auto-locks (idle / tab-hide /
-           leave / Forget). -->
+{# Key panel (#262): explicit three-state machine — no key on
+   this device (inline create) / saved + locked (explicit unlock) /
+   unlocked (badge + Lock). Shared by transact.html and advanced.html;
+   transact-glue.mjs shows exactly one state container and gates the
+   page actions. The one-session key for power users is collapsed
+   under the Advanced disclosure in every state. #}
+<div id="key-panel">
+  <div data-key-state="none" hidden>
+    <div class="fw-semibold">Create your signing key</div>
+    <p class="small text-muted mb-2">
+      Your signing key marks your stakes as yours. It is created in
+      your browser and saved encrypted on this device &mdash; it is
+      never sent anywhere.
+    </p>
+    <label for="key-create-passphrase" class="form-label">Passphrase</label>
+    <input id="key-create-passphrase" type="password" autocomplete="off"
+           class="form-control" placeholder="choose a passphrase">
+    <div class="form-check mt-2">
+      <input id="key-trust-ack" type="checkbox" class="form-check-input">
+      <label for="key-trust-ack" class="form-check-label small">
+        Persist only on a node you trust: this saves your encrypted
+        key in this browser, on this site.
+      </label>
+    </div>
+    <button id="key-create-btn" class="btn btn-primary btn-sm mt-2">
+      Create your signing key
+    </button>
+    <div id="key-create-status" class="mt-2 small"></div>
+  </div>
 
-      <!-- (a) Unlock the wallet saved on this node (gc-keyring / IndexedDB).
-           Hidden by JS unless a wallet is actually persisted on this origin. -->
-      <div id="saved-wallet" class="mb-3" hidden>
-        <div class="fw-semibold">Unlock your saved wallet</div>
-        <p class="small text-muted mb-2">
-          You saved a wallet on this node (on
-          <a href="{{ url_for('browser.wallet_view') }}">Wallet</a>). Unlock it
-          for this session &mdash; it stays in memory only and auto-locks.
-        </p>
-        <label for="unlock-passphrase" class="form-label">Passphrase</label>
-        <input id="unlock-passphrase" type="password" autocomplete="off"
-               class="form-control" placeholder="your wallet passphrase">
-        <div class="mt-2">
-          <button id="unlock-saved-btn" class="btn btn-primary btn-sm">
-            Unlock
-          </button>
-          <button id="unlock-saved-passkey-btn"
-                  class="btn btn-outline-primary btn-sm" hidden>
-            Unlock with passkey
-          </button>
-        </div>
-        <div id="unlock-status" class="mt-2 small"></div>
-        <hr>
-        <div class="small text-muted">or use a key just for this session:</div>
-      </div>
+  <div data-key-state="locked" hidden>
+    <div class="fw-semibold">
+      Your signing key
+      <span class="badge text-bg-secondary">locked</span>
+    </div>
+    <p class="small text-muted mb-2">
+      Saved on this device as <code data-key-address></code>.
+      Unlock it to sign.
+    </p>
+    <label for="unlock-passphrase" class="form-label">Passphrase</label>
+    <input id="unlock-passphrase" type="password" autocomplete="off"
+           class="form-control" placeholder="your key passphrase">
+    <div class="mt-2">
+      <button id="unlock-saved-btn" class="btn btn-primary btn-sm">
+        Unlock
+      </button>
+      <button id="unlock-saved-passkey-btn"
+              class="btn btn-outline-primary btn-sm" hidden>
+        Unlock with passkey
+      </button>
+    </div>
+    <div id="unlock-status" class="mt-2 small"></div>
+  </div>
 
-      <!-- (b) Ephemeral import: paste a key for THIS session only; nothing is
-           saved (the alternative to a saved-wallet unlock). -->
-      <div class="mb-3">
-        <label for="key-b58" class="form-label">
-          Use a key just for this session (base58 private key)
-        </label>
-        <textarea id="key-b58" class="form-control" rows="2"
-                  placeholder="paste base58 private key"></textarea>
-        <div class="mt-2">
-          <label for="key-pem" class="form-label">or upload a .pem</label>
-          <input id="key-pem" type="file" accept=".pem" class="form-control">
-        </div>
-        <div class="mt-2">
-          <button id="import-key-btn" class="btn btn-secondary btn-sm">
-            Import key
-          </button>
-          <button id="forget-key-btn" class="btn btn-outline-danger btn-sm">
-            Forget key
-          </button>
-        </div>
-        <div id="key-status" class="mt-2 small"></div>
+  <div data-key-state="unlocked" hidden>
+    <span id="key-badge" class="badge text-bg-success"></span>
+    <button id="key-lock-btn" class="btn btn-outline-secondary btn-sm">
+      Lock
+    </button>
+    <div id="key-backup-nudge" class="small text-muted mt-2" hidden>
+      Key created. <a href="{{ url_for('browser.wallet_view') }}">Back
+      it up on the Wallet page</a> &mdash; the backup is your only
+      recovery.
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <a class="small text-decoration-none" data-bs-toggle="collapse"
+       href="#session-key" role="button" aria-expanded="false"
+       aria-controls="session-key">
+      &#9656; Advanced: use a one-session key instead
+    </a>
+    <div id="session-key" class="collapse mt-2">
+      <label for="key-b58" class="form-label">
+        One-session key (base58 private key) &mdash; held in memory
+        only, nothing is saved
+      </label>
+      <textarea id="key-b58" class="form-control" rows="2"
+                placeholder="paste base58 private key"></textarea>
+      <div class="mt-2">
+        <label for="key-pem" class="form-label">or upload a .pem</label>
+        <input id="key-pem" type="file" accept=".pem" class="form-control">
       </div>
+      <div class="mt-2">
+        <button id="import-key-btn" class="btn btn-secondary btn-sm">
+          Import key
+        </button>
+        <button id="forget-key-btn" class="btn btn-outline-danger btn-sm">
+          Forget key
+        </button>
+      </div>
+      <div id="key-status" class="mt-2 small"></div>
+    </div>
+  </div>
+</div>
