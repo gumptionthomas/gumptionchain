@@ -14,18 +14,9 @@ def test_transact_page_renders(app, test_client):
         assert 'value="rescind"' in body
         # The security framing must be loud and present.
         assert 'never leaves your browser' in body
-        # Build & sign + broadcast + attestation sections.
-        assert 'id="broadcast"' in body
-        assert 'id="attestation"' in body
-        # The attestation section is wired (not a "coming soon" placeholder):
-        # it has its inputs and a Sign attestation button.
+        # The power tools live on /advanced now (#260) — covered by
+        # tests/test_advanced_page.py.
         assert 'Coming soon' not in body
-        assert 'id="att-txid"' in body
-        assert 'id="att-kind"' in body
-        assert 'id="att-subject"' in body
-        assert 'id="att-amount"' in body
-        assert 'id="att-sign-btn"' in body
-        assert 'Sign attestation' in body
         # The page exposes the node host (gc-sig is node-bound).
         assert 'data-node-host' in body
         # Glue module is wired in from the blueprint static js dir.

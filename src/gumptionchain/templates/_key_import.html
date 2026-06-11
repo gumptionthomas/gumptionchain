@@ -1,0 +1,55 @@
+{# Shared signing-key area (#260): saved-wallet unlock + ephemeral
+   session import. Included by transact.html and advanced.html; the
+   transact-glue module binds these ids defensively on both pages. #}
+      <!-- Key area: two ways to obtain a signing key for this page session.
+           Either is held in memory only and auto-locks (idle / tab-hide /
+           leave / Forget). -->
+
+      <!-- (a) Unlock the wallet saved on this node (gc-keyring / IndexedDB).
+           Hidden by JS unless a wallet is actually persisted on this origin. -->
+      <div id="saved-wallet" class="mb-3" hidden>
+        <div class="fw-semibold">Unlock your saved wallet</div>
+        <p class="small text-muted mb-2">
+          You saved a wallet on this node (on
+          <a href="{{ url_for('browser.wallet_view') }}">Wallet</a>). Unlock it
+          for this session &mdash; it stays in memory only and auto-locks.
+        </p>
+        <label for="unlock-passphrase" class="form-label">Passphrase</label>
+        <input id="unlock-passphrase" type="password" autocomplete="off"
+               class="form-control" placeholder="your wallet passphrase">
+        <div class="mt-2">
+          <button id="unlock-saved-btn" class="btn btn-primary btn-sm">
+            Unlock
+          </button>
+          <button id="unlock-saved-passkey-btn"
+                  class="btn btn-outline-primary btn-sm" hidden>
+            Unlock with passkey
+          </button>
+        </div>
+        <div id="unlock-status" class="mt-2 small"></div>
+        <hr>
+        <div class="small text-muted">or use a key just for this session:</div>
+      </div>
+
+      <!-- (b) Ephemeral import: paste a key for THIS session only; nothing is
+           saved (the alternative to a saved-wallet unlock). -->
+      <div class="mb-3">
+        <label for="key-b58" class="form-label">
+          Use a key just for this session (base58 private key)
+        </label>
+        <textarea id="key-b58" class="form-control" rows="2"
+                  placeholder="paste base58 private key"></textarea>
+        <div class="mt-2">
+          <label for="key-pem" class="form-label">or upload a .pem</label>
+          <input id="key-pem" type="file" accept=".pem" class="form-control">
+        </div>
+        <div class="mt-2">
+          <button id="import-key-btn" class="btn btn-secondary btn-sm">
+            Import key
+          </button>
+          <button id="forget-key-btn" class="btn btn-outline-danger btn-sm">
+            Forget key
+          </button>
+        </div>
+        <div id="key-status" class="mt-2 small"></div>
+      </div>

@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}Advanced{% endblock %}
+
+{% block content -%}
+<div class="container-fluid" data-node-host="{{ node_host }}"
+     data-rp-name="{{ rp_name }}">
+
+  <div class="row my-3"><div class="col">
+    <div class="alert alert-warning" role="alert">
+      <strong>Your private key never leaves your browser.</strong>
+      This node does not store it, and reloading or closing this tab clears it.
+      Only your signature and public key are ever sent. Keys are imported into
+      memory for this session only &mdash; nothing is saved.
+    </div>
+  </div></div>
+
+  <!-- Signing key: both tools below sign with the key imported here. -->
+  <div class="row my-3"><div class="col">
+    <div class="card"><div class="card-body">
+      <div class="card-title h5">Signing key</div>
+      {% include "_key_import.html" %}
+    </div></div>
+  </div></div>
+
+  <!-- Broadcast a pre-signed txn (relocated from /transact, #260) -->
+  <div class="row my-3"><div class="col">
+    <div class="card"><div class="card-body">
+      <div class="card-title h5">
+        <a class="text-decoration-none" data-bs-toggle="collapse"
+           href="#broadcast" role="button" aria-expanded="false"
+           aria-controls="broadcast">
+          Broadcast a pre-signed transaction
+        </a>
+      </div>
+      <div id="broadcast" class="collapse">
+        <p class="small text-muted">
+          Paste an already-signed transaction JSON. The submit request itself is
+          still authed, so the imported key signs the request envelope.
+        </p>
+        <textarea id="broadcast-input" class="form-control" rows="6"
+                  placeholder='{"txid":"...","signature":"...", ...}'></textarea>
+        <button id="broadcast-btn" class="btn btn-primary mt-2">Submit</button>
+        <div id="broadcast-result" class="mt-2"></div>
+      </div>
+    </div></div>
+  </div></div>
+
+  <!-- Sign attestation (relocated from /transact, #260) -->
+  <div class="row my-3"><div class="col">
+    <section id="attestation" class="card"><div class="card-body">
+      <div class="card-title h5">Sign a stake attestation</div>
+      <p class="small text-muted">
+        Produce a signed <code>gc-msg-v1</code> proof that you staked on a
+        subject &mdash; the producer side of
+        <a href="{{ url_for('browser.verify_view') }}">Verify</a>. Reuses the
+        key you imported above. The subject is the same RAW subject you staked.
+      </p>
+
+      <div class="mb-3">
+        <label for="att-txid" class="form-label">Transaction id (txid)</label>
+        <input id="att-txid" type="text" class="form-control"
+               placeholder="64-char hex txid of your stake">
+      </div>
+
+      <div class="mb-3">
+        <label for="att-kind" class="form-label">Kind</label>
+        <select id="att-kind" class="form-select">
+          <option value="opposition">opposition</option>
+          <option value="support">support</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label for="att-subject" class="form-label">Subject</label>
+        <input id="att-subject" type="text" class="form-control"
+               placeholder="goblins">
+      </div>
+
+      <div class="mb-3">
+        <label for="att-amount" class="form-label">Amount (grains)</label>
+        <input id="att-amount" type="number" min="1" step="1"
+               class="form-control" placeholder="300">
+      </div>
+
+      <button id="att-sign-btn" class="btn btn-primary">Sign attestation</button>
+      <button id="att-copy-btn" class="btn btn-outline-secondary" hidden>Copy</button>
+
+      <div class="mt-3">
+        <div id="att-result" class="mb-2"></div>
+        <pre id="att-proof" class="small bg-light p-2"></pre>
+        <p class="small text-muted">Paste this into /verify.</p>
+      </div>
+    </div></section>
+  </div></div>
+
+  <!-- Verify: its own page (proof cards deep-link it); presented here as
+       the consumer side of the attestation tool. -->
+  <div class="row my-3"><div class="col">
+    <div class="card"><div class="card-body">
+      <div class="card-title h5">Verify a stake attestation</div>
+      <p class="small text-muted mb-0">
+        Check a proof someone shared with you against the chain on
+        <a href="{{ url_for('browser.verify_view') }}">Verify</a>.
+      </p>
+    </div></div>
+  </div></div>
+
+  {% include "advanced/extra.html" ignore missing %}
+</div>
+{%- endblock %}
+
+{% block scripts -%}
+{{ super() }}
+<script type="module">
+  import { init } from "{{ url_for('browser.static', filename='js/transact-glue.mjs') }}";
+  const root = document.querySelector('[data-node-host]');
+  init(root, {
+    nodeHost: root.dataset.nodeHost,
+    rpName: root.dataset.rpName,
+  });
+</script>
+{%- endblock %}

@@ -447,6 +447,20 @@ def verify_view() -> Any:
     return render_template('verify.html', title='Verify')
 
 
+@blueprint.route('/advanced')
+def advanced_view() -> Any:
+    # Static shell like /transact (#260): the relocated power tools
+    # (broadcast pre-signed, sign attestation) sign their own API
+    # requests client-side; gc-sig-v1 is node-bound so NODE_HOST must
+    # reach the page.
+    return render_template(
+        'advanced.html',
+        title='Advanced',
+        node_host=current_app.config['NODE_HOST'],
+        rp_name='GumptionChain',
+    )
+
+
 @blueprint.route('/transact')
 def transact_view() -> Any:
     # Static shell — no chain/DB work. The page's client JS calls the authed

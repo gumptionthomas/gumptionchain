@@ -58,58 +58,7 @@
 
       <hr>
 
-      <!-- Key area: two ways to obtain a signing key for this page session.
-           Either is held in memory only and auto-locks (idle / tab-hide /
-           leave / Forget). -->
-
-      <!-- (a) Unlock the wallet saved on this node (gc-keyring / IndexedDB).
-           Hidden by JS unless a wallet is actually persisted on this origin. -->
-      <div id="saved-wallet" class="mb-3" hidden>
-        <div class="fw-semibold">Unlock your saved wallet</div>
-        <p class="small text-muted mb-2">
-          You saved a wallet on this node (on
-          <a href="{{ url_for('browser.wallet_view') }}">Wallet</a>). Unlock it
-          for this session &mdash; it stays in memory only and auto-locks.
-        </p>
-        <label for="unlock-passphrase" class="form-label">Passphrase</label>
-        <input id="unlock-passphrase" type="password" autocomplete="off"
-               class="form-control" placeholder="your wallet passphrase">
-        <div class="mt-2">
-          <button id="unlock-saved-btn" class="btn btn-primary btn-sm">
-            Unlock
-          </button>
-          <button id="unlock-saved-passkey-btn"
-                  class="btn btn-outline-primary btn-sm" hidden>
-            Unlock with passkey
-          </button>
-        </div>
-        <div id="unlock-status" class="mt-2 small"></div>
-        <hr>
-        <div class="small text-muted">or use a key just for this session:</div>
-      </div>
-
-      <!-- (b) Ephemeral import: paste a key for THIS session only; nothing is
-           saved (the alternative to a saved-wallet unlock). -->
-      <div class="mb-3">
-        <label for="key-b58" class="form-label">
-          Use a key just for this session (base58 private key)
-        </label>
-        <textarea id="key-b58" class="form-control" rows="2"
-                  placeholder="paste base58 private key"></textarea>
-        <div class="mt-2">
-          <label for="key-pem" class="form-label">or upload a .pem</label>
-          <input id="key-pem" type="file" accept=".pem" class="form-control">
-        </div>
-        <div class="mt-2">
-          <button id="import-key-btn" class="btn btn-secondary btn-sm">
-            Import key
-          </button>
-          <button id="forget-key-btn" class="btn btn-outline-danger btn-sm">
-            Forget key
-          </button>
-        </div>
-        <div id="key-status" class="mt-2 small"></div>
-      </div>
+      {% include "_key_import.html" %}
 
       <button id="build-review-btn" class="btn btn-primary">Build &amp; review</button>
       <button id="confirm-submit-btn" class="btn btn-success" hidden>Confirm &amp; submit</button>
@@ -121,75 +70,12 @@
     </div></div>
   </div></div>
 
-  <!-- Section 2: Broadcast a pre-signed txn (advanced) -->
   <div class="row my-3"><div class="col">
-    <div class="card"><div class="card-body">
-      <div class="card-title h5">
-        <a class="text-decoration-none" data-bs-toggle="collapse"
-           href="#broadcast" role="button" aria-expanded="false"
-           aria-controls="broadcast">
-          Broadcast a pre-signed transaction (advanced)
-        </a>
-      </div>
-      <div id="broadcast" class="collapse">
-        <p class="small text-muted">
-          Paste an already-signed transaction JSON. The submit request itself is
-          still authed, so the imported key signs the request envelope.
-        </p>
-        <textarea id="broadcast-input" class="form-control" rows="6"
-                  placeholder='{"txid":"...","signature":"...", ...}'></textarea>
-        <button id="broadcast-btn" class="btn btn-primary mt-2">Submit</button>
-        <div id="broadcast-result" class="mt-2"></div>
-      </div>
-    </div></div>
-  </div></div>
-
-  <!-- Section 3: Sign attestation (PR 3) -->
-  <div class="row my-3"><div class="col">
-    <section id="attestation" class="card"><div class="card-body">
-      <div class="card-title h5">Sign a stake attestation</div>
-      <p class="small text-muted">
-        Produce a signed <code>gc-msg-v1</code> proof that you staked on a
-        subject &mdash; the producer side of
-        <a href="{{ url_for('browser.verify_view') }}">Verify</a>. Reuses the
-        key you imported above. The subject is the same RAW subject you staked.
-      </p>
-
-      <div class="mb-3">
-        <label for="att-txid" class="form-label">Transaction id (txid)</label>
-        <input id="att-txid" type="text" class="form-control"
-               placeholder="64-char hex txid of your stake">
-      </div>
-
-      <div class="mb-3">
-        <label for="att-kind" class="form-label">Kind</label>
-        <select id="att-kind" class="form-select">
-          <option value="opposition">opposition</option>
-          <option value="support">support</option>
-        </select>
-      </div>
-
-      <div class="mb-3">
-        <label for="att-subject" class="form-label">Subject</label>
-        <input id="att-subject" type="text" class="form-control"
-               placeholder="goblins">
-      </div>
-
-      <div class="mb-3">
-        <label for="att-amount" class="form-label">Amount (grains)</label>
-        <input id="att-amount" type="number" min="1" step="1"
-               class="form-control" placeholder="300">
-      </div>
-
-      <button id="att-sign-btn" class="btn btn-primary">Sign attestation</button>
-      <button id="att-copy-btn" class="btn btn-outline-secondary" hidden>Copy</button>
-
-      <div class="mt-3">
-        <div id="att-result" class="mb-2"></div>
-        <pre id="att-proof" class="small bg-light p-2"></pre>
-        <p class="small text-muted">Paste this into /verify.</p>
-      </div>
-    </div></section>
+    <p class="small text-muted">
+      Looking for the power tools? Broadcasting a pre-signed transaction
+      and signing stake attestations live on
+      <a href="{{ url_for('browser.advanced_view') }}">Advanced tools</a>.
+    </p>
   </div></div>
 
   {% include "transact/extra.html" ignore missing %}
