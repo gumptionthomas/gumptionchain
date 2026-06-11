@@ -1,5 +1,9 @@
+from jinja2 import ChoiceLoader, FileSystemLoader
+
 from gumptionchain.api_client import ApiClient
+from gumptionchain.chain import Chain
 from gumptionchain.database import db
+from gumptionchain.milling import mill_hash_str
 from gumptionchain.models import TransactionDAO
 from gumptionchain.wallet import Wallet
 
@@ -80,3 +84,130 @@ def test_transaction_view_labels_transfer(
         )
         assert 'transfer' in page
         assert 'Coinbase' not in page  # a regular transfer is not a coinbase
+
+
+def test_transaction_view_pending_txn(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    # #258: a freshly submitted, still-pending stake has a page (it used
+    # to 404 until milled) with a Pending status and resolved inflow
+    # amounts from the canonical parent.
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        opp = _post(
+            host,
+            m.longest_chain.create_opposition(wallet, 300, subject),
+            wallet,
+        )
+        resp = app.test_client().get(f'/transaction/{opp.txid}')
+        assert resp.status_code == 200
+        page = resp.get_data(as_text=True)
+        assert 'Pending' in page
+        assert opp.txid in page
+        assert 'opposition' in page
+        # the spent coinbase outflow's amount resolves from the chain
+        assert 'None (pending)' in page  # block row placeholder
+
+
+def test_transaction_view_confirmed_shows_status(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        opp = _post(
+            host,
+            m.longest_chain.create_opposition(wallet, 300, subject),
+            wallet,
+        )
+        mill_block(wallet)  # confirms (1 confirmation)
+        page = (
+            app.test_client()
+            .get(f'/transaction/{opp.txid}')
+            .get_data(as_text=True)
+        )
+        assert 'Confirmed' in page
+        assert '1 confirmation' in page
+
+
+def test_transaction_view_orphaned_shows_status(
+    add_chain_block, app, host, mill_block, requests_proxy, wallet
+):
+    # Fork construction mirrors test_chain.py's
+    # test_transaction_provenance_orphaned: b2's coinbase becomes
+    # orphaned when a longer fork off b1 wins.
+    with app.app_context():
+        wallet2 = Wallet()
+        _, b1 = mill_block(wallet)
+        _, b2 = mill_block(wallet)
+        coinbase_txid = b2.txns[-1].txid
+
+        alt = Chain(block_hash=b1.block_hash)
+        add_chain_block(chain=alt, milling_wallet=wallet2)
+        add_chain_block(chain=alt, milling_wallet=wallet2)
+        alt.to_db()
+
+        page = (
+            app.test_client()
+            .get(f'/transaction/{coinbase_txid}')
+            .get_data(as_text=True)
+        )
+        assert 'Orphaned' in page
+
+
+def test_transaction_view_unknown_txid_404(app, mill_block, wallet):
+    with app.app_context():
+        mill_block(wallet)
+        absent = mill_hash_str('no-such-transaction')
+        resp = app.test_client().get(f'/transaction/{absent}')
+        assert resp.status_code == 404
+
+
+def test_transaction_extra_hook_renders_with_status_context(
+    app, host, mill_block, requests_proxy, subject, wallet, tmp_path
+):
+    # #258: the transaction/extra.html seam hook — a consumer template
+    # injects per-transaction UI and can read the page's status context.
+    (tmp_path / 'transaction').mkdir()
+    (tmp_path / 'transaction' / 'extra.html').write_text(
+        '<div id="hook">HOOKED status={{ status }} '
+        'signer={{ transaction.address }}</div>'
+    )
+    app.jinja_loader = ChoiceLoader(
+        [FileSystemLoader(str(tmp_path)), app.jinja_loader]
+    )
+    with app.app_context():
+        m, _b = mill_block(wallet)
+        opp = _post(
+            host,
+            m.longest_chain.create_opposition(wallet, 300, subject),
+            wallet,
+        )
+        page = (
+            app.test_client()
+            .get(f'/transaction/{opp.txid}')
+            .get_data(as_text=True)
+        )
+        assert 'HOOKED status=pending' in page
+        assert f'signer={wallet.address}' in page
+
+
+def test_transaction_view_block_row_shows_containing_block(
+    app, host, mill_block, requests_proxy, subject, wallet
+):
+    # Regression (#258 rewrite): the inflow loop used to reassign
+    # transaction_dao, so the Block row showed the inflow parent's block
+    # instead of the block containing this transaction.
+    with app.app_context():
+        m, _b1 = mill_block(wallet)
+        opp = _post(
+            host,
+            m.longest_chain.create_opposition(wallet, 300, subject),
+            wallet,
+        )
+        _m, b2 = mill_block(wallet)  # contains the stake
+        page = (
+            app.test_client()
+            .get(f'/transaction/{opp.txid}')
+            .get_data(as_text=True)
+        )
+        assert b2.block_hash in page

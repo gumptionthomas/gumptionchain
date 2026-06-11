@@ -13,8 +13,18 @@
               <td>{{ transaction.txid }}</td>
             </tr>
             <tr>
+              <th class="col-2"><i class="bi-activity" />&nbsp;&nbsp;Status</th>
+              <td>{% if status == 'pending' -%}
+                <span class="badge bg-warning text-dark">Pending</span>
+              {%- elif status == 'orphaned' -%}
+                <span class="badge bg-secondary">Orphaned</span>
+              {%- else -%}
+                <span class="badge bg-success">Confirmed</span> {{ confirmations }} confirmation{{ 's' if confirmations != 1 }}
+              {%- endif %}</td>
+            </tr>
+            <tr>
               <th class="col-2"><i class="bi-box" />&nbsp;&nbsp;Block</th>
-              <td>{% for block_dao in transaction_dao.blocks %}<a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block_dao.block_hash) }}">{{ block_dao.block_hash }}</a><br/>{% else %}None{% endfor %}</td>
+              <td>{% if transaction_dao %}{% for block_dao in transaction_dao.blocks %}<a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block_dao.block_hash) }}">{{ block_dao.block_hash }}</a><br/>{% else %}None{% endfor %}{% else %}None (pending){% endif %}</td>
             </tr>
             <tr>
               <th class="col-2"><i class="bi-outlet" />&nbsp;&nbsp;Version</th>
@@ -113,5 +123,7 @@
         </table>
       </div></div>
     </div></div>
+
+    {% include "transaction/extra.html" ignore missing %}
   </div>
 {%- endblock %}

@@ -351,20 +351,48 @@ def block_view(block_hash: str | None = None) -> Any:
     )
 
 
+def _resolve_transaction(txid: str) -> Transaction | None:
+    """A Transaction from the chain or, failing that, the pending pool."""
+    dao = TransactionDAO.get(txid)
+    if dao is not None:
+        return Transaction.from_dao(dao)
+    pending = PendingTxnDAO.get(txid)
+    if pending is not None:
+        return Transaction.from_json(pending.json_data)
+    return None
+
+
 @blueprint.route('/transaction/<mill_hash:txid>')
 def transaction_view(txid: str) -> Any:
     try:
+        # The page spans the whole lifecycle (#258): provenance supplies
+        # the status (canonical / orphaned / pending) from the same
+        # source as /transaction/<txid>/provenance.json, so the page and
+        # a polling consumer always agree.
+        prov = lookup_provenance(txid)
+        if prov is None:
+            abort(404)
+        transaction_dao = TransactionDAO.get(txid)
+        if transaction_dao is not None:
+            transaction = Transaction.from_dao(transaction_dao)
+        else:
+            # Not persisted, so provenance came from the pool; the row
+            # can race out between the two lookups (mill confirm).
+            pending = PendingTxnDAO.get(txid)
+            if pending is None:
+                abort(404)
+            transaction = Transaction.from_json(pending.json_data)
         inflows = []
         inflow_total = 0
         outflows = []
         outflow_total = 0
-        transaction_dao = TransactionDAO.get(txid)
-        if transaction_dao is None:
-            abort(404)
-        transaction = Transaction.from_dao(transaction_dao)
         for inflow in transaction.inflows:
-            transaction_dao = TransactionDAO.get(inflow.outflow_txid)  # type: ignore[arg-type]
-            ioflow_txn = Transaction.from_dao(transaction_dao)
+            ioflow_txn = _resolve_transaction(inflow.outflow_txid)  # type: ignore[arg-type]
+            if ioflow_txn is None:
+                # An admitted txn's parent is on the chain or in the
+                # pool; if neither (post-validation race), skip the row
+                # rather than 500 — mirrors PendingTxnSet.add's posture.
+                continue
             ioflow = ioflow_txn.get_outflow(inflow.outflow_idx)  # type: ignore[arg-type]
             inflows.append((inflow, ioflow_txn, ioflow))
             inflow_total += ioflow.amount  # type: ignore[union-attr,operator]
@@ -385,6 +413,8 @@ def transaction_view(txid: str) -> Any:
         title=f'Transaction: {transaction.txid}',
         transaction=transaction,
         transaction_dao=transaction_dao,
+        status=prov['status'],
+        confirmations=prov.get('confirmations') or 0,
         inflows=inflows,
         inflow_total=inflow_total,
         outflows=outflows,

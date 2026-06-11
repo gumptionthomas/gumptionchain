@@ -48,8 +48,12 @@ subjects lists import it via `{% from "_pagination.html" import render_paginatio
    `{% include "verify/extra.html" ignore missing %}` (added with the verify
    page); base ships no such file. (Jinja blocks can't be filled by a
    non-descendant, so injection uses optional includes, not empty blocks.)
-   The home page exposes `index/extra.html` and the subjects index exposes
-   `subjects/extra.html` for the same purpose.
+   The home page exposes `index/extra.html`, the subjects index
+   `subjects/extra.html`, and the transaction page
+   `transaction/extra.html` (whose context includes `status` —
+   pending/canonical/orphaned — `confirmations`, and the `transaction`
+   itself, so a hook can identify a stake, gate on the signer, and track
+   the lifecycle) for the same purpose.
 4. **Add new pages** — register your own blueprint.
 5. **Link to shared pages** by base endpoint name, e.g.
    `url_for('browser.verify_view')`.
