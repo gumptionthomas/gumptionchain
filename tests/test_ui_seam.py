@@ -250,3 +250,17 @@ def test_consumer_base_html_reskins_wallet_page(tmp_path):
         assert b'SKINNED' in resp.data  # consumer skin won over blueprint
         # base wallet content still rendered
         assert b'Persist only on a node you trust' in resp.data
+
+
+def test_consumer_base_html_reskins_advanced_page(tmp_path):
+    # Seam check for the /advanced power-tools page (static shell like
+    # /transact): consumer skin wins, base's advanced content renders.
+    app = _consumer_app(tmp_path)
+    with app.app_context():
+        db.create_all()
+        client = app.test_client()
+        resp = client.get('/advanced')
+        assert resp.status_code == 200
+        assert b'SKINNED' in resp.data  # consumer skin won over blueprint
+        # base advanced content still rendered
+        assert b'Sign a stake attestation' in resp.data
