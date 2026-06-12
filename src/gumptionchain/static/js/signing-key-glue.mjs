@@ -134,6 +134,7 @@ export function init(
     importBackupFile: $('#import-backup-file'),
     importBackupPassphrase: $('#import-backup-passphrase'),
     importBackupBtn: $('#import-backup-btn'),
+    importBackupStatus: $('#import-backup-status'),
     // trust ack (gates the first persist on this origin)
     trustAck: $('#trust-ack'),
     // unlock
@@ -306,14 +307,18 @@ export function init(
           ? els.importBackupPassphrase.value
           : '';
         if (!file) {
-          setStatus(els.importStatus, 'Choose a backup file.', 'error');
+          setStatus(els.importBackupStatus, 'Choose a backup file.', 'error');
           return;
         }
         if (!passphrase) {
-          setStatus(els.importStatus, 'Enter the backup passphrase.', 'error');
+          setStatus(
+            els.importBackupStatus,
+            'Enter the backup passphrase.',
+            'error',
+          );
           return;
         }
-        if (!trustGateOk(els.importStatus)) return;
+        if (!trustGateOk(els.importBackupStatus)) return;
         const backup = JSON.parse(await file.text());
         const signing_key = await importEncrypted(backup, passphrase);
         // Persist under the SAME passphrase the backup used (the user has it).
@@ -321,14 +326,14 @@ export function init(
         const address = await signing_key.address();
         clearSecrets();
         setStatus(
-          els.importStatus,
-          `SigningKey restored from backup and saved: ${address}.`,
+          els.importBackupStatus,
+          `Signing key restored from backup and saved: ${address}.`,
           'ok',
         );
         await render();
       } catch (e) {
         setStatus(
-          els.importStatus,
+          els.importBackupStatus,
           `Could not restore backup: ${msgOf(e)}`,
           'error',
         );

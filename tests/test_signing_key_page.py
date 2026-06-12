@@ -20,6 +20,8 @@ def test_signing_key_page_renders(app, test_client):
         assert 'id="import-btn"' in body
         # .pem is deferred-with-message (like /transact), but the input is here.
         assert 'id="import-pem"' in body
+        assert 'id="import-backup-btn"' in body
+        assert 'id="import-backup-status"' in body
 
         # First-persist trust acknowledgment element.
         assert 'id="trust-ack"' in body
