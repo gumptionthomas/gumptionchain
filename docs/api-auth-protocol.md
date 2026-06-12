@@ -1,7 +1,7 @@
 # GumptionChain API Authentication Protocol: `gc-sig-v1`
 
 Every GumptionChain API request (excluding the unauthenticated browser views) must
-be authenticated with a per-request wallet signature. The server verifies the
+be authenticated with a per-request signing_key signature. The server verifies the
 signature on each request, so there are no tokens, no sessions, and no server-side
 credential state. Role authorization (READER / TRANSACTOR / MILLER / ADMIN) is
 enforced live per-request against the server's configured address allowlists after
@@ -38,7 +38,7 @@ Every signed request must include all five of the following headers.
 
 The `GC-Public-Key` is **self-certifying**: the server derives the GC address from
 the supplied public key and requires it to equal `GC-Address`. No prior key
-registration is needed; any wallet whose address appears in the server's role
+registration is needed; any signing_key whose address appears in the server's role
 configuration can authenticate.
 
 ---
@@ -119,7 +119,7 @@ cryptographic configuration, because the canonical strings differ.
 ## Signing algorithm
 
 The signature is produced using **RSASSA-PKCS1-v1_5 with SHA-384** over the
-canonical string bytes. The key is the wallet's RSA-2048 private key. The resulting
+canonical string bytes. The key is the signing_key's RSA-2048 private key. The resulting
 signature bytes are encoded with **standard base64** (not URL-safe base64, using
 `+` and `/`).
 

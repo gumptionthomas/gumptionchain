@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GumptionChain Passkey SigningKey Demo</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 42rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      button {
+        font-size: 1rem;
+        padding: 0.5rem 1rem;
+        margin: 0.25rem 0.5rem 0.25rem 0;
+        cursor: pointer;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.75rem;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .hint {
+        color: #555;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>GumptionChain Passkey SigningKey Demo</h1>
+    <p class="hint">
+      Real WebAuthn-PRF + IndexedDB adapters. Must be served over a secure
+      context (<code>https://</code> or <code>http://localhost</code>) in a
+      PRF-capable browser.
+    </p>
+
+    <p>
+      <button id="enroll">Enroll</button>
+      <button id="unlock">Unlock &amp; sign</button>
+      <button id="clear">Clear</button>
+    </p>
+
+    <h2>Backup / recovery</h2>
+    <p class="hint">
+      Acts on the signing_key from the most recent Enroll or Unlock above
+      (<code>currentSigningKey</code>).
+    </p>
+    <p>
+      <button id="download-backup">Download backup</button>
+      <button id="restore-file">Restore from file</button>
+      <input id="restore-input" type="file" accept=".json,application/json"
+             hidden />
+    </p>
+    <p>
+      <button id="show-raw">Show raw key</button>
+      <button id="copy-raw">Copy raw key</button>
+    </p>
+    <p>
+      <input id="raw-key" type="text" readonly
+             style="width: 100%; font-family: monospace"
+             placeholder="raw b58 private key appears here" />
+    </p>
+    <p>
+      <textarea id="import-raw-text" rows="3" style="width: 100%"
+                placeholder="paste a raw b58 private key to import"></textarea>
+    </p>
+    <p>
+      <button id="import-raw">Import raw key</button>
+    </p>
+
+    <h2>Sign message (#2.4)</h2>
+    <p class="hint">
+      Signs arbitrary text into a portable <code>gc-msg-v1</code> proof using
+      <code>currentSigningKey</code>. Verifies off-chain in JS and Python.
+    </p>
+    <p>
+      <textarea id="sign-msg-text" rows="3" style="width: 100%"
+                placeholder="message to sign"></textarea>
+    </p>
+    <p>
+      <button id="sign-msg">Sign message</button>
+      <button id="copy-msg-json">Copy JSON</button>
+      <button id="copy-msg-armored">Copy armored</button>
+    </p>
+    <p>
+      <textarea id="sign-msg-json" rows="4" style="width: 100%; font-family: monospace"
+                readonly placeholder="proof JSON appears here"></textarea>
+    </p>
+    <p>
+      <textarea id="sign-msg-armored" rows="6" style="width: 100%; font-family: monospace"
+                readonly placeholder="armored proof appears here"></textarea>
+    </p>
+
+    <h2>Verify message (#2.4)</h2>
+    <p class="hint">
+      Paste either the JSON proof or the armored block; verification is
+      self-contained (no signing_key required).
+    </p>
+    <p>
+      <textarea id="verify-msg-text" rows="6" style="width: 100%; font-family: monospace"
+                placeholder="paste JSON or armored gc-msg-v1 proof"></textarea>
+    </p>
+    <p>
+      <button id="verify-msg">Verify message</button>
+    </p>
+
+    <h2>Stake attestation (#176b)</h2>
+    <p class="hint">
+      Builds a "Verified on GumptionChain" stake claim, signs it with
+      <code>currentSigningKey</code> into a <code>gc-msg-v1</code> proof, then
+      verifies it against on-chain provenance fetched from this node.
+      Verification needs reader access — a public node sets
+      <code>READER_ADDRESSES=["*"]</code>.
+    </p>
+    <p>
+      <input id="att-txid" type="text" placeholder="txid" style="width: 100%" />
+    </p>
+    <p>
+      <select id="att-kind">
+        <option value="opposition">opposition</option>
+        <option value="support">support</option>
+        <option value="rescind">rescind</option>
+        <option value="transfer">transfer</option>
+      </select>
+      <input id="att-subject" type="text" placeholder="subject" />
+      <input id="att-amount" type="number" placeholder="amount (grains)" />
+    </p>
+    <p>
+      <button id="att-sign">Build &amp; sign attestation</button>
+      <button id="copy-att-json">Copy JSON</button>
+    </p>
+    <p>
+      <textarea id="att-json" rows="4"
+                style="width: 100%; font-family: monospace"
+                readonly placeholder="attestation proof JSON appears here">
+      </textarea>
+    </p>
+    <p>
+      <textarea id="att-verify-text" rows="6"
+                style="width: 100%; font-family: monospace"
+                placeholder="paste an attestation proof JSON to verify">
+      </textarea>
+    </p>
+    <p>
+      <button id="att-verify">Verify attestation</button>
+    </p>
+
+    <h2>Output</h2>
+    <pre id="out">(idle)</pre>
+
+    <p class="hint">
+      Inspect the stored record in devtools &rarr; Application &rarr; IndexedDB
+      &rarr; <code>gc-signing-key</code>. It should hold only
+      <code>{version, address, credentialId, iv, ciphertext}</code> — no
+      plaintext key.
+    </p>
+
+    <script type="module">
+      import { SigningKey } from './gc-signing-key.mjs';
+      import { enroll, unlock, clear } from './gc-store.mjs';
+      import { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
+      import { makeIdbStore } from './gc-store-idb.mjs';
+      import { exportEncrypted, importEncrypted, exportPlain, importPlain }
+        from './gc-backup.mjs';
+      import { signMessage, verifyMessage, toArmored, fromArmored }
+        from './gc-message.mjs';
+      import { signStakeAttestation, verifyStake } from './index.mjs';
+
+      const rpId = location.hostname;
+      const rpName = 'GumptionChain SigningKey Demo';
+      const userName = 'demo@gumptionchain';
+
+      const passkey = makeWebauthnPasskey({ rpId, rpName });
+      const store = makeIdbStore({ dbName: 'gc-signing-key' });
+
+      // The signing_key from the most recent enroll/unlock, held in memory so the
+      // backup controls can act on it. Cleared by Clear.
+      let currentSigningKey = null;
+
+      const out = document.getElementById('out');
+      const show = (msg) => {
+        out.textContent = msg;
+      };
+      const fail = (label, err) => {
+        console.error(label, err);
+        show(`${label} failed:\n${err && err.message ? err.message : err}`);
+      };
+      const requireSigningKey = () => {
+        if (!currentSigningKey) {
+          throw new Error('no signing_key loaded — Enroll or Unlock first');
+        }
+        return currentSigningKey;
+      };
+
+      document.getElementById('enroll').addEventListener('click', async () => {
+        try {
+          show('Enrolling — complete the passkey ceremony…');
+          const signing_key = await SigningKey.generate();
+          const address = await enroll(signing_key, { passkey, store }, { userName });
+          currentSigningKey = signing_key;
+          show(`Enrolled.\naddress: ${address}`);
+        } catch (err) {
+          fail('Enroll', err);
+        }
+      });
+
+      document.getElementById('unlock').addEventListener('click', async () => {
+        try {
+          show('Unlocking — complete the passkey ceremony…');
+          const signing_key = await unlock({ passkey, store });
+          currentSigningKey = signing_key;
+          const address = await signing_key.address();
+          const msg = new TextEncoder().encode('hello gumptionchain');
+          const sig = await signing_key.sign(msg);
+          show(
+            `Unlocked & signed.\naddress: ${address}\n` +
+              `message: "hello gumptionchain"\nsignature (b64): ${sig}`,
+          );
+        } catch (err) {
+          fail('Unlock', err);
+        }
+      });
+
+      document.getElementById('clear').addEventListener('click', async () => {
+        try {
+          await clear(store);
+          currentSigningKey = null;
+          show('Cleared. The stored record has been removed.');
+        } catch (err) {
+          fail('Clear', err);
+        }
+      });
+
+      document
+        .getElementById('download-backup')
+        .addEventListener('click', async () => {
+          try {
+            const signing_key = requireSigningKey();
+            const passphrase = prompt('Passphrase to encrypt the backup:');
+            if (!passphrase) {
+              show('Download backup cancelled — no passphrase entered.');
+              return;
+            }
+            const backup = await exportEncrypted(signing_key, passphrase);
+            const blob = new Blob([JSON.stringify(backup, null, 2)], {
+              type: 'application/json',
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'gc-signing-key-backup.json';
+            a.click();
+            // Defer the revoke: revoking immediately can abort the download
+            // before it starts in some browsers.
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            show(`Downloaded gc-signing-key-backup.json\naddress: ${backup.address}`);
+          } catch (err) {
+            fail('Download backup', err);
+          }
+        });
+
+      const restoreInput = document.getElementById('restore-input');
+      document
+        .getElementById('restore-file')
+        .addEventListener('click', () => restoreInput.click());
+      restoreInput.addEventListener('change', async () => {
+        const file = restoreInput.files && restoreInput.files[0];
+        restoreInput.value = '';
+        if (!file) {
+          return;
+        }
+        try {
+          const obj = JSON.parse(await file.text());
+          const passphrase = prompt('Passphrase to decrypt the backup:');
+          if (!passphrase) {
+            show('Restore cancelled — no passphrase entered.');
+            return;
+          }
+          const prior = currentSigningKey ? await currentSigningKey.address() : null;
+          const recovered = await importEncrypted(obj, passphrase);
+          const address = await recovered.address();
+          currentSigningKey = recovered;
+          const note =
+            prior && prior !== address
+              ? '\n(warning: differs from the previously loaded signing_key)'
+              : prior
+                ? '\n(matches the previously loaded signing_key)'
+                : '';
+          show(`Restored from file.\naddress: ${address}${note}`);
+        } catch (err) {
+          fail('Restore from file', err);
+        }
+      });
+
+      document.getElementById('show-raw').addEventListener('click', async () => {
+        try {
+          const signing_key = requireSigningKey();
+          document.getElementById('raw-key').value = await exportPlain(signing_key);
+          show('Raw key revealed. Copy it into a password manager, then clear.');
+        } catch (err) {
+          fail('Show raw key', err);
+        }
+      });
+
+      document.getElementById('copy-raw').addEventListener('click', async () => {
+        try {
+          const value = document.getElementById('raw-key').value;
+          if (!value) {
+            show('Nothing to copy — click Show raw key first.');
+            return;
+          }
+          await navigator.clipboard.writeText(value);
+          show('Raw key copied to clipboard.');
+        } catch (err) {
+          fail('Copy raw key', err);
+        }
+      });
+
+      document
+        .getElementById('import-raw')
+        .addEventListener('click', async () => {
+          try {
+            const value = document.getElementById('import-raw-text').value.trim();
+            if (!value) {
+              show('Nothing to import — paste a raw b58 private key first.');
+              return;
+            }
+            const recovered = await importPlain(value);
+            const address = await recovered.address();
+            currentSigningKey = recovered;
+            show(`Imported raw key.\naddress: ${address}`);
+          } catch (err) {
+            fail('Import raw key', err);
+          }
+        });
+
+      document.getElementById('sign-msg').addEventListener('click', async () => {
+        try {
+          const signing_key = requireSigningKey();
+          const text = document.getElementById('sign-msg-text').value;
+          const proof = await signMessage(signing_key, text);
+          document.getElementById('sign-msg-json').value =
+            JSON.stringify(proof, null, 2);
+          document.getElementById('sign-msg-armored').value = toArmored(proof);
+          show(`Signed message.\naddress: ${proof.address}`);
+        } catch (err) {
+          fail('Sign message', err);
+        }
+      });
+
+      const copyField = async (id, label) => {
+        try {
+          const value = document.getElementById(id).value;
+          if (!value) {
+            show('Nothing to copy — sign a message first.');
+            return;
+          }
+          await navigator.clipboard.writeText(value);
+          show(`${label} copied to clipboard.`);
+        } catch (err) {
+          fail(`Copy ${label}`, err);
+        }
+      };
+      document
+        .getElementById('copy-msg-json')
+        .addEventListener('click', () => copyField('sign-msg-json', 'JSON'));
+      document
+        .getElementById('copy-msg-armored')
+        .addEventListener('click', () =>
+          copyField('sign-msg-armored', 'Armored'),
+        );
+
+      document
+        .getElementById('verify-msg')
+        .addEventListener('click', async () => {
+          try {
+            const text = document.getElementById('verify-msg-text').value.trim();
+            if (!text) {
+              show('Nothing to verify — paste a JSON or armored proof first.');
+              return;
+            }
+            let proof;
+            try {
+              proof = JSON.parse(text);
+            } catch {
+              proof = fromArmored(text);
+            }
+            const r = await verifyMessage(proof);
+            const lines = [
+              `valid: ${r.valid}`,
+              `address: ${r.address}`,
+              `timestamp: ${r.timestamp}`,
+            ];
+            if (!r.valid) {
+              lines.push(`reason: ${r.reason}`);
+            }
+            show(lines.join('\n'));
+          } catch (err) {
+            fail('Verify message', err);
+          }
+        });
+
+      const readClaim = () => {
+        const kind = document.getElementById('att-kind').value;
+        const txid = document.getElementById('att-txid').value.trim();
+        const subjectOrAddress =
+          document.getElementById('att-subject').value.trim();
+        const amount = Number(document.getElementById('att-amount').value);
+        const claim = { txid, kind, amount };
+        if (kind === 'transfer') {
+          claim.address = subjectOrAddress;
+        } else {
+          claim.subject = subjectOrAddress;
+        }
+        return claim;
+      };
+
+      document.getElementById('att-sign').addEventListener('click', async () => {
+        try {
+          const signing_key = requireSigningKey();
+          const proof = await signStakeAttestation(signing_key, readClaim());
+          document.getElementById('att-json').value =
+            JSON.stringify(proof, null, 2);
+          show(`Signed attestation.\naddress: ${proof.address}`);
+        } catch (err) {
+          fail('Build & sign attestation', err);
+        }
+      });
+
+      document
+        .getElementById('copy-att-json')
+        .addEventListener('click', () => copyField('att-json', 'JSON'));
+
+      // No transport in the verifier: fetchProvenance does the I/O. A 404
+      // (unknown txn) maps to null so verifyStake reports txn-not-found.
+      const fetchProvenance = async (txid) => {
+        const res = await fetch(`/api/transaction/${encodeURIComponent(txid)}`);
+        if (res.status === 404) {
+          return null;
+        }
+        if (!res.ok) {
+          throw new Error(`provenance fetch failed: HTTP ${res.status}`);
+        }
+        return res.json();
+      };
+
+      document
+        .getElementById('att-verify')
+        .addEventListener('click', async () => {
+          try {
+            const text =
+              document.getElementById('att-verify-text').value.trim();
+            if (!text) {
+              show('Nothing to verify — paste an attestation proof first.');
+              return;
+            }
+            const proof = JSON.parse(text);
+            const v = await verifyStake(proof, { fetchProvenance });
+            const lines = [
+              `valid: ${v.valid}`,
+              `signer: ${v.signer}`,
+              `signature: ${v.checks.signature}`,
+              `onchain: ${v.checks.onchain}`,
+              `consistent: ${v.checks.consistent}`,
+              `confirmations: ${v.confirmations}`,
+            ];
+            if (v.reasons.length) {
+              lines.push(`reasons: ${v.reasons.join(', ')}`);
+            }
+            show(lines.join('\n'));
+          } catch (err) {
+            fail('Verify attestation', err);
+          }
+        });
+    </script>
+  </body>
+</html>

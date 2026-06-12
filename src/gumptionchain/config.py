@@ -40,7 +40,7 @@ class EnvAppSettings(EnvironSettings):
     MAX_PENDING_TXNS: int = field(default=10000)
     API_ASYNC_PROCESSING: bool = field(default=False)
     DEFAULT_COMMAND_HOST: str | None = field(default=None)
-    WALLET_DIR: str | None = field(default=None)
+    SIGNING_KEY_DIR: str | None = field(default=None)
     ADMIN_ADDRESSES: list[str] = field(default_factory=list)
     MILLER_ADDRESSES: list[str] = field(default_factory=list)
     TRANSACTOR_ADDRESSES: list[str] = field(default_factory=list)

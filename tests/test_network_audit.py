@@ -33,17 +33,19 @@ from gumptionchain.util import now
 TEST_TARGET = 'F' * 64
 
 # Per-finding tests (and any further imports: pytest, Block, Node, ...) are
-# appended below this scaffold. Shared fixtures (app, *_wallet,
+# appended below this scaffold. Shared fixtures (app, *_signing_key,
 # requests_proxy, remote_requests_proxy, mill_block, host, time_stepper) come
 # from tests/conftest.py.
 
 
-def _hostile_block(prev_block: Block, wallet, idx_offset: int = 1) -> Block:
+def _hostile_block(
+    prev_block: Block, signing_key, idx_offset: int = 1
+) -> Block:
     """Construct a fully-mined Block extending `prev_block` without
     persisting anything to the DB.
 
     Mirrors tests/test_verification_audit.py: linked to `prev_block` by
-    hash + idx, sealed with a coinbase paying `wallet`, given a merkle
+    hash + idx, sealed with a coinbase paying `signing_key`, given a merkle
     root, timestamped at now() (under the active time_machine), and milled
     to satisfy the TEST_TARGET (all-F) proof-of-work requirement.
     """
@@ -51,12 +53,12 @@ def _hostile_block(prev_block: Block, wallet, idx_offset: int = 1) -> Block:
     assert prev_block.idx is not None
     assert prev_block.block_hash is not None
     b.link(prev_block.idx + idx_offset, prev_block.block_hash, TEST_TARGET)
-    b.seal(wallet, REWARD, CoinbaseMetrics())
+    b.seal(signing_key, REWARD, CoinbaseMetrics())
     b.mill()
     return b
 
 
-def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
+def test_n1_fill_chain_has_no_depth_cap(app, time_machine, signing_key) -> None:
     """N1 (depth-cap half): fill_chain's ancestor walk is now bounded by
     app.config['MAX_CHAIN_FILL_DEPTH']. A hostile peer that drives the walk
     past max_depth causes fill_chain to abort (returning False and cleaning up
@@ -70,14 +72,14 @@ def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
     with app.app_context():
         now_dt = now()
         time_machine.move_to(now_dt - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         g = m.create_block()
         m.mill_block(g)
 
         # Build a hostile tip whose ancestors are NOT in the DB, so the
         # backward walk must request_block its way down.
-        tip = _hostile_block(g, wallet)
-        tip2 = _hostile_block(tip, wallet)
+        tip = _hostile_block(g, signing_key)
+        tip2 = _hostile_block(tip, signing_key)
         assert tip2.block_hash is not None
         assert Block.from_db(tip2.block_hash) is None
 
@@ -96,7 +98,7 @@ def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
             call_count[0] += 1
             if call_count[0] > safety:
                 return None
-            nxt = _hostile_block(current[0], wallet)
+            nxt = _hostile_block(current[0], signing_key)
             current[0] = nxt
             return nxt
 
@@ -110,7 +112,9 @@ def test_n1_fill_chain_has_no_depth_cap(app, time_machine, wallet) -> None:
         assert call_count[0] <= 3
 
 
-def test_n2_mempool_has_no_admission_cap(app, time_machine, wallet) -> None:
+def test_n2_mempool_has_no_admission_cap(
+    app, time_machine, signing_key
+) -> None:
     """N2 (regression): receive_transaction now enforces a configurable
     MAX_PENDING_TXNS cap. Submissions past the cap raise MempoolFullError;
     the pool never exceeds the configured limit.
@@ -120,7 +124,7 @@ def test_n2_mempool_has_no_admission_cap(app, time_machine, wallet) -> None:
     with app.app_context():
         now_dt = now()
         time_machine.move_to(now_dt - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
 
         # Remediation contract: cap the mempool BEFORE submitting.
         app.config['MAX_PENDING_TXNS'] = 3
@@ -138,7 +142,7 @@ def test_n2_mempool_has_no_admission_cap(app, time_machine, wallet) -> None:
             t.add_outflow(
                 Outflow(amount=1, opposition=encode_subject(f'subj-{i}'))
             )
-            t.set_wallet(wallet)
+            t.set_signing_key(signing_key)
             t.seal()
             t.sign()
             with contextlib.suppress(MempoolFullError):
@@ -148,7 +152,7 @@ def test_n2_mempool_has_no_admission_cap(app, time_machine, wallet) -> None:
 
 
 def test_n3_pending_txn_regossiped_on_every_receipt(
-    app, time_machine, wallet
+    app, time_machine, signing_key
 ) -> None:
     """N3 (remediated): an ALREADY-PENDING txn is no longer re-gossiped on
     every receipt. send_transaction is now gated on `added` (the 'newly
@@ -157,13 +161,13 @@ def test_n3_pending_txn_regossiped_on_every_receipt(
     with app.app_context():
         now_dt = now()
         time_machine.move_to(now_dt - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
 
         # One valid signed txn (dummy inflow satisfies the shape check).
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid='0' * 64, outflow_idx=0))
         t.add_outflow(Outflow(amount=1, opposition=encode_subject('subj-n3')))
-        t.set_wallet(wallet)
+        t.set_signing_key(signing_key)
         t.seal()
         t.sign()
 
@@ -209,7 +213,7 @@ def test_n4_broker_publish_is_bounded(app) -> None:
     assert celery.conf.broker_connection_max_retries == 0
 
 
-def test_n1_request_block_rejects_hash_mismatch(app, time_machine, wallet):
+def test_n1_request_block_rejects_hash_mismatch(app, time_machine, signing_key):
     """N1 (hash-check half): request_block must reject a peer response whose
     returned block hash does not equal the requested hash, instead of
     returning the mismatched block. This is the primary fix -- it stops a
@@ -217,12 +221,12 @@ def test_n1_request_block_rejects_hash_mismatch(app, time_machine, wallet):
     """
     with app.app_context():
         time_machine.move_to(now() - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         g = m.create_block()
         m.mill_block(g)
         # A valid block whose hash is known; the peer will serve it in
         # response to a request for a DIFFERENT hash.
-        served = _hostile_block(g, wallet)
+        served = _hostile_block(g, signing_key)
         assert served.block_hash is not None
 
         class _Resp:
@@ -245,7 +249,7 @@ def test_n1_request_block_rejects_hash_mismatch(app, time_machine, wallet):
 
 
 def test_n1_request_block_rejects_forged_block_hash_field(
-    app, time_machine, wallet
+    app, time_machine, signing_key
 ):
     """N1 (hash-check half, second-preimage): a peer cannot bypass the check
     by forging the self-reported ``block_hash`` JSON field to equal the
@@ -256,12 +260,12 @@ def test_n1_request_block_rejects_forged_block_hash_field(
     """
     with app.app_context():
         time_machine.move_to(now() - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         g = m.create_block()
         m.mill_block(g)
         # A real block; we then LIE about its block_hash field, claiming the
         # requested hash while the content still hashes to the real value.
-        forged = _hostile_block(g, wallet)
+        forged = _hostile_block(g, signing_key)
         real_hash = forged.block_hash
         assert real_hash is not None
         requested = 'a' * 64
@@ -289,7 +293,7 @@ def test_n1_request_block_rejects_forged_block_hash_field(
 
 
 def test_n2_full_mempool_returns_503(
-    app, host, time_machine, requests_proxy, wallet
+    app, host, time_machine, requests_proxy, signing_key
 ):
     """N2 (view layer): a valid txn submitted to a full mempool returns a
     retryable 503, not a 400 -- the txn is well-formed and authorized; the
@@ -298,7 +302,7 @@ def test_n2_full_mempool_returns_503(
     with app.app_context():
         time_machine.move_to(now() - datetime.timedelta(hours=1))
         app.config['MAX_PENDING_TXNS'] = 1
-        client = ApiClient(host, wallet)
+        client = ApiClient(host, signing_key)
 
         def make_txn(i):
             t = Transaction()
@@ -306,7 +310,7 @@ def test_n2_full_mempool_returns_503(
             t.add_outflow(
                 Outflow(amount=1, opposition=encode_subject(f's503-{i}'))
             )
-            t.set_wallet(wallet)
+            t.set_signing_key(signing_key)
             t.seal()
             t.sign()
             return t
@@ -323,21 +327,21 @@ def test_n2_full_mempool_returns_503(
         assert r2.status_code == httpx.codes.SERVICE_UNAVAILABLE
 
 
-def test_n3_new_txn_gossips_once(app, time_machine, wallet) -> None:
+def test_n3_new_txn_gossips_once(app, time_machine, signing_key) -> None:
     """N3 (positive guard): a genuinely-new txn still gossips exactly once on
     its first receipt -- the re-gossip gate must not kill legitimate first
     propagation.
     """
     with app.app_context():
         time_machine.move_to(now() - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
 
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid='0' * 64, outflow_idx=0))
         t.add_outflow(
             Outflow(amount=1, opposition=encode_subject('subj-n3-pos'))
         )
-        t.set_wallet(wallet)
+        t.set_signing_key(signing_key)
         t.seal()
         t.sign()
 

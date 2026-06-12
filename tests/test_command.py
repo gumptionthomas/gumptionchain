@@ -10,19 +10,19 @@ from gumptionchain.chain import GRAIN_PER_GRIT, REWARD
 from gumptionchain.database import db
 from gumptionchain.miller import Miller
 from gumptionchain.node import Node
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.util import now
-from gumptionchain.wallet import Wallet
 
 REWARD_GRIT = int(REWARD / GRAIN_PER_GRIT)
 SUBJECT_GRIT = 2
 
 
-def get_wallet_file(address, walletdir=None, app=None):
-    if walletdir is None and app is not None:
-        walletdir = app.config.get('WALLET_DIR')
+def get_signing_key_file(address, signing_keydir=None, app=None):
+    if signing_keydir is None and app is not None:
+        signing_keydir = app.config.get('SIGNING_KEY_DIR')
     fn = f'{address}.pem'
-    if walletdir:
-        fn = os.path.join(walletdir, fn)
+    if signing_keydir:
+        fn = os.path.join(signing_keydir, fn)
     return fn
 
 
@@ -36,11 +36,11 @@ def test_init(app, runner):
         assert 'Initialized the database.' in result.output
 
 
-def _mill_peer_chain(remote_app, miller_2_wallet, count, time_stepper):
+def _mill_peer_chain(remote_app, miller_2_signing_key, count, time_stepper):
     """Mill `count` blocks on remote_app's chain, returning the tip."""
     time_step = time_stepper(start=now() - datetime.timedelta(hours=2))
     with remote_app.app_context():
-        m = Miller(milling_wallet=miller_2_wallet)
+        m = Miller(milling_signing_key=miller_2_signing_key)
         last = None
         for _ in range(count):
             next(time_step)
@@ -64,12 +64,12 @@ def test_sync_catches_up_to_peer_ahead(
     remote_app,
     remote_requests_proxy,
     runner,
-    miller_2_wallet,
+    miller_2_signing_key,
     time_machine,
     time_stepper,
 ):
     """`sync` forward-syncs the local node up to a peer that is ahead."""
-    tip = _mill_peer_chain(remote_app, miller_2_wallet, 4, time_stepper)
+    tip = _mill_peer_chain(remote_app, miller_2_signing_key, 4, time_stepper)
     assert tip.idx == 3
     with app.app_context():
         _rebuild_local_clients_to_peer(app)
@@ -91,18 +91,18 @@ def test_sync_noop_when_peer_not_ahead(
     remote_app,
     remote_requests_proxy,
     runner,
-    miller_2_wallet,
-    wallet,
+    miller_2_signing_key,
+    signing_key,
     time_machine,
     time_stepper,
 ):
     """A peer no further ahead than the local tip is a no-op: sync_forward
     is never invoked for that peer."""
     # Peer has a 2-block chain (tip idx 1).
-    _mill_peer_chain(remote_app, miller_2_wallet, 2, time_stepper)
+    _mill_peer_chain(remote_app, miller_2_signing_key, 2, time_stepper)
     with app.app_context():
         # Local node already has a chain whose tip idx (1) >= peer tip idx.
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         next(time_stepper(start=now() + datetime.timedelta(seconds=120)))
@@ -124,7 +124,7 @@ def test_sync_noop_when_peer_not_ahead(
 
 
 def test_sync_miller_path_still_uses_fill_chain(
-    app, mill_block, wallet, time_machine
+    app, mill_block, signing_key, time_machine
 ):
     """Regression guard: Miller.poll_latest_blocks (the gossip short-fill
     path) still delegates to fill_chain — NOT sync_forward — for a
@@ -132,7 +132,7 @@ def test_sync_miller_path_still_uses_fill_chain(
     with app.app_context():
         now_dt = now()
         time_machine.move_to(now_dt - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         g = m.create_block()
         m.mill_block(g)
 
@@ -159,16 +159,16 @@ def test_sync_miller_path_still_uses_fill_chain(
         fwd_spy.assert_not_called()
 
 
-def test_validate(app, mill_block, runner, wallet):
+def test_validate(app, mill_block, runner, signing_key):
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         result = runner.invoke(args=['validate'])
         assert '100%' in result.output
 
 
-def test_export_import(app, mill_block, runner, wallet):
+def test_export_import(app, mill_block, runner, signing_key):
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         with NamedTemporaryFile(suffix='.jsonl') as f:
             result = runner.invoke(args=['export', f.name])
             assert '100%' in result.output
@@ -179,108 +179,122 @@ def test_export_import(app, mill_block, runner, wallet):
 
 
 def run_txn_transfer(
-    runner, from_wallet, to_wallet, from_wallet_file, confirm=True
+    runner,
+    from_signing_key,
+    to_signing_key,
+    from_signing_key_file,
+    confirm=True,
 ):
     return runner.invoke(
         args=[
             'txn',
             'transfer',
-            from_wallet.address,
+            from_signing_key.address,
             '2',
-            to_wallet.address,
-            '--txn-wallet',
-            from_wallet_file,
+            to_signing_key.address,
+            '--txn-signing_key',
+            from_signing_key_file,
         ],
         input='Y' if confirm else 'n',
     )
 
 
-def test_transfer(app, mill_block, runner, requests_proxy, wallet):
+def test_transfer(app, mill_block, runner, requests_proxy, signing_key):
     with app.app_context():
-        from_wallet = Wallet()
-        fwf = from_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        to_wallet = Wallet()
-        m, _ = mill_block(from_wallet)
+        from_signing_key = SigningKey()
+        fwf = from_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        to_signing_key = SigningKey()
+        m, _ = mill_block(from_signing_key)
         result = run_txn_transfer(
-            runner, from_wallet, to_wallet, fwf, confirm=False
+            runner, from_signing_key, to_signing_key, fwf, confirm=False
         )
         assert 'Transfer aborted.' in result.output
         assert len(m.pending_txns) == 0
-        result = run_txn_transfer(runner, from_wallet, to_wallet, fwf)
+        result = run_txn_transfer(runner, from_signing_key, to_signing_key, fwf)
         assert 'Transfer created.' in result.output
         assert len(m.pending_txns) == 1
 
 
-def test_invalid_transfer(app, mill_block, runner, requests_proxy, wallet):
+def test_invalid_transfer(app, mill_block, runner, requests_proxy, signing_key):
     with app.app_context():
-        from_wallet = Wallet()
-        fwf = from_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        to_wallet = Wallet()
-        m, _ = mill_block(wallet)
-        result = run_txn_transfer(runner, from_wallet, to_wallet, fwf)
+        from_signing_key = SigningKey()
+        fwf = from_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        to_signing_key = SigningKey()
+        m, _ = mill_block(signing_key)
+        result = run_txn_transfer(runner, from_signing_key, to_signing_key, fwf)
         assert 'Transfer failed: InsufficientFundsError' in result.output
         assert len(m.pending_txns) == 0
 
 
 def run_txn_opposition(
-    runner, subject, txn_wallet, txn_wallet_file, confirm=True
+    runner, subject, txn_signing_key, txn_signing_key_file, confirm=True
 ):
     return runner.invoke(
         args=[
             'txn',
             'opposition',
-            txn_wallet.address,
+            txn_signing_key.address,
             str(SUBJECT_GRIT),
             subject,
-            '--txn-wallet',
-            txn_wallet_file,
+            '--txn-signing_key',
+            txn_signing_key_file,
         ],
         input='Y' if confirm else 'n',
     )
 
 
 def test_opposition(
-    app, mill_block, runner, requests_proxy, subject_raw, wallet
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
 ):
     with app.app_context():
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        m, _ = mill_block(txn_wallet)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(txn_signing_key)
         result = run_txn_opposition(
-            runner, subject_raw, txn_wallet, txnwf, confirm=False
+            runner, subject_raw, txn_signing_key, txnwf, confirm=False
         )
         assert 'Opposition aborted' in result.output
         assert len(m.pending_txns) == 0
-        result = run_txn_opposition(runner, subject_raw, txn_wallet, txnwf)
+        result = run_txn_opposition(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Opposition created' in result.output
         assert len(m.pending_txns) == 1
 
 
 def test_invalid_opposition(
-    app, mill_block, runner, requests_proxy, subject_raw, wallet
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
 ):
     with app.app_context():
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        m, _ = mill_block(wallet)
-        result = run_txn_opposition(runner, subject_raw, txn_wallet, txnwf)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(signing_key)
+        result = run_txn_opposition(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Opposition failed: InsufficientFundsError' in result.output
         assert len(m.pending_txns) == 0
 
 
-def test_empty_chain(app, runner, requests_proxy, subject_raw, wallet):
+def test_empty_chain(app, runner, requests_proxy, subject_raw, signing_key):
     with app.app_context():
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        result = run_txn_opposition(runner, subject_raw, txn_wallet, txnwf)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        result = run_txn_opposition(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Opposition failed: EmptyChainError' in result.output
 
 
 def run_txn_rescind(
     runner,
     subject,
-    txn_wallet,
-    txn_wallet_file,
+    txn_signing_key,
+    txn_signing_key_file,
     confirm=True,
     kind='opposition',
 ):
@@ -288,92 +302,110 @@ def run_txn_rescind(
         args=[
             'txn',
             'rescind',
-            txn_wallet.address,
+            txn_signing_key.address,
             str(SUBJECT_GRIT),
             subject,
             '--kind',
             kind,
-            '--txn-wallet',
-            txn_wallet_file,
+            '--txn-signing_key',
+            txn_signing_key_file,
         ],
         input='Y' if confirm else 'n',
     )
 
 
 def test_rescind(
-    app, mill_block, runner, requests_proxy, subject_raw, time_stepper, wallet
+    app,
+    mill_block,
+    runner,
+    requests_proxy,
+    subject_raw,
+    time_stepper,
+    signing_key,
 ):
     with app.app_context():
         time_step = time_stepper()
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        m, _ = mill_block(txn_wallet)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(txn_signing_key)
         _ = next(time_step)
-        result = run_txn_opposition(runner, subject_raw, txn_wallet, txnwf)
+        result = run_txn_opposition(runner, subject_raw, txn_signing_key, txnwf)
         assert len(m.pending_txns) == 1
-        m, _ = mill_block(txn_wallet)
+        m, _ = mill_block(txn_signing_key)
         result = run_txn_rescind(
-            runner, subject_raw, txn_wallet, txnwf, confirm=False
+            runner, subject_raw, txn_signing_key, txnwf, confirm=False
         )
         assert 'Rescind aborted' in result.output
         assert (
             len(m.pending_txns) == 0
         )  # the mill confirmed + pruned the opposition (#208)
-        result = run_txn_rescind(runner, subject_raw, txn_wallet, txnwf)
+        result = run_txn_rescind(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Rescind created' in result.output
         assert len(m.pending_txns) == 1
 
 
 def test_invalid_rescind(
-    app, mill_block, runner, requests_proxy, subject_raw, wallet
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
 ):
     with app.app_context():
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        m, _ = mill_block(txn_wallet)
-        result = run_txn_rescind(runner, subject_raw, txn_wallet, txnwf)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(txn_signing_key)
+        result = run_txn_rescind(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Rescind failed: InsufficientFundsError' in result.output
         assert len(m.pending_txns) == 0
 
 
-def run_txn_support(runner, subject, txn_wallet, txn_wallet_file, confirm=True):
+def run_txn_support(
+    runner, subject, txn_signing_key, txn_signing_key_file, confirm=True
+):
     return runner.invoke(
         args=[
             'txn',
             'support',
-            txn_wallet.address,
+            txn_signing_key.address,
             str(SUBJECT_GRIT),
             subject,
-            '--txn-wallet',
-            txn_wallet_file,
+            '--txn-signing_key',
+            txn_signing_key_file,
         ],
         input='Y' if confirm else 'n',
     )
 
 
-def test_support(app, mill_block, runner, requests_proxy, subject_raw, wallet):
+def test_support(
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
+):
     with app.app_context():
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        m, _ = mill_block(txn_wallet)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(txn_signing_key)
         result = run_txn_support(
-            runner, subject_raw, txn_wallet, txnwf, confirm=False
+            runner, subject_raw, txn_signing_key, txnwf, confirm=False
         )
         assert 'Support aborted' in result.output
         assert len(m.pending_txns) == 0
-        result = run_txn_support(runner, subject_raw, txn_wallet, txnwf)
+        result = run_txn_support(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Support created' in result.output
         assert len(m.pending_txns) == 1
 
 
 def test_invalid_support(
-    app, mill_block, runner, requests_proxy, subject_raw, wallet
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
 ):
     with app.app_context():
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        m, _ = mill_block(wallet)
-        result = run_txn_support(runner, subject_raw, txn_wallet, txnwf)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(signing_key)
+        result = run_txn_support(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Support failed: InsufficientFundsError' in result.output
         assert len(m.pending_txns) == 0
 
@@ -385,23 +417,25 @@ def test_rescind_support_kind(
     requests_proxy,
     subject_raw,
     time_stepper,
-    wallet,
+    signing_key,
 ):
     """txn rescind --kind support creates a support rescind transaction."""
     with app.app_context():
         time_step = time_stepper()
-        txn_wallet = Wallet()
-        txnwf = txn_wallet.to_file(walletdir=app.config.get('WALLET_DIR'))
-        m, _ = mill_block(txn_wallet)
+        txn_signing_key = SigningKey()
+        txnwf = txn_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(txn_signing_key)
         _ = next(time_step)
-        result = run_txn_support(runner, subject_raw, txn_wallet, txnwf)
+        result = run_txn_support(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Support created' in result.output
         assert len(m.pending_txns) == 1
-        m, _ = mill_block(txn_wallet)
+        m, _ = mill_block(txn_signing_key)
         result = run_txn_rescind(
             runner,
             subject_raw,
-            txn_wallet,
+            txn_signing_key,
             txnwf,
             confirm=False,
             kind='support',
@@ -411,93 +445,105 @@ def test_rescind_support_kind(
             len(m.pending_txns) == 0
         )  # the mill confirmed + pruned the support stake (#208)
         result = run_txn_rescind(
-            runner, subject_raw, txn_wallet, txnwf, kind='support'
+            runner, subject_raw, txn_signing_key, txnwf, kind='support'
         )
         assert 'Rescind created' in result.output
         assert len(m.pending_txns) == 1
 
 
-def test_create_wallet(app, runner):
-    with app.app_context(), TemporaryDirectory() as walletdir:
+def test_create_signing_key(app, runner):
+    with app.app_context(), TemporaryDirectory() as signing_keydir:
         result = runner.invoke(
-            args=['wallet', 'create', '--walletdir', walletdir]
+            args=['signing-key', 'create', '--signing_keydir', signing_keydir]
         )
         assert result.exit_code == 0
         assert 'Created' in result.output
-        pem_files = list(Path(walletdir).glob('*.pem'))
+        pem_files = list(Path(signing_keydir).glob('*.pem'))
         assert len(pem_files) == 1
-        assert Wallet.from_file(str(pem_files[0])) is not None
+        assert SigningKey.from_file(str(pem_files[0])) is not None
 
 
-def test_wallet_balance(
-    app, mill_block, runner, requests_proxy, subject_raw, wallet
+def test_signing_key_balance(
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
 ):
     with app.app_context():
-        mill_block(wallet)
-        result = runner.invoke(args=['wallet', 'balance', wallet.address])
+        mill_block(signing_key)
+        result = runner.invoke(
+            args=['signing-key', 'balance', signing_key.address]
+        )
         assert f'{REWARD_GRIT} GRIT' in result.output
-        wf = get_wallet_file(wallet.address, app=app)
-        run_txn_opposition(runner, subject_raw, wallet, wf)
-        w = Wallet()
+        wf = get_signing_key_file(signing_key.address, app=app)
+        run_txn_opposition(runner, subject_raw, signing_key, wf)
+        w = SigningKey()
         mill_block(w)
-        result = runner.invoke(args=['wallet', 'balance', wallet.address])
+        result = runner.invoke(
+            args=['signing-key', 'balance', signing_key.address]
+        )
         assert f'{REWARD_GRIT - SUBJECT_GRIT} GRIT' in result.output
-        to_wallet = Wallet()
-        run_txn_transfer(runner, wallet, to_wallet, wf)
+        to_signing_key = SigningKey()
+        run_txn_transfer(runner, signing_key, to_signing_key, wf)
         mill_block(w)
-        result = runner.invoke(args=['wallet', 'balance', wallet.address])
+        result = runner.invoke(
+            args=['signing-key', 'balance', signing_key.address]
+        )
         assert f'{REWARD_GRIT - 2 * SUBJECT_GRIT} GRIT' in result.output
-        result = runner.invoke(args=['wallet', 'balance', to_wallet.address])
+        result = runner.invoke(
+            args=['signing-key', 'balance', to_signing_key.address]
+        )
         assert f'{SUBJECT_GRIT} GRIT' in result.output
-        result = runner.invoke(args=['wallet', 'balance', w.address])
+        result = runner.invoke(args=['signing-key', 'balance', w.address])
         expected = int(2 * REWARD_GRIT + 0.5 * SUBJECT_GRIT)
         assert f'{expected} GRIT' in result.output
-        result = runner.invoke(args=['wallet', 'balance', 'foo'])
+        result = runner.invoke(args=['signing-key', 'balance', 'foo'])
         assert 'Not Found' in result.output
 
 
 def test_subject_opposition(
-    app, mill_block, runner, requests_proxy, subject_raw, wallet
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
 ):
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         result = runner.invoke(args=['subject', 'opposition', subject_raw])
         assert '0 GRIT' in result.output
-        wf = get_wallet_file(wallet.address, app=app)
-        run_txn_opposition(runner, subject_raw, wallet, wf)
-        mill_block(wallet)
+        wf = get_signing_key_file(signing_key.address, app=app)
+        run_txn_opposition(runner, subject_raw, signing_key, wf)
+        mill_block(signing_key)
         result = runner.invoke(args=['subject', 'opposition', subject_raw])
         assert f'{SUBJECT_GRIT} GRIT' in result.output
-        run_txn_opposition(runner, subject_raw, wallet, wf)
-        mill_block(wallet)
+        run_txn_opposition(runner, subject_raw, signing_key, wf)
+        mill_block(signing_key)
         result = runner.invoke(args=['subject', 'opposition', subject_raw])
         assert f'{2 * SUBJECT_GRIT} GRIT' in result.output
 
 
 def test_subject_support(
-    app, mill_block, runner, requests_proxy, subject_raw, wallet
+    app, mill_block, runner, requests_proxy, subject_raw, signing_key
 ):
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         result = runner.invoke(args=['subject', 'support', subject_raw])
         assert '0 GRIT' in result.output
-        wf = get_wallet_file(wallet.address, app=app)
-        run_txn_support(runner, subject_raw, wallet, wf)
-        mill_block(wallet)
+        wf = get_signing_key_file(signing_key.address, app=app)
+        run_txn_support(runner, subject_raw, signing_key, wf)
+        mill_block(signing_key)
         result = runner.invoke(args=['subject', 'support', subject_raw])
         assert f'{SUBJECT_GRIT} GRIT' in result.output
-        run_txn_support(runner, subject_raw, wallet, wf)
-        mill_block(wallet)
+        run_txn_support(runner, subject_raw, signing_key, wf)
+        mill_block(signing_key)
         result = runner.invoke(args=['subject', 'support', subject_raw])
         assert f'{2 * SUBJECT_GRIT} GRIT' in result.output
 
 
-def test_mill(app, runner, wallet):
+def test_mill(app, runner, signing_key):
     with app.app_context():
-        result = runner.invoke(args=['mill', wallet.address, '--blocks', 2])
+        result = runner.invoke(
+            args=['mill', signing_key.address, '--blocks', 2]
+        )
         assert 'GENESIS' in result.output
         assert 'Block │ 0' in result.output
         assert 'Block │ 1' in result.output
-        result = runner.invoke(args=['mill', wallet.address, '--blocks', 2])
+        result = runner.invoke(
+            args=['mill', signing_key.address, '--blocks', 2]
+        )
         assert 'Block │ 2' in result.output
         assert 'Block │ 3' in result.output

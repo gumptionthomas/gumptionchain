@@ -28,11 +28,11 @@ def test_blocks_list_empty(test_client):
 
 
 def test_blocks_list_shows_mined_blocks(
-    app, host, mill_block, requests_proxy, wallet
+    app, host, mill_block, requests_proxy, signing_key
 ):
     with app.app_context():
-        mill_block(wallet)
-        _m, b2 = mill_block(wallet)
+        mill_block(signing_key)
+        _m, b2 = mill_block(signing_key)
         tip_hash = b2.block_hash
 
         resp = app.test_client().get('/blocks')
@@ -42,16 +42,16 @@ def test_blocks_list_shows_mined_blocks(
 
 
 def test_blocks_list_shows_transaction_count(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     # A block carrying a staking txn shows a non-zero Txns count (the coinbase
     # plus the staked transaction), exercising the precomputed tx_counts map.
     with app.app_context():
-        m, _b1 = mill_block(wallet)
-        txn = m.longest_chain.create_opposition(wallet, 300, subject)
+        m, _b1 = mill_block(signing_key)
+        txn = m.longest_chain.create_opposition(signing_key, 300, subject)
         txn.sign()
-        ApiClient(host, wallet).post_transaction(txn)
-        mill_block(wallet)
+        ApiClient(host, signing_key).post_transaction(txn)
+        mill_block(signing_key)
 
         resp = app.test_client().get('/blocks')
         assert resp.status_code == 200

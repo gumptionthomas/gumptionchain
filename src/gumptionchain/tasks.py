@@ -42,15 +42,15 @@ def post_process(
     data: str | bytes | None = None,
     vhosts: list[str] | None = None,
 ) -> None:
-    wallet = current_app.wallets.get(address)  # type: ignore[attr-defined]
-    if wallet is None:
+    signing_key = current_app.signing_keys.get(address)  # type: ignore[attr-defined]
+    if signing_key is None:
         current_app.logger.warning(
-            'post_process: no wallet for address %s; '
+            'post_process: no signing_key for address %s; '
             'dropping post-processing of %s',
             address,
             path,
         )
         return
     headers = {PEER_HOST_HEADER: ','.join(vhosts)} if vhosts else None
-    with ApiClient(host, wallet) as c:
+    with ApiClient(host, signing_key) as c:
         c.post(path, data=data, headers=headers)

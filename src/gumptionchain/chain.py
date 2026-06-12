@@ -43,9 +43,9 @@ from gumptionchain.models import (
     TransactionDAO,
 )
 from gumptionchain.payload import Inflow, Outflow, StakeKind
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import dt_2_iso, now
-from gumptionchain.wallet import Wallet
 
 GRAIN_PER_GRIT = 100
 GENESIS_HASH = mill_hash_str('GENESIS')
@@ -186,10 +186,10 @@ class Chain:
     def seal_block(
         self,
         block: Block,
-        wallet: Wallet,
+        signing_key: SigningKey,
         metrics: CoinbaseMetrics,
     ) -> None:
-        block.seal(wallet, self.block_reward(block), metrics)
+        block.seal(signing_key, self.block_reward(block), metrics)
 
     def add_block(self, block: Block, *, commit: bool = True) -> None:
         self.validate_block(block)
@@ -516,7 +516,7 @@ class Chain:
                 break
 
     def balance(self, address: str) -> int:
-        return int(self.to_dao().wallet_balance(address))
+        return int(self.to_dao().signing_key_balance(address))
 
     def _funds_error(self, address: str, amount: int) -> InsufficientFundsError:
         # Distinguish a genuine shortfall from funds tied up in an unconfirmed
@@ -531,8 +531,8 @@ class Chain:
             )
         return InsufficientFundsError()
 
-    def wallet_leaderboard(self, limit: int | None = None) -> Select[Any]:
-        return self.to_dao().wallet_leaderboard(limit=limit)
+    def signing_key_leaderboard(self, limit: int | None = None) -> Select[Any]:
+        return self.to_dao().signing_key_leaderboard(limit=limit)
 
     def address_holdings(self, address: str) -> Select[tuple[OutflowDAO]]:
         # unspent_outflows has no inherent order; add a deterministic sort so
@@ -598,9 +598,9 @@ class Chain:
         return ChainDAO.pending_provenance(txid)
 
     def create_transfer(
-        self, wallet: Wallet, amount: int, dest_address: str
+        self, signing_key: SigningKey, amount: int, dest_address: str
     ) -> Transaction:
-        address = wallet.address
+        address = signing_key.address
         balance = 0
         t = Transaction()
         unspent = self.unspent_outflows(
@@ -614,19 +614,19 @@ class Chain:
         t.add_outflow(Outflow(amount=amount, address=dest_address))
         if balance - amount:
             t.add_outflow(Outflow(amount=balance - amount, address=address))
-        t.set_wallet(wallet)
+        t.set_signing_key(signing_key)
         t.seal()
         return t
 
     def create_opposition(
         self,
-        wallet: Wallet,
+        signing_key: SigningKey,
         amount: int,
         subject: str,
         outflows: list[tuple[str, int, int]] | None = None,
         timestamp: Any = None,
     ) -> Transaction:
-        address = wallet.address
+        address = signing_key.address
         balance = 0
         t = Transaction()
         if timestamp is not None:
@@ -652,18 +652,18 @@ class Chain:
         t.add_outflow(Outflow(amount=amount, opposition=subject))
         if balance - amount:
             t.add_outflow(Outflow(amount=balance - amount, address=address))
-        t.set_wallet(wallet)
+        t.set_signing_key(signing_key)
         t.seal()
         return t
 
     def create_rescind(
         self,
-        wallet: Wallet,
+        signing_key: SigningKey,
         amount: int,
         subject: str,
         kind: StakeKind,
     ) -> Transaction:
-        address = wallet.address
+        address = signing_key.address
         balance = 0
         t = Transaction()
         unrescinded = self.unrescinded_address_outflows(
@@ -685,19 +685,19 @@ class Chain:
                 t.add_outflow(Outflow(amount=change, opposition=subject))
             else:
                 assert_never(kind)
-        t.set_wallet(wallet)
+        t.set_signing_key(signing_key)
         t.seal()
         return t
 
     def create_support(
         self,
-        wallet: Wallet,
+        signing_key: SigningKey,
         amount: int,
         subject: str,
         outflows: list[tuple[str, int, int]] | None = None,
         timestamp: Any = None,
     ) -> Transaction:
-        address = wallet.address
+        address = signing_key.address
         balance = 0
         t = Transaction()
         if timestamp is not None:
@@ -723,7 +723,7 @@ class Chain:
         t.add_outflow(Outflow(amount=amount, support=subject))
         if balance - amount:
             t.add_outflow(Outflow(amount=balance - amount, address=address))
-        t.set_wallet(wallet)
+        t.set_signing_key(signing_key)
         t.seal()
         return t
 

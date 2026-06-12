@@ -12,9 +12,9 @@ import {
   whichKeyPanel,
   unlockSaved,
 } from './transact-glue.mjs';
-import { Wallet } from '../wallet/gc-wallet.mjs';
-import { parseStakeAttestation } from '../wallet/gc-attestation.mjs';
-import { makeSession } from './wallet-session.mjs';
+import { SigningKey } from '../signing-key/gc-signing-key.mjs';
+import { parseStakeAttestation } from '../signing-key/gc-attestation.mjs';
+import { makeSession } from './signing-key-session.mjs';
 
 // --- buildQuery: one query string, used for BOTH the fetch URL and the
 // gc-sig canonical, so it must round-trip exactly the fields the type needs.
@@ -144,15 +144,15 @@ test('responseMessage unmapped status reflects the phase', () => {
 });
 
 // --- two-step flow: buildUnsigned (GET, verify txid, NO sign) then
-// signAndSubmit (sign + POST). A fake wallet tracks sign calls so we can prove
+// signAndSubmit (sign + POST). A fake signing_key tracks sign calls so we can prove
 // nothing is signed before the confirm step.
 
-// Note: wallet.sign is used for BOTH the gc-sig request-envelope (on every
+// Note: signing_key.sign is used for BOTH the gc-sig request-envelope (on every
 // authed request, incl. the build GET) AND the transaction itself. So "not
 // signed before confirm" is asserted via: no POST happened, and the built txn
 // carries no `signature` — NOT via a sign-call count (which the request auth
 // would trip).
-function fakeWallet() {
+function fakeSigningKey() {
   return {
     address: async () => 'GCsignerGC',
     publicKeyB64: async () => 'SIGNER_PUB',
@@ -165,7 +165,7 @@ const posts = (calls) => calls.filter((c) => (c.opts.method ?? 'GET') === 'POST'
 // Minimal unsigned txn whose self-reported txid actually matches its fields,
 // so signUnsignedTxn's honesty check passes. We compute it the same way the
 // module does (via the shared gc-transaction txid()).
-import { txid as computeTxid } from '../wallet/gc-transaction.mjs';
+import { txid as computeTxid } from '../signing-key/gc-transaction.mjs';
 
 function unsignedTransfer() {
   return {
@@ -195,7 +195,7 @@ test('buildUnsigned: GET authed, verifies txid, does NOT sign or POST', async ()
   const { unsigned: got } = await buildUnsigned({
     type: 'transfer',
     fields: { amount: '42', address: 'GCdestGC' },
-    wallet: fakeWallet(),
+    signing_key: fakeSigningKey(),
     nodeHost: 'http://node.example',
     fetchImpl: fakeFetch,
     timestamp: 1700000000,
@@ -231,7 +231,7 @@ test('buildUnsigned rejects a node whose txid does not match its fields', async 
       buildUnsigned({
         type: 'transfer',
         fields: { amount: '42', address: 'GCdestGC' },
-        wallet: fakeWallet(),
+        signing_key: fakeSigningKey(),
         nodeHost: 'http://node.example',
         fetchImpl: fakeFetch,
         timestamp: 1700000000,
@@ -257,7 +257,7 @@ test('buildUnsigned surfaces a build-GET error without signing/POSTing', async (
       buildUnsigned({
         type: 'transfer',
         fields: { amount: '1', address: 'GCdestGC' },
-        wallet: fakeWallet(),
+        signing_key: fakeSigningKey(),
         nodeHost: 'http://node.example',
         fetchImpl: fakeFetch,
         timestamp: 1700000000,
@@ -284,7 +284,7 @@ test('signAndSubmit: signs the confirmed txn and POSTs it', async () => {
   };
   const result = await signAndSubmit({
     unsigned,
-    wallet: fakeWallet(),
+    signing_key: fakeSigningKey(),
     nodeHost: 'http://node.example',
     fetchImpl: fakeFetch,
   });
@@ -328,13 +328,13 @@ test('encodeSubject is base64url with no padding (no +, /, =)', () => {
 // subject, signs it, and round-trips through parseStakeAttestation.
 
 test('signAttestation builds a claim with the ENCODED subject', async () => {
-  const wallet = await Wallet.generate();
+  const signing_key = await SigningKey.generate();
   const proof = await signAttestation({
     txid: '1'.repeat(64),
     kind: 'opposition',
     rawSubject: 'goblins',
     amount: 300,
-    wallet,
+    signing_key,
     timestamp: '1700002000',
   });
   // The signed message's subject is the encoded form, not the raw input.
@@ -344,19 +344,19 @@ test('signAttestation builds a claim with the ENCODED subject', async () => {
   assert.equal(claim.txid, '1'.repeat(64));
   assert.equal(claim.kind, 'opposition');
   assert.equal(claim.amount, 300);
-  // The proof is a gc-msg-v1 envelope signed by this wallet.
+  // The proof is a gc-msg-v1 envelope signed by this signing_key.
   assert.equal(proof.scheme, 'gc-msg-v1');
-  assert.equal(proof.address, await wallet.address());
+  assert.equal(proof.address, await signing_key.address());
 });
 
 test('signAttestation supports the support kind', async () => {
-  const wallet = await Wallet.generate();
+  const signing_key = await SigningKey.generate();
   const proof = await signAttestation({
     txid: '2'.repeat(64),
     kind: 'support',
     rawSubject: 'cancel me',
     amount: 5,
-    wallet,
+    signing_key,
   });
   const claim = parseStakeAttestation(proof);
   assert.equal(claim.kind, 'support');
@@ -364,7 +364,7 @@ test('signAttestation supports the support kind', async () => {
 });
 
 // --- unlockSaved: the seam between the keyring and the shared session. A fake
-// store + fake keyring prove that unlocking sets the session wallet (which the
+// store + fake keyring prove that unlocking sets the session signing_key (which the
 // build flow then guards on) without touching real IndexedDB.
 
 function fakeStore(rec = { address: 'GCsavedGC' }) {
@@ -375,52 +375,52 @@ function fakeStore(rec = { address: 'GCsavedGC' }) {
   };
 }
 
-test('unlockSaved (passphrase) sets the session wallet', async () => {
+test('unlockSaved (passphrase) sets the session signing_key', async () => {
   const session = makeSession();
-  const unlockedWallet = fakeWallet();
+  const unlockedSigningKey = fakeSigningKey();
   let seenArgs = null;
   const keyringImpl = {
     unlock: async (deps, secrets) => {
       seenArgs = { deps, secrets };
-      return unlockedWallet;
+      return unlockedSigningKey;
     },
   };
   const store = fakeStore();
-  const wallet = await unlockSaved({
+  const signing_key = await unlockSaved({
     store,
     session,
     passphrase: 'correct horse',
     keyringImpl,
   });
-  assert.equal(wallet, unlockedWallet);
-  // The wallet is now available to the build/confirm/broadcast/attestation
+  assert.equal(signing_key, unlockedSigningKey);
+  // The signing_key is now available to the build/confirm/broadcast/attestation
   // flow via the shared session.
-  assert.equal(session.getWallet(), unlockedWallet);
+  assert.equal(session.getSigningKey(), unlockedSigningKey);
   assert.equal(session.isUnlocked(), true);
   // The passphrase reached the keyring; no passkey was used.
   assert.equal(seenArgs.secrets.passphrase, 'correct horse');
   assert.equal(seenArgs.deps.passkey, undefined);
 });
 
-test('unlockSaved (passkey) sets the session wallet via the adapter', async () => {
+test('unlockSaved (passkey) sets the session signing_key via the adapter', async () => {
   const session = makeSession();
-  const unlockedWallet = fakeWallet();
+  const unlockedSigningKey = fakeSigningKey();
   const passkey = { unlock: async () => new Uint8Array(32) };
   let seenArgs = null;
   const keyringImpl = {
     unlock: async (deps, secrets) => {
       seenArgs = { deps, secrets };
-      return unlockedWallet;
+      return unlockedSigningKey;
     },
   };
-  const wallet = await unlockSaved({
+  const signing_key = await unlockSaved({
     store: fakeStore(),
     session,
     passkey,
     keyringImpl,
   });
-  assert.equal(wallet, unlockedWallet);
-  assert.equal(session.getWallet(), unlockedWallet);
+  assert.equal(signing_key, unlockedSigningKey);
+  assert.equal(session.getSigningKey(), unlockedSigningKey);
   assert.equal(seenArgs.deps.passkey, passkey);
   assert.equal(seenArgs.secrets.passphrase, undefined);
 });
@@ -441,14 +441,14 @@ test('unlockSaved propagates a wrong-secret failure (session stays locked)', asy
         keyringImpl,
       }),
   );
-  // A failed unlock must NOT leave a wallet in the session.
-  assert.equal(session.getWallet(), null);
+  // A failed unlock must NOT leave a signing_key in the session.
+  assert.equal(session.getSigningKey(), null);
   assert.equal(session.isUnlocked(), false);
 });
 
-test('locking the session after unlock clears the wallet', async () => {
+test('locking the session after unlock clears the signing_key', async () => {
   const session = makeSession();
-  const keyringImpl = { unlock: async () => fakeWallet() };
+  const keyringImpl = { unlock: async () => fakeSigningKey() };
   await unlockSaved({
     store: fakeStore(),
     session,
@@ -457,7 +457,7 @@ test('locking the session after unlock clears the wallet', async () => {
   });
   assert.equal(session.isUnlocked(), true);
   session.lock();
-  assert.equal(session.getWallet(), null);
+  assert.equal(session.getSigningKey(), null);
   assert.equal(session.isUnlocked(), false);
 });
 
@@ -471,7 +471,7 @@ test('submitSigned rejects a pasted object missing txid/signature', async () => 
     () =>
       submitSigned({
         signed: { outflows: [] }, // valid JSON, but not a signed txn
-        wallet: fakeWallet(),
+        signing_key: fakeSigningKey(),
         nodeHost: 'http://node.example',
         fetchImpl: fakeFetch,
       }),

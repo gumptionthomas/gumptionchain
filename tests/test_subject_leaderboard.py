@@ -3,36 +3,36 @@ from gumptionchain.database import db
 from gumptionchain.payload import encode_subject
 
 
-def _stake(host, chain, wallet, *, oppose=None, support=None):
+def _stake(host, chain, signing_key, *, oppose=None, support=None):
     """Create + post + return a staking txn for one subject/kind."""
     if oppose is not None:
         subject, amount = oppose
-        txn = chain.create_opposition(wallet, amount, subject)
+        txn = chain.create_opposition(signing_key, amount, subject)
     else:
         subject, amount = support
-        txn = chain.create_support(wallet, amount, subject)
+        txn = chain.create_support(signing_key, amount, subject)
     txn.sign()
-    ApiClient(host, wallet).post_transaction(txn)
+    ApiClient(host, signing_key).post_transaction(txn)
     return txn
 
 
 def test_subject_leaderboard_orders_by_total_and_splits_kinds(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     other = encode_subject('other')
     with app.app_context():
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
         lc = m.longest_chain
         # subject: 300 opposition + 150 support = 450
-        _stake(host, lc, wallet, oppose=(subject, 300))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, oppose=(subject, 300))
+        mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, support=(subject, 150))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, support=(subject, 150))
+        mill_block(signing_key)
         lc = m.longest_chain
         # other: 100 opposition = 100
-        _stake(host, lc, wallet, oppose=(other, 100))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, oppose=(other, 100))
+        mill_block(signing_key)
 
         chain_dao = m.longest_chain.to_dao()
         rows = db.session.execute(chain_dao.subject_leaderboard()).all()
@@ -55,19 +55,19 @@ def test_subject_leaderboard_orders_by_total_and_splits_kinds(
 
 
 def test_subject_leaderboard_excludes_rescinded(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, oppose=(subject, 300))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, oppose=(subject, 300))
+        mill_block(signing_key)
 
         lc = m.longest_chain
-        rescind = lc.create_rescind(wallet, 200, subject, 'opposition')
+        rescind = lc.create_rescind(signing_key, 200, subject, 'opposition')
         rescind.sign()
-        ApiClient(host, wallet).post_transaction(rescind)
-        mill_block(wallet)
+        ApiClient(host, signing_key).post_transaction(rescind)
+        mill_block(signing_key)
 
         chain_dao = m.longest_chain.to_dao()
         rows = db.session.execute(chain_dao.subject_leaderboard()).all()
@@ -78,17 +78,17 @@ def test_subject_leaderboard_excludes_rescinded(
 
 
 def test_subject_leaderboard_limit(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     other = encode_subject('other')
     with app.app_context():
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, oppose=(subject, 300))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, oppose=(subject, 300))
+        mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, oppose=(other, 100))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, oppose=(other, 100))
+        mill_block(signing_key)
 
         chain_dao = m.longest_chain.to_dao()
         rows = db.session.execute(chain_dao.subject_leaderboard(limit=1)).all()
@@ -98,17 +98,17 @@ def test_subject_leaderboard_limit(
 
 
 def test_chain_delegates_and_stats(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     other = encode_subject('other')
     with app.app_context():
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, oppose=(subject, 300))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, oppose=(subject, 300))
+        mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, support=(other, 150))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, support=(other, 150))
+        mill_block(signing_key)
 
         lc = m.longest_chain
         # delegate returns the same rows as the DAO
@@ -129,17 +129,17 @@ def test_chain_delegates_and_stats(
 
 
 def test_stake_stats_matches_individual_properties(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     other = encode_subject('other')
     with app.app_context():
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, oppose=(subject, 300))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, oppose=(subject, 300))
+        mill_block(signing_key)
         lc = m.longest_chain
-        _stake(host, lc, wallet, support=(other, 150))
-        mill_block(wallet)
+        _stake(host, lc, signing_key, support=(other, 150))
+        mill_block(signing_key)
 
         lc = m.longest_chain
         count, staked = lc.stake_stats()
@@ -151,9 +151,11 @@ def test_stake_stats_matches_individual_properties(
         assert staked == lc.total_staked
 
 
-def test_stake_stats_empty_chain(app, host, mill_block, requests_proxy, wallet):
+def test_stake_stats_empty_chain(
+    app, host, mill_block, requests_proxy, signing_key
+):
     with app.app_context():
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
         # a chain with only coinbase blocks has no live stake
         count, staked = m.longest_chain.stake_stats()
         assert count == 0

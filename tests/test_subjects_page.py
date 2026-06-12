@@ -2,17 +2,17 @@ from gumptionchain.api_client import ApiClient
 from gumptionchain.payload import encode_subject
 
 
-def _stake_opposition(host, chain, wallet, amount, subject):
-    txn = chain.create_opposition(wallet, amount, subject)
+def _stake_opposition(host, chain, signing_key, amount, subject):
+    txn = chain.create_opposition(signing_key, amount, subject)
     txn.sign()
-    ApiClient(host, wallet).post_transaction(txn)
+    ApiClient(host, signing_key).post_transaction(txn)
     return txn
 
 
-def _stake_support(host, chain, wallet, amount, subject):
-    txn = chain.create_support(wallet, amount, subject)
+def _stake_support(host, chain, signing_key, amount, subject):
+    txn = chain.create_support(signing_key, amount, subject)
     txn.sign()
-    ApiClient(host, wallet).post_transaction(txn)
+    ApiClient(host, signing_key).post_transaction(txn)
     return txn
 
 
@@ -26,14 +26,14 @@ def test_subjects_index_empty(test_client):
 
 
 def test_subjects_index_shows_stakes(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        _stake_opposition(host, m.longest_chain, wallet, 300, subject)
-        mill_block(wallet)
-        _stake_support(host, m.longest_chain, wallet, 150, subject)
-        mill_block(wallet)
+        m, _b = mill_block(signing_key)
+        _stake_opposition(host, m.longest_chain, signing_key, 300, subject)
+        mill_block(signing_key)
+        _stake_support(host, m.longest_chain, signing_key, 150, subject)
+        mill_block(signing_key)
 
         resp = app.test_client().get('/subjects')
         assert resp.status_code == 200
@@ -50,7 +50,7 @@ def test_subjects_index_shows_stakes(
 
 
 def test_subjects_index_paginates_across_pages(
-    app, host, mill_block, requests_proxy, wallet
+    app, host, mill_block, requests_proxy, signing_key
 ):
     # Stake three subjects with distinct totals so ranking is deterministic,
     # then page with per_page=2 to exercise the _RowPagination offset/count
@@ -59,13 +59,13 @@ def test_subjects_index_paginates_across_pages(
     mid = encode_subject('mid-subject')
     low = encode_subject('low-subject')
     with app.app_context():
-        m, _b = mill_block(wallet)
-        _stake_opposition(host, m.longest_chain, wallet, 300, top)
-        mill_block(wallet)
-        _stake_opposition(host, m.longest_chain, wallet, 200, mid)
-        mill_block(wallet)
-        _stake_opposition(host, m.longest_chain, wallet, 100, low)
-        mill_block(wallet)
+        m, _b = mill_block(signing_key)
+        _stake_opposition(host, m.longest_chain, signing_key, 300, top)
+        mill_block(signing_key)
+        _stake_opposition(host, m.longest_chain, signing_key, 200, mid)
+        mill_block(signing_key)
+        _stake_opposition(host, m.longest_chain, signing_key, 100, low)
+        mill_block(signing_key)
 
         client = app.test_client()
         page1 = client.get('/subjects?per_page=2&page=1')
@@ -86,14 +86,16 @@ def test_subjects_index_paginates_across_pages(
 
 
 def test_subject_detail_shows_totals_and_links(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        txn = _stake_opposition(host, m.longest_chain, wallet, 300, subject)
-        mill_block(wallet)
-        _stake_support(host, m.longest_chain, wallet, 150, subject)
-        mill_block(wallet)
+        m, _b = mill_block(signing_key)
+        txn = _stake_opposition(
+            host, m.longest_chain, signing_key, 300, subject
+        )
+        mill_block(signing_key)
+        _stake_support(host, m.longest_chain, signing_key, 150, subject)
+        mill_block(signing_key)
 
         resp = app.test_client().get(f'/subject/{subject}')
         assert resp.status_code == 200
@@ -107,11 +109,11 @@ def test_subject_detail_shows_totals_and_links(
 
 
 def test_subject_detail_unknown_valid_subject_is_200_zeros(
-    app, host, mill_block, requests_proxy, wallet
+    app, host, mill_block, requests_proxy, signing_key
 ):
     unknown = encode_subject('never-staked')
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         resp = app.test_client().get(f'/subject/{unknown}')
         assert resp.status_code == 200
         # zero totals, no staking outflows

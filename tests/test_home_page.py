@@ -8,10 +8,10 @@ from gumptionchain.models import PendingTxnDAO
 from gumptionchain.util import now
 
 
-def _stake_opposition(host, chain, wallet, amount, subject):
-    txn = chain.create_opposition(wallet, amount, subject)
+def _stake_opposition(host, chain, signing_key, amount, subject):
+    txn = chain.create_opposition(signing_key, amount, subject)
     txn.sign()
-    ApiClient(host, wallet).post_transaction(txn)
+    ApiClient(host, signing_key).post_transaction(txn)
     return txn
 
 
@@ -27,15 +27,15 @@ def test_explorer_home_context_empty_chain(app):
 
 
 def test_explorer_home_context_seeded_chain(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     # explorer_home_context() returns exactly the four keys index_view
     # passes to the template, computed the same way (#244).
     with app.app_context():
-        m, _b1 = mill_block(wallet)
-        _stake_opposition(host, m.longest_chain, wallet, 300, subject)
-        m, tip = mill_block(wallet)  # confirms the stake
-        _stake_opposition(host, m.longest_chain, wallet, 200, subject)
+        m, _b1 = mill_block(signing_key)
+        _stake_opposition(host, m.longest_chain, signing_key, 300, subject)
+        m, tip = mill_block(signing_key)  # confirms the stake
+        _stake_opposition(host, m.longest_chain, signing_key, 200, subject)
 
         ctx = explorer_home_context()
         assert set(ctx) == {
@@ -57,12 +57,12 @@ def test_home_empty_chain(test_client):
 
 
 def test_home_shows_stats_and_recent_blocks(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b1 = mill_block(wallet)
-        _stake_opposition(host, m.longest_chain, wallet, 300, subject)
-        _m, tip = mill_block(wallet)
+        m, _b1 = mill_block(signing_key)
+        _stake_opposition(host, m.longest_chain, signing_key, 300, subject)
+        _m, tip = mill_block(signing_key)
 
         resp = app.test_client().get('/')
         assert resp.status_code == 200
@@ -79,11 +79,11 @@ def test_home_shows_stats_and_recent_blocks(
 
 
 def test_home_shows_pending_count(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        _stake_opposition(host, m.longest_chain, wallet, 300, subject)
+        m, _b = mill_block(signing_key)
+        _stake_opposition(host, m.longest_chain, signing_key, 300, subject)
 
         resp = app.test_client().get('/')
         assert resp.status_code == 200
@@ -94,14 +94,14 @@ def test_home_shows_pending_count(
 
 
 def test_home_pending_count_excludes_confirmed_and_expired(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
         confirmed = _stake_opposition(
-            host, m.longest_chain, wallet, 300, subject
+            host, m.longest_chain, signing_key, 300, subject
         )
-        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        m, _b = mill_block(signing_key)  # confirms + prunes `confirmed`
         # re-insert the confirmed txn (simulates re-gossip after mining)
         PendingTxnDAO(
             txid=confirmed.txid,
@@ -115,7 +115,7 @@ def test_home_pending_count_excludes_confirmed_and_expired(
             json_data='{}',
         ).commit()
         # one live, unconfirmed txn
-        _stake_opposition(host, m.longest_chain, wallet, 200, subject)
+        _stake_opposition(host, m.longest_chain, signing_key, 200, subject)
 
         # raw count sees all three; the badge count sees only the live one
         assert PendingTxnDAO.count() == 3

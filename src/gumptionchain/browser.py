@@ -185,7 +185,9 @@ def addresses_view() -> Any:
     try:
         lc = longest_chain()
         addresses_page = (
-            paginate_rows(lc.wallet_leaderboard()) if lc is not None else None
+            paginate_rows(lc.signing_key_leaderboard())
+            if lc is not None
+            else None
         )
     except HTTPException as e:
         return e
@@ -472,21 +474,21 @@ def transact_view() -> Any:
         'transact.html',
         title='Transact',
         node_host=current_app.config['NODE_HOST'],
-        # rp_name labels the WebAuthn passkey (RP name) for the saved-wallet
+        # rp_name labels the WebAuthn passkey (RP name) for the saved key
         # passkey unlock path; gc-sig is node-bound so node_host stays too.
         rp_name='GumptionChain',
     )
 
 
-@blueprint.route('/wallet')
-def wallet_view() -> Any:
+@blueprint.route('/signing-key')
+def signing_key_view() -> Any:
     # Static shell — no chain/DB work. All key handling (generate / import /
     # enroll / unlock / lock / backup / forget) happens client-side: the
     # passphrase and private key never reach the server. The persisted record
     # is the gc-keyring ciphertext in the browser's IndexedDB; nothing here
     # touches it. rp_name labels the WebAuthn passkey (RP name).
     return render_template(
-        'wallet.html',
-        title='Wallet',
+        'signing_key.html',
+        title='SigningKey',
         rp_name='GumptionChain',
     )

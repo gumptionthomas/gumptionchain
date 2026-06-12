@@ -6,14 +6,14 @@ from gumptionchain.block import expiry_cutoff
 from gumptionchain.chain import Chain
 from gumptionchain.database import db
 from gumptionchain.models import PendingTxnDAO
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.util import now
-from gumptionchain.wallet import Wallet
 
 
-def _post_pending(host, chain, wallet, amount, subject):
-    txn = chain.create_opposition(wallet, amount, subject)
+def _post_pending(host, chain, signing_key, amount, subject):
+    txn = chain.create_opposition(signing_key, amount, subject)
     txn.sign()
-    ApiClient(host, wallet).post_transaction(txn)
+    ApiClient(host, signing_key).post_transaction(txn)
     return txn
 
 
@@ -21,14 +21,14 @@ def _post_pending(host, chain, wallet, amount, subject):
 
 
 def test_pending_q_returns_all_ordered_received_desc(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        m, _b = mill_block(wallet)
+        m, _b = mill_block(signing_key)
+        m, _b = mill_block(signing_key)
         lc = m.longest_chain
-        txn1 = _post_pending(host, lc, wallet, 300, subject)
-        txn2 = _post_pending(host, lc, wallet, 200, subject)
+        txn1 = _post_pending(host, lc, signing_key, 300, subject)
+        txn2 = _post_pending(host, lc, signing_key, 200, subject)
 
         rows = db.session.scalars(PendingTxnDAO.pending_q()).all()
         txids = [row.txid for row in rows]
@@ -67,11 +67,11 @@ def test_mempool_empty(test_client):
 
 
 def test_mempool_shows_pending_txn(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        txn = _post_pending(host, m.longest_chain, wallet, 300, subject)
+        m, _b = mill_block(signing_key)
+        txn = _post_pending(host, m.longest_chain, signing_key, 300, subject)
 
         total_out = sum(o.amount or 0 for o in txn.outflows)
 
@@ -97,14 +97,18 @@ def _reinsert_pending(txn):
 
 
 def test_pending_q_exclude_confirmed(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        confirmed = _post_pending(host, m.longest_chain, wallet, 300, subject)
-        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        m, _b = mill_block(signing_key)
+        confirmed = _post_pending(
+            host, m.longest_chain, signing_key, 300, subject
+        )
+        m, _b = mill_block(signing_key)  # confirms + prunes `confirmed`
         _reinsert_pending(confirmed)
-        unconfirmed = _post_pending(host, m.longest_chain, wallet, 200, subject)
+        unconfirmed = _post_pending(
+            host, m.longest_chain, signing_key, 200, subject
+        )
 
         # default (opt-out): both rows return -> no behavior change for
         # the miller's pending_chain_txns / PendingTxnSet.__iter__
@@ -124,14 +128,18 @@ def test_pending_q_exclude_confirmed(
 
 
 def test_json_datas_exclude_confirmed(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        confirmed = _post_pending(host, m.longest_chain, wallet, 300, subject)
-        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        m, _b = mill_block(signing_key)
+        confirmed = _post_pending(
+            host, m.longest_chain, signing_key, 300, subject
+        )
+        m, _b = mill_block(signing_key)  # confirms + prunes `confirmed`
         _reinsert_pending(confirmed)
-        unconfirmed = _post_pending(host, m.longest_chain, wallet, 200, subject)
+        unconfirmed = _post_pending(
+            host, m.longest_chain, signing_key, 200, subject
+        )
 
         # default: both
         datas = list(PendingTxnDAO.json_datas())
@@ -146,14 +154,18 @@ def test_json_datas_exclude_confirmed(
 
 
 def test_mempool_view_hides_confirmed_txn(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
-        m, _b = mill_block(wallet)
-        confirmed = _post_pending(host, m.longest_chain, wallet, 300, subject)
-        m, _b = mill_block(wallet)  # confirms + prunes `confirmed`
+        m, _b = mill_block(signing_key)
+        confirmed = _post_pending(
+            host, m.longest_chain, signing_key, 300, subject
+        )
+        m, _b = mill_block(signing_key)  # confirms + prunes `confirmed`
         _reinsert_pending(confirmed)
-        unconfirmed = _post_pending(host, m.longest_chain, wallet, 200, subject)
+        unconfirmed = _post_pending(
+            host, m.longest_chain, signing_key, 200, subject
+        )
 
         resp = app.test_client().get('/mempool')
         assert resp.status_code == 200
@@ -162,7 +174,7 @@ def test_mempool_view_hides_confirmed_txn(
 
 
 def test_exclude_confirmed_is_reorg_safe(
-    add_chain_block, app, host, mill_block, requests_proxy, subject, wallet
+    add_chain_block, app, host, mill_block, requests_proxy, subject, signing_key
 ):
     # An orphaned block leaves LongestChainBlockDAO, so its txns
     # re-qualify as pending in the filtered reads — i.e. the filter
@@ -170,12 +182,12 @@ def test_exclude_confirmed_is_reorg_safe(
     # construction mirrors tests/test_chain.py::
     # test_transaction_provenance_orphaned.
     with app.app_context():
-        # wallet2 needs no role: add_chain_block writes via
+        # signing_key2 needs no role: add_chain_block writes via
         # Chain.add_block directly, bypassing the HTTP/auth layer.
-        wallet2 = Wallet()
-        m, b1 = mill_block(wallet)  # genesis
-        txn = _post_pending(host, m.longest_chain, wallet, 300, subject)
-        m, _b2 = mill_block(wallet)  # b2 confirms + prunes txn
+        signing_key2 = SigningKey()
+        m, b1 = mill_block(signing_key)  # genesis
+        txn = _post_pending(host, m.longest_chain, signing_key, 300, subject)
+        m, _b2 = mill_block(signing_key)  # b2 confirms + prunes txn
         _reinsert_pending(txn)
 
         # while canonical-confirmed: excluded
@@ -186,8 +198,8 @@ def test_exclude_confirmed_is_reorg_safe(
 
         # orphan b2 with a strictly-longer fork off b1
         alt = Chain(block_hash=b1.block_hash)
-        add_chain_block(chain=alt, milling_wallet=wallet2)
-        _, _ = add_chain_block(chain=alt, milling_wallet=wallet2)
+        add_chain_block(chain=alt, milling_signing_key=signing_key2)
+        _, _ = add_chain_block(chain=alt, milling_signing_key=signing_key2)
         alt.to_db()  # sync_longest_chain_blocks -> alt is canonical
 
         # txn now sits only in a non-canonical fork block -> it

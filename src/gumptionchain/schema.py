@@ -8,14 +8,14 @@ from pydantic import AfterValidator
 from pydantic_core import ErrorDetails
 
 from gumptionchain.exceptions import InvalidKeyError
-from gumptionchain.util import iso_2_dt
-from gumptionchain.wallet import (
+from gumptionchain.signing_key import (
     ADDRESS_TAG,
-    Wallet,
+    SigningKey,
     b58decode,
     b64decode,
     b64encode,
 )
+from gumptionchain.util import iso_2_dt
 
 
 def asdict_sans_none(dc: Any) -> dict[str, Any]:
@@ -26,10 +26,10 @@ def asdict_sans_none(dc: Any) -> dict[str, Any]:
 
 def validate_address(public_key_b64: str | None, address: str | None) -> bool:
     try:
-        wallet = Wallet(b64ks=public_key_b64)
+        signing_key = SigningKey(b64ks=public_key_b64)
     except InvalidKeyError:
         return False
-    return bool((wallet is not None) and address == wallet.address)
+    return bool((signing_key is not None) and address == signing_key.address)
 
 
 def validate_address_format(address: str) -> bool:
@@ -60,10 +60,10 @@ def validate_base64(s: str) -> bool:
 
 def validate_public_key(public_key_b64: str) -> bool:
     try:
-        wallet = Wallet(b64ks=public_key_b64)
+        signing_key = SigningKey(b64ks=public_key_b64)
     except InvalidKeyError:
         return False
-    return wallet is not None and wallet.private_key is None
+    return signing_key is not None and signing_key.private_key is None
 
 
 def validate_signature(
@@ -72,11 +72,11 @@ def validate_signature(
     signature: str | None,
 ) -> bool:
     try:
-        wallet = Wallet(b64ks=public_key_b64)
+        signing_key = SigningKey(b64ks=public_key_b64)
     except InvalidKeyError:
         return False
-    if wallet is not None:
-        return bool(wallet.validate_signature(signing_data, signature))
+    if signing_key is not None:
+        return bool(signing_key.validate_signature(signing_data, signature))
     return False
 
 

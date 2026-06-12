@@ -1,7 +1,7 @@
 """Regression tests for the schema validator try/except guards.
 
 `validate_address`, `validate_public_key`, and `validate_signature` each
-construct a `Wallet(b64ks=...)`. Wallet's `__init__` raises `InvalidKeyError`
+make a `SigningKey(b64ks=...)`. SigningKey's `__init__` raises `InvalidKeyError`
 on malformed key strings; without the try/except wrappers added in this PR,
 that exception would propagate through marshmallow's validation pipeline
 and surface as a 500 instead of a structured 400.
@@ -163,12 +163,12 @@ def test_pydantic_errors_to_messages_nested_then_leaf_overlap():
 # ---------------------------------------------------------------------------
 
 
-def test_address_type_accepts_valid(wallet):
+def test_address_type_accepts_valid(signing_key):
     class M(BaseModel):
         address: AddressType
 
-    m = M(address=wallet.address)
-    assert m.address == wallet.address
+    m = M(address=signing_key.address)
+    assert m.address == signing_key.address
 
 
 def test_address_type_rejects_invalid():
@@ -233,12 +233,12 @@ def test_timestamp_type_rejects_invalid():
         M(t='not-a-timestamp')
 
 
-def test_public_key_type_accepts_valid(wallet):
+def test_public_key_type_accepts_valid(signing_key):
     class M(BaseModel):
         pk: PublicKeyType
 
-    m = M(pk=wallet.public_key_b64)
-    assert m.pk == wallet.public_key_b64
+    m = M(pk=signing_key.public_key_b64)
+    assert m.pk == signing_key.public_key_b64
 
 
 def test_public_key_type_rejects_invalid():

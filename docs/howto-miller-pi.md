@@ -25,7 +25,7 @@ A headless Pi that runs two systemd services:
   unit files, health-gates the restart, and rolls back automatically if the
   new version fails the health check.
 
-Your wallet address earns coinbase GRIT on every block you mine. The `.pem`
+Your signing_key address earns coinbase GRIT on every block you mine. The `.pem`
 file is the only copy — back it up before the node ever mines a block.
 
 ---
@@ -103,27 +103,27 @@ sudo systemctl enable --now gumptionchain-miller
 
 ---
 
-## 4. Create a wallet
+## 4. Create a signing_key
 
 From the repo directory as the `gc` user:
 
 ```bash
-mkdir -p /home/gc/wallets
+mkdir -p /home/gc/signing_keys
 cd ~/gumptionchain
-uv run gumptionchain wallet create -d /home/gc/wallets
+uv run gumptionchain signing-key create -d /home/gc/signing_keys
 ```
 
-The `-d` / `--walletdir` option is `click.Path(exists=True)` — the directory
+The `-d` / `--signing_keydir` option is `click.Path(exists=True)` — the directory
 **must exist before you run the command** (hence `mkdir -p` above). If
-omitted, it falls back to the `GC_WALLET_DIR` value in your `.env` (which
+omitted, it falls back to the `GC_SIGNING_KEY_DIR` value in your `.env` (which
 must exist first). Using an explicit path here is safe.
 
 Running the command before `.env` exists will log a `SQLALCHEMY_DATABASE_URI`
-ERROR line, but the wallet is still created and the command still prints
-`Created /home/gc/wallets/<address>.pem` — this is normal.
+ERROR line, but the signing_key is still created and the command still prints
+`Created /home/gc/signing_keys/<address>.pem` — this is normal.
 
 The command prints the path to the created file, e.g.
-`/home/gc/wallets/GCabc123...GC.pem`. The file name is the wallet address.
+`/home/gc/signing_keys/GCabc123...GC.pem`. The file name is the signing_key address.
 That address string is what you give to the hub operator and put in your
 config.
 
@@ -136,7 +136,7 @@ mined to that address is unrecoverable.
 
 ## 5. Get allowlisted by the hub operator
 
-Your wallet address must appear in the hub's `GC_MILLER_ADDRESSES`
+Your signing_key address must appear in the hub's `GC_MILLER_ADDRESSES`
 configuration before the hub will accept blocks from you.
 
 Send your address (the filename of the `.pem`, without the `.pem` extension)
@@ -159,12 +159,12 @@ FLASK_SQLALCHEMY_DATABASE_URI=sqlite:////home/gc/gumptionchain/gumptionchain.db
 FLASK_SECRET_KEY=<random-string-at-least-32-chars>
 
 GC_NODE_HOST=http://localhost:5000
-GC_WALLET_DIR=/home/gc/wallets
+GC_SIGNING_KEY_DIR=/home/gc/signing_keys
 
 # GC_PEERS entries have the form https://<your-address>@<hub-host>.
-# The username portion is your LOCAL wallet address — the address this
+# The username portion is your LOCAL signing_key address — the address this
 # node signs outgoing API requests as when talking to that peer.
-# That wallet's .pem must be in GC_WALLET_DIR, and the hub must list
+# That signing_key's .pem must be in GC_SIGNING_KEY_DIR, and the hub must list
 # the address in its GC_MILLER_ADDRESSES.
 GC_PEERS=["https://<your-address>@hub.gumption.com"]
 ```
@@ -181,7 +181,7 @@ GC_MILL_PEER=https://<your-address>@hub.gumption.com
 GC_UPDATE_CHANNEL=tags
 ```
 
-`GC_MILL_ADDRESS` is the wallet address that receives coinbase rewards.
+`GC_MILL_ADDRESS` is the signing_key address that receives coinbase rewards.
 `GC_MILL_PEER` is the URL the miller polls before each round. **This value
 must exactly match the corresponding entry in `GC_PEERS` (including the
 `<your-address>@` username prefix)** — the miller looks up the peer in

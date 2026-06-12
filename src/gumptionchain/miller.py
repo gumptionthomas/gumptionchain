@@ -12,9 +12,9 @@ from gumptionchain.chain import Chain
 from gumptionchain.milling import milling_generator
 from gumptionchain.node import Node
 from gumptionchain.signals import txn_failed as txn_failed_signal
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import host_address, now
-from gumptionchain.wallet import Wallet
 
 
 class Miller(Node):
@@ -24,7 +24,7 @@ class Miller(Node):
         peers: list[str] | None = None,
         clients: dict[str, Any] | None = None,
         logger: Logger | None = None,
-        milling_wallet: Wallet | None = None,
+        milling_signing_key: SigningKey | None = None,
         milling_peer: str | None = None,
     ) -> None:
         super().__init__(host=host, peers=peers, clients=clients, logger=logger)
@@ -32,7 +32,7 @@ class Miller(Node):
         self.milling_peer = milling_peer
         if self.milling_peer is not None:
             self.milling_client = self.clients.get(self.milling_peer)
-        self.milling_wallet = milling_wallet
+        self.milling_signing_key = milling_signing_key
         self.pending_txns_generator: Generator[Any, None, None] | None = None
 
     def pending_txns_gen(self) -> Generator[Any, None, None]:
@@ -98,7 +98,7 @@ class Miller(Node):
                 txn_failed_signal.send(self, txn=txn, e=e)
         for txn in discard_txns:
             self.pending_txns.discard(txn)
-        chain.seal_block(block, self.milling_wallet, metrics)  # type: ignore[arg-type]
+        chain.seal_block(block, self.milling_signing_key, metrics)  # type: ignore[arg-type]
         return block
 
     def poll_latest_blocks(self, progress: Any | None = None) -> None:

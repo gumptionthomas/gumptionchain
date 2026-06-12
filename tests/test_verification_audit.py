@@ -57,7 +57,7 @@ from gumptionchain.util import dt_2_iso, now, now_iso
 TEST_TARGET = 'F' * 64
 
 
-def test_a1_f_mined_txid_replay_into_pending(app, time_machine, wallet):
+def test_a1_f_mined_txid_replay_into_pending(app, time_machine, signing_key):
     """A1.f: a mined transaction replayed into the pending pool is
     rejected (regression test).
 
@@ -76,8 +76,8 @@ def test_a1_f_mined_txid_replay_into_pending(app, time_machine, wallet):
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
-        # Mine a coinbase-bearing genesis block so the wallet has balance
+        m = Miller(milling_signing_key=signing_key)
+        # Mine a coinbase-bearing genesis block so the signing_key has balance
         # to spend in the subsequent transaction.
         b0 = m.create_block()
         m.mill_block(b0)
@@ -89,8 +89,8 @@ def test_a1_f_mined_txid_replay_into_pending(app, time_machine, wallet):
         # Build a regular spending transaction.
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
-        t.add_outflow(Outflow(amount=cb0_amount, address=wallet.address))
-        t.set_wallet(wallet)
+        t.add_outflow(Outflow(amount=cb0_amount, address=signing_key.address))
+        t.set_signing_key(signing_key)
         t.seal()
         t.sign()
         # Submit to pending and mine it into a block.
@@ -123,14 +123,14 @@ def test_a1_f_mined_txid_replay_into_pending(app, time_machine, wallet):
 
 def _hostile_block(
     prev_block: Block,
-    wallet,
+    signing_key,
     idx_offset: int = 1,
 ) -> Block:
     """Construct a fully-mined Block extending `prev_block` without
     persisting anything to the DB.
 
     The block is linked to `prev_block` by hash + idx, sealed with a
-    coinbase paying `wallet`, given a merkle root, timestamped at
+    coinbase paying `signing_key`, given a merkle root, timestamped at
     `now()` (under the active time_machine), and milled to satisfy the
     `TEST_TARGET` (all-F) proof-of-work requirement. `idx_offset` lets
     callers manufacture an idx-skip (e.g., `idx_offset=99`) to force
@@ -140,13 +140,13 @@ def _hostile_block(
     assert prev_block.idx is not None
     assert prev_block.block_hash is not None
     b.link(prev_block.idx + idx_offset, prev_block.block_hash, TEST_TARGET)
-    b.seal(wallet, REWARD, CoinbaseMetrics())
+    b.seal(signing_key, REWARD, CoinbaseMetrics())
     b.mill()
     return b
 
 
 def test_a2_e_partial_chain_adoption_via_invalid_tip(
-    app, time_machine, wallet
+    app, time_machine, signing_key
 ) -> None:
     """A2.e: hostile peer's invalid tip no longer leaves blocks persisted.
 
@@ -174,7 +174,7 @@ def test_a2_e_partial_chain_adoption_via_invalid_tip(
         # Step 1: persist a local genesis block so our node has a known
         # parent. This is the only block in BlockDAO at the start of the
         # attack.
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         local_genesis = m.create_block()
         m.mill_block(local_genesis)
         assert local_genesis.block_hash is not None
@@ -188,10 +188,10 @@ def test_a2_e_partial_chain_adoption_via_invalid_tip(
         # legitimately valid extensions (idx 1, 2, 3) chaining off our
         # local genesis. D_prime jumps to idx 102 to force
         # InvalidBlockIndexError at apply time.
-        a_block = _hostile_block(local_genesis, wallet)
-        b_block = _hostile_block(a_block, wallet)
-        c_block = _hostile_block(b_block, wallet)
-        d_prime = _hostile_block(c_block, wallet, idx_offset=99)
+        a_block = _hostile_block(local_genesis, signing_key)
+        b_block = _hostile_block(a_block, signing_key)
+        c_block = _hostile_block(b_block, signing_key)
+        d_prime = _hostile_block(c_block, signing_key, idx_offset=99)
         assert a_block.block_hash is not None
         assert b_block.block_hash is not None
         assert c_block.block_hash is not None
@@ -236,13 +236,13 @@ def test_a2_e_partial_chain_adoption_via_invalid_tip(
 
 
 def test_a4_c_ii_coinbase_replay_inflates_balance(
-    app, time_machine, wallet
+    app, time_machine, signing_key
 ) -> None:
     """A4.c.ii: replaying another miller's coinbase in a fresh block.
 
     Pre-state: Local chain has a single mined block B_orig whose coinbase
     T_cb is bound (via prev_hash) to B_orig's parent and pays the milling
-    wallet REWARD.
+    signing_key REWARD.
     Attack: The adversary (MILLER) builds B_adv extending B_orig with
     txns=[T_cb] only, reusing T_cb verbatim as B_adv's coinbase, mills
     PoW, and invokes Node.receive_block.
@@ -255,24 +255,24 @@ def test_a4_c_ii_coinbase_replay_inflates_balance(
     any other block-position.
     """
     with app.app_context():
-        # Pre-state: mine B_orig with our wallet as the milling wallet, so
-        # its coinbase T_cb pays REWARD to `wallet.address`.
+        # Pre-state: mine B_orig with our signing_key as the milling key, so
+        # its coinbase T_cb pays REWARD to `signing_key.address`.
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b_orig = m.create_block()
         m.mill_block(b_orig)
         t_cb = b_orig.coinbase
         assert t_cb is not None
-        assert t_cb.address == wallet.address
+        assert t_cb.address == signing_key.address
         cb_outflow = t_cb.get_outflow(0)
         assert cb_outflow is not None
         assert cb_outflow.amount == REWARD
         chain = m.longest_chain
         assert chain is not None
         # Sanity: pre-attack balance is exactly REWARD (one coinbase).
-        assert chain.balance(wallet.address) == REWARD
+        assert chain.balance(signing_key.address) == REWARD
 
         # Step forward a beat so B_adv's timestamp won't trip
         # OutOfOrderBlockError (block.timestamp >= prev_block.timestamp).
@@ -306,20 +306,20 @@ def test_a4_c_ii_coinbase_replay_inflates_balance(
         # duplicate-coinbase-txid B_adv with InvalidCoinbaseError (or a
         # new DuplicateCoinbaseError subclass thereof). Today the chain
         # accepts B_adv and the duplicate m2m association inflates the
-        # wallet balance to 2 * REWARD.
+        # signing_key balance to 2 * REWARD.
         with pytest.raises(InvalidCoinbaseError):
             m.receive_block(b_adv.to_json())
 
 
 def test_a7_b_alternate_genesis_fragments_chain_registry(
-    app, time_machine, wallet, miller_2_wallet
+    app, time_machine, signing_key, miller_2_signing_key
 ) -> None:
     """A7.b: an alternate genesis block is rejected (regression test).
 
     Pre-state: Empty BlockDAO. The first mined block becomes the canonical
-    genesis (block_hash=G1, paying `wallet`).
+    genesis (block_hash=G1, paying `signing_key`).
     Attack: Mine a second block with prev_hash=GENESIS_HASH, idx=0, and a
-    coinbase paying a different miller wallet (miller_2_wallet) at a
+    coinbase paying a different miller signing_key (miller_2_signing_key) at a
     different timestamp, yielding a block_hash G2 != G1.
     Post-remediation (this test): receive_block rejects the second genesis
     with DuplicateGenesisError (an InvalidBlockError); the ChainDAO registry
@@ -337,8 +337,8 @@ def test_a7_b_alternate_genesis_fragments_chain_registry(
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        # Mine the canonical genesis with `wallet` as miller.
-        m1 = Miller(milling_wallet=wallet)
+        # Mine the canonical genesis with `signing_key` as miller.
+        m1 = Miller(milling_signing_key=signing_key)
         g1 = m1.create_block()
         m1.mill_block(g1)
         assert g1.block_hash is not None
@@ -349,11 +349,11 @@ def test_a7_b_alternate_genesis_fragments_chain_registry(
 
         # Step forward in time so the alternate genesis has a different
         # timestamp (and therefore a different block_hash even if the
-        # coinbase wallet were the same).
+        # coinbase signing_key were the same).
         when_dt += datetime.timedelta(minutes=5)
         time_machine.move_to(when_dt)
 
-        # Hand-build an alternate genesis with miller_2_wallet's coinbase.
+        # Hand-build an alternate genesis with miller_2_signing_key's coinbase.
         # Cannot use Miller.create_block — it would link off the
         # canonical longest chain (g1) instead of GENESIS_HASH.
         g2 = Block()
@@ -362,7 +362,7 @@ def test_a7_b_alternate_genesis_fragments_chain_registry(
         # fixture's patched value, also returned by Chain.block_target at
         # index=0).
         g2.link(0, GENESIS_HASH, TEST_TARGET)
-        g2.seal(miller_2_wallet, REWARD, CoinbaseMetrics())
+        g2.seal(miller_2_signing_key, REWARD, CoinbaseMetrics())
         g2.mill()
         assert g2.block_hash is not None
         assert g2.block_hash != g1.block_hash
@@ -384,7 +384,7 @@ def test_a7_b_alternate_genesis_fragments_chain_registry(
 
 
 def test_a7_j_disjoint_genesis_reorg_rejected(
-    app, time_machine, wallet, miller_2_wallet
+    app, time_machine, signing_key, miller_2_signing_key
 ) -> None:
     """A7.j: a longer fork rooted at an alternate genesis cannot displace
     the canonical chain — its root genesis is rejected at admission.
@@ -406,8 +406,8 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        # Canonical genesis g1 paying `wallet`.
-        m1 = Miller(milling_wallet=wallet)
+        # Canonical genesis g1 paying `signing_key`.
+        m1 = Miller(milling_signing_key=signing_key)
         g1 = m1.create_block()
         m1.mill_block(g1)
         assert g1.block_hash is not None
@@ -423,7 +423,7 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
         time_machine.move_to(when_dt)
         g2 = Block()
         g2.link(0, GENESIS_HASH, TEST_TARGET)
-        g2.seal(miller_2_wallet, REWARD, CoinbaseMetrics())
+        g2.seal(miller_2_signing_key, REWARD, CoinbaseMetrics())
         g2.mill()
         assert g2.block_hash is not None
         assert g2.block_hash != g1.block_hash
@@ -433,7 +433,7 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
         time_machine.move_to(when_dt)
         b2 = Block()
         b2.link(1, g2.block_hash, TEST_TARGET)
-        b2.seal(miller_2_wallet, REWARD, CoinbaseMetrics())
+        b2.seal(miller_2_signing_key, REWARD, CoinbaseMetrics())
         b2.mill()
         assert b2.idx == 1
         assert b2.prev_hash == g2.block_hash
@@ -455,12 +455,12 @@ def test_a7_j_disjoint_genesis_reorg_rejected(
 
 
 def test_a7_e_txn_timeout_boundary_inconsistency(
-    app, time_machine, wallet
+    app, time_machine, signing_key
 ) -> None:
     """A7.e: the boundary value is treated consistently across call sites
     (regression test).
 
-    Pre-state: Local chain has a mined genesis paying `wallet` REWARD; a
+    Pre-state: Local chain has a mined genesis paying `signing_key` REWARD; a
     valid spending txn T exists in pending with timestamp exactly
     now - TXN_TIMEOUT.
     Invariant under test (post-remediation): all sites share the open-
@@ -472,8 +472,8 @@ def test_a7_e_txn_timeout_boundary_inconsistency(
     discard used `<=` (evicted), disagreeing at the boundary instant.
     """
     with app.app_context():
-        # Mine a genesis paying `wallet` so we have a spendable outflow.
-        m = Miller(milling_wallet=wallet)
+        # Mine a genesis paying `signing_key` so we have a spendable outflow.
+        m = Miller(milling_signing_key=signing_key)
         now_dt = now()
         # Set the clock to a known anchor so TXN_TIMEOUT subtraction is
         # exact.
@@ -493,8 +493,8 @@ def test_a7_e_txn_timeout_boundary_inconsistency(
         boundary_dt = when_dt - TXN_TIMEOUT
         t = Transaction(timestamp=dt_2_iso(boundary_dt))
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
-        t.add_outflow(Outflow(amount=cb_amount, address=wallet.address))
-        t.set_wallet(wallet)
+        t.add_outflow(Outflow(amount=cb_amount, address=signing_key.address))
+        t.set_signing_key(signing_key)
         t.seal()
         t.sign()
         # Inject T directly into pending (sidestepping send_transaction's
@@ -527,10 +527,12 @@ def test_a7_e_txn_timeout_boundary_inconsistency(
         )
 
 
-def test_a7_h_non_printable_subject_accepted(app, time_machine, wallet) -> None:
+def test_a7_h_non_printable_subject_accepted(
+    app, time_machine, signing_key
+) -> None:
     """A7.h: subject with control characters is accepted into pending.
 
-    Pre-state: Local chain has a mined genesis paying `wallet` REWARD.
+    Pre-state: Local chain has a mined genesis paying `signing_key` REWARD.
     Attack: Build a transaction with an outflow whose subject decodes
     to a string containing a C1 control character (ESC, 0x1b) followed
     by an ANSI color escape sequence — the kind of payload that would
@@ -542,7 +544,7 @@ def test_a7_h_non_printable_subject_accepted(app, time_machine, wallet) -> None:
     round-trip only) and the transaction lands in pending.
     """
     with app.app_context():
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
@@ -561,7 +563,7 @@ def test_a7_h_non_printable_subject_accepted(app, time_machine, wallet) -> None:
         malicious_subject = encode_subject(raw_subject)
 
         # Build a spending transaction whose outflow opposes the
-        # malicious subject. The remainder goes back to `wallet`.
+        # malicious subject. The remainder goes back to `signing_key`.
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
         oppose_amount = 10
@@ -569,9 +571,11 @@ def test_a7_h_non_printable_subject_accepted(app, time_machine, wallet) -> None:
             Outflow(amount=oppose_amount, opposition=malicious_subject)
         )
         t.add_outflow(
-            Outflow(amount=cb_amount - oppose_amount, address=wallet.address)
+            Outflow(
+                amount=cb_amount - oppose_amount, address=signing_key.address
+            )
         )
-        t.set_wallet(wallet)
+        t.set_signing_key(signing_key)
         t.seal()
         t.sign()
 
@@ -583,11 +587,11 @@ def test_a7_h_non_printable_subject_accepted(app, time_machine, wallet) -> None:
             m.receive_transaction(t.txid, t.to_json())
 
 
-def test_a4_c_coinbase_block_binding(app, time_machine, wallet) -> None:
+def test_a4_c_coinbase_block_binding(app, time_machine, signing_key) -> None:
     """A4.c v2: coinbases are bound to their block via prev_hash.
 
     Verifies the two halves of the fix:
-    1. Two consecutive legitimate blocks (same wallet, same second under
+    1. Two consecutive legitimate blocks (same signing_key, same second under
        easy-mill) have DIFFERENT coinbase txids, because each coinbase's
        prev_hash differs (block N+1 extends block N). This is the
        root-cause fix for the read-side balance inflation.
@@ -598,7 +602,7 @@ def test_a4_c_coinbase_block_binding(app, time_machine, wallet) -> None:
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         # Two consecutive blocks, no time advance (same wall-clock second).
         b0 = m.create_block()
         m.mill_block(b0)
@@ -608,7 +612,7 @@ def test_a4_c_coinbase_block_binding(app, time_machine, wallet) -> None:
         cb1 = b1.coinbase
         assert cb0 is not None
         assert cb1 is not None
-        # Part 1: distinct coinbase txids despite same wallet/second/reward.
+        # Part 1: distinct coinbase txids despite same key/second/reward.
         assert cb0.txid != cb1.txid
         # And each coinbase is bound to its own block's parent.
         assert cb0.prev_hash == b0.prev_hash

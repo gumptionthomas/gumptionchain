@@ -1,6 +1,6 @@
 """Python side of the JS<->Python transaction signing parity contract.
 
-`clients/wallet/gc-transaction.test.mjs` asserts the JS reconstruction of
+`clients/signing-key/gc-transaction.test.mjs` asserts the JS reconstruction of
 data_csv / txid / signing_data matches these same vectors. Here we prove the
 fixtures round-trip through the Python domain model — so the vectors the JS
 test trusts are genuinely the canonical Python output — and that a Python
@@ -15,11 +15,11 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import WALLET_PRIVATE_KEY_B58
+from conftest import SIGNING_KEY_PRIVATE_KEY_B58
 
 from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
-from gumptionchain.wallet import Wallet
 
 
 def _txn_from_fixture_dict(d: dict) -> Transaction:
@@ -76,12 +76,12 @@ def test_fixture_round_trips_through_python(vector: dict) -> None:
 
 @pytest.mark.parametrize('vector', VECTORS, ids=lambda v: v['name'])
 def test_python_sign_over_fixture_verifies(vector: dict) -> None:
-    # Sign the fixture's signing_data with the same wallet the JS test
+    # Sign the fixture's signing_data with the same signing_key the JS test
     # imports, and verify it. (The JS-sign -> Python-verify direction is
     # exercised end-to-end at the integration layer in a later PR; here we
     # lock the canonical bytes + the verify path.)
-    wallet = Wallet(b58ks=vector['wallet_b58'])
-    assert vector['wallet_b58'] == WALLET_PRIVATE_KEY_B58
+    signing_key = SigningKey(b58ks=vector['signing_key_b58'])
+    assert vector['signing_key_b58'] == SIGNING_KEY_PRIVATE_KEY_B58
     signing_data = base64.b64decode(vector['signing_data_b64'])
-    signature = wallet.sign(signing_data)
-    assert wallet.validate_signature(signing_data, signature)
+    signature = signing_key.sign(signing_data)
+    assert signing_key.validate_signature(signing_data, signature)

@@ -20,7 +20,7 @@ from gumptionchain.exceptions import (
     InvalidSignatureError,
     InvalidTransactionError,
     InvalidTransactionIdError,
-    MissingWalletError,
+    MissingSigningKeyError,
     UnsealedTransactionError,
 )
 from gumptionchain.milling import mill_hash_str
@@ -48,8 +48,8 @@ from gumptionchain.schema import (
     validate_address,
     validate_signature,
 )
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.util import dt_2_iso, iso_2_dt, now_iso
-from gumptionchain.wallet import Wallet
 
 VERSION_1 = '1'
 MAX_FLOWS = 50
@@ -153,12 +153,12 @@ class Transaction:
     prev_hash: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        # `wallet` is a non-field instance attribute set by `set_wallet()`.
+        # `signing_key` is a non-field attribute set by `set_signing_key()`.
         # Initializing it in `__post_init__` (not as a dataclass field)
-        # keeps it out of `dataclasses.asdict()` — Wallet wraps an RSA
+        # keeps it out of `dataclasses.asdict()` — SigningKey wraps an RSA
         # key whose `__getstate__` raises, which would break deepcopy
         # via asdict if walked.
-        self.wallet: Wallet | None = None
+        self.signing_key: SigningKey | None = None
 
     @property
     def timestamp_dt(self) -> datetime | None:
@@ -197,10 +197,10 @@ class Transaction:
     def signing_data(self) -> bytes:
         return ','.join([self.data_csv, str(self.txid)]).encode()
 
-    def set_wallet(self, wallet: Wallet) -> None:
-        self.wallet = wallet
-        self.address = self.wallet.address
-        self.public_key = self.wallet.public_key_b64
+    def set_signing_key(self, signing_key: SigningKey) -> None:
+        self.signing_key = signing_key
+        self.address = self.signing_key.address
+        self.public_key = self.signing_key.public_key_b64
 
     def add_inflow(self, i: Inflow) -> None:
         self.inflows.append(i)
@@ -229,9 +229,9 @@ class Transaction:
     def sign(self) -> None:
         if not self.is_sealed:
             raise UnsealedTransactionError()
-        if self.wallet is None:
-            raise MissingWalletError()
-        self.signature = self.wallet.sign(self.signing_data)
+        if self.signing_key is None:
+            raise MissingSigningKeyError()
+        self.signature = self.signing_key.sign(self.signing_data)
 
     def validate_txid(self) -> None:
         if self.txid != self.calculate_txid():
@@ -374,7 +374,7 @@ class Transaction:
     @classmethod
     def coinbase(
         cls,
-        wallet: Wallet,
+        signing_key: SigningKey,
         reward: int,
         schadenfreude: int,
         grace: int,
@@ -384,19 +384,19 @@ class Transaction:
     ) -> Self:
         outflows: list[Outflow] = []
         if reward:
-            outflows.append(Outflow(amount=reward, address=wallet.address))
+            outflows.append(Outflow(amount=reward, address=signing_key.address))
         if schadenfreude:
             outflows.append(
-                Outflow(amount=schadenfreude, address=wallet.address)
+                Outflow(amount=schadenfreude, address=signing_key.address)
             )
         if grace:
-            outflows.append(Outflow(amount=grace, address=wallet.address))
+            outflows.append(Outflow(amount=grace, address=signing_key.address))
         if mudita:
-            outflows.append(Outflow(amount=mudita, address=wallet.address))
+            outflows.append(Outflow(amount=mudita, address=signing_key.address))
         if regret:
-            outflows.append(Outflow(amount=regret, address=wallet.address))
+            outflows.append(Outflow(amount=regret, address=signing_key.address))
         cb = cls(outflows=outflows, prev_hash=prev_hash)
-        cb.set_wallet(wallet)
+        cb.set_signing_key(signing_key)
         cb.seal()
         cb.sign()
         return cb

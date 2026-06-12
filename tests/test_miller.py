@@ -14,14 +14,14 @@ from gumptionchain.exceptions import (
 from gumptionchain.miller import Miller
 from gumptionchain.models import PendingIOflowDAO, PendingTxnDAO
 from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
 from gumptionchain.util import now
-from gumptionchain.wallet import Wallet
 
 
 @pytest.mark.filterwarnings('error::sqlalchemy.exc.SAWarning')
 def test_mill_confirm_emits_no_sawarnings(
-    app, time_machine, time_stepper, wallet
+    app, time_machine, time_stepper, signing_key
 ):
     # #247: milling a block that confirms a pending spend autoflushed a
     # half-built DAO graph — a transient InflowDAO already linked into a
@@ -33,7 +33,7 @@ def test_mill_confirm_emits_no_sawarnings(
     with app.app_context():
         now_dt = now()
         time_step = time_stepper(start=now_dt - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         _ = next(time_step)
         b0 = m.create_block()
         m.mill_block(b0)
@@ -43,11 +43,11 @@ def test_mill_confirm_emits_no_sawarnings(
         remit = 2 * GPG
         t0 = Transaction()
         t0.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
-        t0.add_outflow(Outflow(amount=remit, address=Wallet().address))
+        t0.add_outflow(Outflow(amount=remit, address=SigningKey().address))
         t0.add_outflow(
-            Outflow(amount=cb0_amount - remit, address=wallet.address)
+            Outflow(amount=cb0_amount - remit, address=signing_key.address)
         )
-        t0.set_wallet(wallet)
+        t0.set_signing_key(signing_key)
         t0.seal()
         t0.sign()
         m.receive_transaction(t0.txid, t0.to_json())
@@ -58,33 +58,33 @@ def test_mill_confirm_emits_no_sawarnings(
         time_machine.move_to(now_dt)
 
 
-def test_miller_create_block(app, time_machine, time_stepper, wallet):
+def test_miller_create_block(app, time_machine, time_stepper, signing_key):
     with app.app_context():
         now_dt = now()
         time_step = time_stepper(start=now_dt - datetime.timedelta(hours=1))
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         _ = next(time_step)
         b0 = m.create_block()
         m.mill_block(b0)
         _ = next(time_step)
         assert m.longest_chain.length == 1
-        assert m.longest_chain.balance(wallet.address) == REWARD
+        assert m.longest_chain.balance(signing_key.address) == REWARD
         b1 = m.create_block()
         m.mill_block(b1)
         _ = next(time_step)
         assert m.longest_chain.length == 2
-        assert m.longest_chain.balance(wallet.address) == 2 * REWARD
+        assert m.longest_chain.balance(signing_key.address) == 2 * REWARD
         cb0 = b0.coinbase
         cb0_amount = next(iter(cb0.outflows)).amount
-        w2 = Wallet()
+        w2 = SigningKey()
         remit = 2 * GPG
         t0 = Transaction()
         t0.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
         t0.add_outflow(Outflow(amount=remit, address=w2.address))
         t0.add_outflow(
-            Outflow(amount=cb0_amount - remit, address=wallet.address)
+            Outflow(amount=cb0_amount - remit, address=signing_key.address)
         )
-        t0.set_wallet(wallet)
+        t0.set_signing_key(signing_key)
         t0.seal()
         t0.sign()
         m.receive_transaction(t0.txid, t0.to_json())
@@ -92,7 +92,7 @@ def test_miller_create_block(app, time_machine, time_stepper, wallet):
         m.mill_block(b2)
         _ = next(time_step)
         assert m.longest_chain.length == 3
-        assert m.longest_chain.balance(wallet.address) == (3 * REWARD) - (
+        assert m.longest_chain.balance(signing_key.address) == (3 * REWARD) - (
             2 * GPG
         )
         assert m.longest_chain.balance(w2.address) == 2 * GPG
@@ -100,16 +100,18 @@ def test_miller_create_block(app, time_machine, time_stepper, wallet):
         assert m.longest_chain.get_block(b2.block_hash)
 
 
-def test_expired_transaction(app, time_machine, wallet):
+def test_expired_transaction(app, time_machine, signing_key):
     with app.app_context():
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         now_dt = now()
         when_dt = now_dt - TXN_TIMEOUT - datetime.timedelta(seconds=1)
         time_machine.move_to(when_dt)
         t0 = m.longest_chain.create_transfer(
-            wallet, m.longest_chain.balance(wallet.address), wallet.address
+            signing_key,
+            m.longest_chain.balance(signing_key.address),
+            signing_key.address,
         )
         t0.sign()
         time_machine.move_to(now_dt)
@@ -121,14 +123,16 @@ def test_expired_transaction(app, time_machine, wallet):
         assert len(b1.txns) == 1
 
 
-def test_discard_expired_removes_ioflow_children(app, time_machine, wallet):
+def test_discard_expired_removes_ioflow_children(
+    app, time_machine, signing_key
+):
     """discard_expired_pending_txns evicts expired pending txns AND their
     companion PendingIOflowDAO rows. The bulk SQL-filtered delete uses
     ORM session.delete() per row precisely so the `ioflows` cascade fires
     — a Core bulk DELETE would orphan the children (the FK has no ON
     DELETE CASCADE)."""
     with app.app_context():
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         now_dt = now()
@@ -138,7 +142,9 @@ def test_discard_expired_removes_ioflow_children(app, time_machine, wallet):
         when_dt = now_dt - TXN_TIMEOUT - datetime.timedelta(seconds=1)
         time_machine.move_to(when_dt)
         t0 = m.longest_chain.create_transfer(
-            wallet, m.longest_chain.balance(wallet.address), wallet.address
+            signing_key,
+            m.longest_chain.balance(signing_key.address),
+            signing_key.address,
         )
         t0.sign()
         time_machine.move_to(now_dt)
@@ -150,12 +156,12 @@ def test_discard_expired_removes_ioflow_children(app, time_machine, wallet):
         assert _count(PendingIOflowDAO) == 0
 
 
-def test_duplicate_transaction(app, time_machine, wallet):
+def test_duplicate_transaction(app, time_machine, signing_key):
     with app.app_context():
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         cb0 = b0.coinbase
@@ -164,8 +170,8 @@ def test_duplicate_transaction(app, time_machine, wallet):
         time_machine.move_to(when_dt)
         t0 = Transaction()
         t0.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
-        t0.add_outflow(Outflow(amount=cb0_amount, address=wallet.address))
-        t0.set_wallet(wallet)
+        t0.add_outflow(Outflow(amount=cb0_amount, address=signing_key.address))
+        t0.set_signing_key(signing_key)
         t0.seal()
         t0.sign()
         m.receive_transaction(t0.txid, t0.to_json())
@@ -196,8 +202,8 @@ def test_duplicate_transaction(app, time_machine, wallet):
         time_machine.move_to(when_dt)
         t1 = Transaction()
         t1.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
-        t1.add_outflow(Outflow(amount=cb0_amount, address=wallet.address))
-        t1.set_wallet(wallet)
+        t1.add_outflow(Outflow(amount=cb0_amount, address=signing_key.address))
+        t1.set_signing_key(signing_key)
         t1.seal()
         t1.sign()
         m.receive_transaction(t1.txid, t1.to_json())
@@ -213,13 +219,13 @@ def test_duplicate_transaction(app, time_machine, wallet):
 
 
 @patch('gumptionchain.miller.MAX_TRANSACTIONS', 10)
-def test_max_txns(app, time_machine, wallet):
+def test_max_txns(app, time_machine, signing_key):
     with app.app_context():
         max_txns = 10
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=4)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         cb0 = b0.coinbase
@@ -230,8 +236,8 @@ def test_max_txns(app, time_machine, wallet):
             time_machine.move_to(when_dt)
             t = Transaction()
             t.add_inflow(Inflow(outflow_txid=prev_t.txid, outflow_idx=0))
-            t.add_outflow(Outflow(amount=amount, address=wallet.address))
-            t.set_wallet(wallet)
+            t.add_outflow(Outflow(amount=amount, address=signing_key.address))
+            t.set_signing_key(signing_key)
             t.seal()
             t.sign()
             prev_t = t
@@ -243,18 +249,18 @@ def test_max_txns(app, time_machine, wallet):
         assert len(b1.txns) == max_txns
 
 
-def test_opposition_rescind_txns(app, subject, time_machine, wallet):
+def test_opposition_rescind_txns(app, subject, time_machine, signing_key):
     with app.app_context():
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         when_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
-        amount = m.longest_chain.balance(wallet.address)
-        t0 = m.longest_chain.create_opposition(wallet, amount, subject)
+        amount = m.longest_chain.balance(signing_key.address)
+        t0 = m.longest_chain.create_opposition(signing_key, amount, subject)
         t0.sign()
         m.receive_transaction(t0.txid, t0.to_json())
         b1 = m.create_block()
@@ -263,7 +269,7 @@ def test_opposition_rescind_txns(app, subject, time_machine, wallet):
         when_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
         t1 = m.longest_chain.create_rescind(
-            wallet, amount, subject, 'opposition'
+            signing_key, amount, subject, 'opposition'
         )
         t1.sign()
         m.receive_transaction(t1.txid, t1.to_json())
@@ -272,21 +278,23 @@ def test_opposition_rescind_txns(app, subject, time_machine, wallet):
         assert m.longest_chain.opposition_balance(subject) == 0
 
 
-def test_invalid_opposition_rescind_txns(app, subject, time_machine, wallet):
+def test_invalid_opposition_rescind_txns(
+    app, subject, time_machine, signing_key
+):
     with app.app_context():
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         when_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
-        amount = m.longest_chain.balance(wallet.address) + 1
+        amount = m.longest_chain.balance(signing_key.address) + 1
         with pytest.raises(InsufficientFundsError):
-            t0 = m.longest_chain.create_opposition(wallet, amount, subject)
-        amount = m.longest_chain.balance(wallet.address) - 2
-        t0 = m.longest_chain.create_opposition(wallet, amount, subject)
+            t0 = m.longest_chain.create_opposition(signing_key, amount, subject)
+        amount = m.longest_chain.balance(signing_key.address) - 2
+        t0 = m.longest_chain.create_opposition(signing_key, amount, subject)
         assert len(t0.outflows) == 2
         t0.sign()
         m.receive_transaction(t0.txid, t0.to_json())
@@ -297,10 +305,10 @@ def test_invalid_opposition_rescind_txns(app, subject, time_machine, wallet):
         time_machine.move_to(when_dt)
         with pytest.raises(InsufficientFundsError):
             t1 = m.longest_chain.create_rescind(
-                wallet, amount + 1, subject, 'opposition'
+                signing_key, amount + 1, subject, 'opposition'
             )
         t1 = m.longest_chain.create_rescind(
-            wallet, amount - 1, subject, 'opposition'
+            signing_key, amount - 1, subject, 'opposition'
         )
         t1.sign()
         m.receive_transaction(t1.txid, t1.to_json())
@@ -311,9 +319,11 @@ def test_invalid_opposition_rescind_txns(app, subject, time_machine, wallet):
         time_machine.move_to(when_dt)
         with pytest.raises(InsufficientFundsError):
             t2 = m.longest_chain.create_rescind(
-                wallet, 2, subject, 'opposition'
+                signing_key, 2, subject, 'opposition'
             )
-        t2 = m.longest_chain.create_rescind(wallet, 1, subject, 'opposition')
+        t2 = m.longest_chain.create_rescind(
+            signing_key, 1, subject, 'opposition'
+        )
         t2.sign()
         m.receive_transaction(t2.txid, t2.to_json())
         b3 = m.create_block()
@@ -321,20 +331,24 @@ def test_invalid_opposition_rescind_txns(app, subject, time_machine, wallet):
         when_dt += datetime.timedelta(minutes=1)
         time_machine.move_to(when_dt)
         with pytest.raises(InsufficientFundsError):
-            m.longest_chain.create_rescind(wallet, 1, subject, 'opposition')
+            m.longest_chain.create_rescind(
+                signing_key, 1, subject, 'opposition'
+            )
 
 
-def test_pending_chain_txns_boundary_alive(app, time_machine, wallet):
+def test_pending_chain_txns_boundary_alive(app, time_machine, signing_key):
     """A7.e: a pending txn timestamped exactly now - TXN_TIMEOUT is
     yielded by pending_chain_txns (alive at the open boundary)."""
     with app.app_context():
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         now_dt = now()
         time_machine.move_to(now_dt - TXN_TIMEOUT)
         t = m.longest_chain.create_transfer(
-            wallet, m.longest_chain.balance(wallet.address), wallet.address
+            signing_key,
+            m.longest_chain.balance(signing_key.address),
+            signing_key.address,
         )
         t.sign()
         time_machine.move_to(now_dt)
@@ -343,11 +357,11 @@ def test_pending_chain_txns_boundary_alive(app, time_machine, wallet):
         assert t in yielded
 
 
-def test_pending_chain_txns_expired_excluded(app, time_machine, wallet):
+def test_pending_chain_txns_expired_excluded(app, time_machine, signing_key):
     """A7.e: a pending txn one second older than the boundary (strictly
     older than TXN_TIMEOUT) is NOT yielded by pending_chain_txns."""
     with app.app_context():
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         now_dt = now()
@@ -355,7 +369,9 @@ def test_pending_chain_txns_expired_excluded(app, time_machine, wallet):
             now_dt - TXN_TIMEOUT - datetime.timedelta(seconds=1)
         )
         t = m.longest_chain.create_transfer(
-            wallet, m.longest_chain.balance(wallet.address), wallet.address
+            signing_key,
+            m.longest_chain.balance(signing_key.address),
+            signing_key.address,
         )
         t.sign()
         time_machine.move_to(now_dt)
@@ -364,14 +380,14 @@ def test_pending_chain_txns_expired_excluded(app, time_machine, wallet):
         assert t not in yielded
 
 
-def test_mined_txn_replay_rejected(app, time_machine, wallet):
+def test_mined_txn_replay_rejected(app, time_machine, signing_key):
     """A1.f: a fresh txn is admitted to pending, but replaying it after
     it is mined raises DuplicateMinedTransactionError (and is not re-added)."""
     with app.app_context():
         now_dt = now()
         when_dt = now_dt - datetime.timedelta(hours=1)
         time_machine.move_to(when_dt)
-        m = Miller(milling_wallet=wallet)
+        m = Miller(milling_signing_key=signing_key)
         b0 = m.create_block()
         m.mill_block(b0)
         cb0 = b0.coinbase
@@ -382,8 +398,8 @@ def test_mined_txn_replay_rejected(app, time_machine, wallet):
         # A fresh (never-mined) txn is admitted to pending.
         t = Transaction()
         t.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
-        t.add_outflow(Outflow(amount=cb0_amount, address=wallet.address))
-        t.set_wallet(wallet)
+        t.add_outflow(Outflow(amount=cb0_amount, address=signing_key.address))
+        t.set_signing_key(signing_key)
         t.seal()
         t.sign()
         m.receive_transaction(t.txid, t.to_json())

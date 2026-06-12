@@ -4,13 +4,13 @@ from gumptionchain.chain import GENESIS_HASH
 from gumptionchain.exceptions import (
     InvalidSignatureError,
     InvalidTransactionError,
-    MissingWalletError,
+    MissingSigningKeyError,
     UnsealedTransactionError,
 )
 from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import PendingTxnSet, Transaction
 from gumptionchain.util import dt_2_iso
-from gumptionchain.wallet import Wallet
 
 
 def test_txn_from(valid_txn):
@@ -36,8 +36,8 @@ def test_txn_valid(single_txn):
         single_txn.sign()
     single_txn.seal()
     assert hash(single_txn) is not None
-    single_txn.wallet = None
-    with pytest.raises(MissingWalletError):
+    single_txn.signing_key = None
+    with pytest.raises(MissingSigningKeyError):
         single_txn.sign()
 
 
@@ -79,7 +79,7 @@ def test_txn_get_outflow(single_txn):
 
 
 def test_txn_invalid_address(single_txn):
-    single_txn.address = Wallet().address
+    single_txn.address = SigningKey().address
     single_txn.seal()
     single_txn.sign()
     with pytest.raises(
@@ -91,17 +91,17 @@ def test_txn_invalid_address(single_txn):
 def test_txn_invalid_signature(single_txn):
     single_txn.seal()
     single_txn.sign()
-    w = Wallet()
+    w = SigningKey()
     single_txn.public_key = w.public_key_b64
     single_txn.address = w.address
     with pytest.raises(InvalidSignatureError):
         single_txn.validate()
 
 
-def test_db(app, wallet):
+def test_db(app, signing_key):
     with app.app_context():
         cb = Transaction.coinbase(
-            wallet, 20, 10, 9, 8, 7, prev_hash=GENESIS_HASH
+            signing_key, 20, 10, 9, 8, 7, prev_hash=GENESIS_HASH
         )
         cb.to_db()
         cb_copy = Transaction.from_db(cb.txid)
@@ -113,15 +113,17 @@ def test_db(app, wallet):
         cb_copy.validate_coinbase()
 
 
-def test_pending_txns(app, subject, wallet):
-    cb = Transaction.coinbase(wallet, 10, 0, 0, 0, 0, prev_hash=GENESIS_HASH)
+def test_pending_txns(app, subject, signing_key):
+    cb = Transaction.coinbase(
+        signing_key, 10, 0, 0, 0, 0, prev_hash=GENESIS_HASH
+    )
     with app.app_context():
         cb.to_db()
         pending = PendingTxnSet()
         txn = Transaction()
         txn.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
         txn.add_outflow(Outflow(amount=10, opposition=subject))
-        txn.set_wallet(wallet)
+        txn.set_signing_key(signing_key)
         txn.seal()
         txn.sign()
         pending.add(txn)
@@ -164,7 +166,7 @@ def test_to_dao_outflow_missing_amount_raises(subject):
         txn.to_dao()
 
 
-def test_pending_add_unsealed_raises(app, subject, wallet):
+def test_pending_add_unsealed_raises(app, subject, signing_key):
     """PendingTxnSet.add() raises UnsealedTransactionError on unsealed txn."""
     with app.app_context():
         pending = PendingTxnSet()
@@ -175,7 +177,7 @@ def test_pending_add_unsealed_raises(app, subject, wallet):
             pending.add(txn)
 
 
-def test_pending_add_inflow_missing_ref_raises(app, subject, wallet):
+def test_pending_add_inflow_missing_ref_raises(app, subject, signing_key):
     """PendingTxnSet.add() raises on inflow with None outflow_txid/idx."""
     with app.app_context():
         pending = PendingTxnSet()
@@ -190,7 +192,7 @@ def test_pending_add_inflow_missing_ref_raises(app, subject, wallet):
             pending.add(txn)
 
 
-def test_pending_add_outflow_missing_amount_raises(app, subject, wallet):
+def test_pending_add_outflow_missing_amount_raises(app, subject, signing_key):
     """PendingTxnSet.add() raises on outflow with None amount."""
     with app.app_context():
         pending = PendingTxnSet()
@@ -203,7 +205,7 @@ def test_pending_add_outflow_missing_amount_raises(app, subject, wallet):
             pending.add(txn)
 
 
-def test_regular_txn_data_csv_excludes_prev_hash(wallet):
+def test_regular_txn_data_csv_excludes_prev_hash(signing_key):
     """A4.c v2 guard: a regular txn's data_csv (and therefore its txid)
     is unchanged by the coinbase prev_hash binding.
 
@@ -214,8 +216,8 @@ def test_regular_txn_data_csv_excludes_prev_hash(wallet):
     """
     t = Transaction()
     t.add_inflow(Inflow(outflow_txid='a' * 64, outflow_idx=0))
-    t.add_outflow(Outflow(amount=5, address=wallet.address))
-    t.set_wallet(wallet)
+    t.add_outflow(Outflow(amount=5, address=signing_key.address))
+    t.set_signing_key(signing_key)
     t.seal()
     assert t.prev_hash is None
     expected = ','.join(
@@ -233,7 +235,7 @@ def test_regular_txn_data_csv_excludes_prev_hash(wallet):
     assert 'prev_hash' not in t.to_dict()
 
 
-def test_coinbase_txn_requires_prev_hash(wallet):
+def test_coinbase_txn_requires_prev_hash(signing_key):
     """A4.c v2: a coinbase with no prev_hash binding is rejected by
     validate_coinbase().
 
@@ -243,8 +245,10 @@ def test_coinbase_txn_requires_prev_hash(wallet):
     scheme depends on — if the field were ever relaxed back to
     `MillHashType | None = None`, this negative assertion fails.
     """
-    cb = Transaction(outflows=[Outflow(amount=100, address=wallet.address)])
-    cb.set_wallet(wallet)
+    cb = Transaction(
+        outflows=[Outflow(amount=100, address=signing_key.address)]
+    )
+    cb.set_signing_key(signing_key)
     cb.seal()
     cb.sign()
     assert cb.prev_hash is None

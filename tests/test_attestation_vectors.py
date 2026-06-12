@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from test_browser_wallet_vectors import VECTOR_WALLET_B58
+from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
 
 from gumptionchain.attestation import (
     build_binding_message,
@@ -11,12 +11,12 @@ from gumptionchain.attestation import (
     sign_stake_attestation,
     verify_binding,
 )
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'wallet'
+    / 'signing-key'
     / 'testdata'
     / 'gc-attestation-vectors.json'
 )
@@ -54,7 +54,7 @@ _CASES = [
 
 
 def _expected() -> list[dict]:
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     out = []
     for c in _CASES:
         proof = sign_stake_attestation(
@@ -85,7 +85,7 @@ def test_attestation_vectors_match() -> None:
 _BINDING_VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'wallet'
+    / 'signing-key'
     / 'testdata'
     / 'gc-binding-vectors.json'
 )
@@ -117,7 +117,7 @@ _BINDING_CASES = [
 
 
 def _expected_binding() -> list[dict]:
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     out = []
     for c in _BINDING_CASES:
         proof = sign_social_binding(
@@ -142,14 +142,14 @@ def test_binding_vectors_match() -> None:
 
 
 def test_binding_vectors_verify() -> None:
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     vectors = json.loads(_BINDING_VECTORS_PATH.read_text())
     for v in vectors:
         claim = v['claim']
         assert v['message'] == build_binding_message(claim)
         # Reconstruct a full gc-msg-v1 proof from stored fields + the known
         # public key (vectors store only the claim-side fields; the public key
-        # is derivable from the known vector wallet).
+        # is derivable from the known vector signing_key).
         proof = {
             'scheme': 'gc-msg-v1',
             'version': '1',

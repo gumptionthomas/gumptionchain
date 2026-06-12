@@ -1,11 +1,11 @@
 # GumptionChain Social Binding Envelope: `gc-msg-v1` / binding claim
 
-A **social binding** is a Keybase-style bidirectional proof that a wallet
+A **social binding** is a Keybase-style bidirectional proof that a signing_key
 address controls a social-platform handle. It works in two directions:
 
-1. **Wallet side (this spec):** the wallet signs a structured claim
+1. **SigningKey side (this spec):** the signing_key signs a structured claim
    `{platform, handle, proof_url?}` as a `gc-msg-v1` message. The signed
-   proof is the authoritative cryptographic record that the wallet's owner
+   proof is the authoritative cryptographic record that the signing_key's owner
    asserts ownership of the named handle.
 
 2. **Social side (directory / verifier service):** the handle's account posts
@@ -16,7 +16,7 @@ address controls a social-platform handle. It works in two directions:
 A full verification requires both directions: fetch the social-side post,
 find the armored proof inside it, verify the signature, and confirm the claim
 inside matches the handle and platform being registered. **This document
-covers only direction 1** — the wallet-side claim schema, canonical encoding,
+covers only direction 1** — the signing_key-side claim schema, canonical encoding,
 envelope format, and the cryptographic operations a verifier must apply to it.
 Fetching `proof_url`, SSRF guards, storage of the binding record, revocation
 UX, and handle display are all the directory/verifier service's
@@ -64,7 +64,7 @@ enforces only non-empty and the code-point ceiling so that canonical bytes are
 well-defined.
 
 **`proof_url` is optional by design.** On platforms where the posted URL is
-unknown until after posting (a new gist, for example), the wallet signs the
+unknown until after posting (a new gist, for example), the signing_key signs the
 claim first and fills in `proof_url` with a subsequent re-sign once the URL is
 known. On platforms where there is no retrievable URL at all (DNS TXT records),
 `proof_url` is absent from the claim. The directory stores the resolved
@@ -72,7 +72,7 @@ location; claims include it only when stable and known at signing time. When
 `proof_url` is present, the `https://` requirement is mandatory — an
 unencrypted proof location is not acceptable evidence.
 
-**The claim deliberately has no `address` field.** The wallet side of the
+**The claim deliberately has no `address` field.** The signing_key side of the
 binding is the `gc-msg-v1` envelope's own signer (`proof['address']`,
 self-certified by public key — see Address derivation below). Duplicating the
 address inside the claim would invite mismatch bugs with no cryptographic gain.
@@ -155,7 +155,7 @@ Field-by-field rules:
 
 The canonical string is UTF-8 encoded to bytes before signing. The signature
 algorithm is **RSASSA-PKCS1-v1_5 with SHA-384** over these bytes, using the
-wallet's RSA-2048 private key. The signature is encoded with standard base64
+signing_key's RSA-2048 private key. The signature is encoded with standard base64
 (RFC 4648, `+` and `/`).
 
 For the address derivation algorithm (public key → GC address), see
@@ -221,7 +221,7 @@ decoded signature block.
 4. Confirm the claim inside the proof matches the handle and platform being
    registered (i.e. `claim['handle'] == registered_handle` and
    `claim['platform'] == registered_platform`).
-5. Confirm the signer (`proof['address']`) is the wallet being bound.
+5. Confirm the signer (`proof['address']`) is the signing_key being bound.
 
 All five checks must pass for a binding to be considered verified. Step 3 is
 this spec's domain; steps 1–2 and 4–5 are the directory's domain.
@@ -379,7 +379,7 @@ this example shows the Python serialization.)
 | Function | Description |
 |---|---|
 | `build_binding_message(claim) -> str` | Validate claim schema and return the canonical message string |
-| `sign_social_binding(wallet, claim, timestamp=None) -> dict` | Sign the canonical message; returns the full proof dict |
+| `sign_social_binding(signing_key, claim, timestamp=None) -> dict` | Sign the canonical message; returns the full proof dict |
 | `parse_social_binding(proof) -> dict` | Validate proof structure and canonical encoding; returns the claim dict |
 | `verify_binding(proof, max_age=None) -> dict` | Pure verification — shape + signature only; returns verdict dict |
 
@@ -388,13 +388,13 @@ this example shows the Python serialization.)
 | Function | Description |
 |---|---|
 | `buildBindingMessage(claim)` | Validate claim schema and return the canonical message string |
-| `signSocialBinding(wallet, claim, {timestamp})` | Async; sign the canonical message; returns the full proof dict |
+| `signSocialBinding(signing_key, claim, {timestamp})` | Async; sign the canonical message; returns the full proof dict |
 | `parseSocialBinding(proof)` | Validate proof structure and canonical encoding; returns the claim dict |
 | `verifyBinding(proof, {maxAge})` | Async, pure; shape + signature only; returns verdict dict |
 
 The JS functions are exported from the same module as the stake-attestation
-functions (`gc-attestation.mjs`), vendored to `static/wallet/gc-attestation.mjs`
-via `scripts/sync_wallet.py`. Consumers import from one file for both claim
+functions (`gc-attestation.mjs`), vendored to `static/signing-key/gc-attestation.mjs`
+via `scripts/sync_signing_key.py`. Consumers import from one file for both claim
 types.
 
 `verify_binding` / `verifyBinding` is **pure** — it never fetches `proof_url`

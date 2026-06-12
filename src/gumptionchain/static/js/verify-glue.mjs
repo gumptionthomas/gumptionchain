@@ -1,11 +1,11 @@
-// Base verify glue: run verifyStake (from the vendored wallet module) over a
+// Base verify glue: run verifyStake (from the vendored signing_key module) over a
 // proof, fetching provenance from the node's public endpoint. Pure logic in
 // runVerify (fetchProvenance injectable for tests); renderVerdict lights the
 // DOM verdict.
 import {
   BadAttestationError,
   verifyStake,
-} from '../wallet/gc-attestation.mjs';
+} from '../signing-key/gc-attestation.mjs';
 
 // Re-exported so a page (base or an extension skin) can tell a user-input
 // error (bad/invalid attestation) apart from a system error (e.g. provenance

@@ -24,19 +24,19 @@ from gumptionchain.util import dt_2_iso, now
 TEST_TARGET = 'F' * 64
 
 
-def new_txn(txid, subject, wallet):
+def new_txn(txid, subject, signing_key):
     txn = Transaction()
     txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
     txn.add_outflow(Outflow(amount=10, opposition=subject))
-    txn.set_wallet(wallet)
+    txn.set_signing_key(signing_key)
     txn.seal()
     txn.sign()
     return txn
 
 
-def test_from(reward, valid_block, wallet):
+def test_from(reward, valid_block, signing_key):
     valid_block.link(0, GENESIS_HASH, TEST_TARGET)
-    valid_block.seal(wallet, reward, CoinbaseMetrics())
+    valid_block.seal(signing_key, reward, CoinbaseMetrics())
     valid_block.mill()
     new_block = Block.from_dict(valid_block.to_dict())
     assert new_block == valid_block
@@ -44,26 +44,26 @@ def test_from(reward, valid_block, wallet):
     assert new_block == valid_block
 
 
-def test_coinbase(reward, valid_block, wallet):
+def test_coinbase(reward, valid_block, signing_key):
     valid_block.link(0, GENESIS_HASH, TEST_TARGET)
-    valid_block.seal(wallet, reward, CoinbaseMetrics())
+    valid_block.seal(signing_key, reward, CoinbaseMetrics())
     cb = valid_block.coinbase
     assert cb.outflows[0].amount == reward
 
 
-def test_timestamp_dt(reward, single_block, wallet):
+def test_timestamp_dt(reward, single_block, signing_key):
     single_block.link(0, GENESIS_HASH, TEST_TARGET)
-    single_block.seal(wallet, reward, CoinbaseMetrics())
+    single_block.seal(signing_key, reward, CoinbaseMetrics())
     assert dt_2_iso(single_block.timestamp_dt) == single_block.timestamp
 
 
-def test_valid(reward, valid_block, single_txn, wallet):
+def test_valid(reward, valid_block, single_txn, signing_key):
     with pytest.raises(MissingCoinbaseError):
         valid_block.validate_coinbase()
     with pytest.raises(InvalidBlockError):
         valid_block.validate()
     valid_block.link(0, GENESIS_HASH, TEST_TARGET)
-    valid_block.seal(wallet, reward, CoinbaseMetrics())
+    valid_block.seal(signing_key, reward, CoinbaseMetrics())
     assert not valid_block.is_proved
     with pytest.raises(InvalidBlockError):
         valid_block.validate()
@@ -73,55 +73,57 @@ def test_valid(reward, valid_block, single_txn, wallet):
         valid_block.add_txn(single_txn)
 
 
-def test_in_merkle_tree(reward, single_block, single_txn, wallet):
+def test_in_merkle_tree(reward, single_block, single_txn, signing_key):
     single_block.link(0, GENESIS_HASH, TEST_TARGET)
-    single_block.seal(wallet, reward, CoinbaseMetrics())
+    single_block.seal(signing_key, reward, CoinbaseMetrics())
     single_block.mill()
     single_block.validate()
     assert single_block.in_merkle_tree(single_txn.txid)
 
 
-def test_add_txn(single_block, subject, time_machine, txid, wallet):
+def test_add_txn(single_block, subject, time_machine, txid, signing_key):
     now_dt = now()
     then_dt = now_dt + datetime.timedelta(minutes=1)
     time_machine.move_to(then_dt)
-    single_block.add_txn(new_txn(txid, subject, wallet))
+    single_block.add_txn(new_txn(txid, subject, signing_key))
 
 
-def test_unlinked(reward, single_block, wallet):
+def test_unlinked(reward, single_block, signing_key):
     with pytest.raises(UnlinkedBlockError):
-        single_block.seal(wallet, reward, CoinbaseMetrics())
+        single_block.seal(signing_key, reward, CoinbaseMetrics())
 
 
-def test_future_txn(reward, single_block, subject, time_machine, txid, wallet):
+def test_future_txn(
+    reward, single_block, subject, time_machine, txid, signing_key
+):
     now_dt = now()
     later_dt = now_dt + datetime.timedelta(minutes=1)
     time_machine.move_to(later_dt)
-    txn = new_txn(txid, subject, wallet)
+    txn = new_txn(txid, subject, signing_key)
     time_machine.move_to(now_dt)
     single_block.add_txn(txn)
     single_block.link(0, GENESIS_HASH, TEST_TARGET)
-    single_block.seal(wallet, reward, CoinbaseMetrics())
+    single_block.seal(signing_key, reward, CoinbaseMetrics())
     single_block.mill()
     with pytest.raises(InvalidBlockError, match='FutureTransactionError'):
         single_block.validate()
 
 
 def test_invalid_transaction(
-    reward, single_block, subject, time_machine, txid, wallet
+    reward, single_block, subject, time_machine, txid, signing_key
 ):
     now_dt = now()
     time_machine.move_to(now_dt)
     single_block.link(0, GENESIS_HASH, TEST_TARGET)
-    single_block.seal(wallet, reward, CoinbaseMetrics())
+    single_block.seal(signing_key, reward, CoinbaseMetrics())
     then_dt = now_dt - datetime.timedelta(minutes=1)
     time_machine.move_to(then_dt)
-    txn = new_txn(txid, subject, wallet)
+    txn = new_txn(txid, subject, signing_key)
     with pytest.raises(OutOfOrderTransactionError):
         single_block.validate_transaction(txn, prev_txn=single_block.txns[0])
     then_dt = now_dt - TXN_TIMEOUT - datetime.timedelta(minutes=1)
     time_machine.move_to(then_dt)
-    txn = new_txn(txid, subject, wallet)
+    txn = new_txn(txid, subject, signing_key)
     with pytest.raises(ExpiredTransactionError):
         single_block.validate_transaction(txn)
     with pytest.raises(InvalidBlockError, match='block_hash'):
@@ -146,18 +148,18 @@ def test_invalid_transaction(
     single_block.merkle_root = merkle_root
 
 
-def test_too_many_txns(reward, subject, txid, wallet):
+def test_too_many_txns(reward, subject, txid, signing_key):
     block = Block()
     for _i in range(MAX_TRANSACTIONS + 1):
         txn = Transaction()
         txn.add_inflow(Inflow(outflow_txid=txid, outflow_idx=0))
         txn.add_outflow(Outflow(amount=10, opposition=subject))
-        txn.set_wallet(wallet)
+        txn.set_signing_key(signing_key)
         txn.seal()
         txn.sign()
         block.add_txn(txn)
     block.link(0, GENESIS_HASH, TEST_TARGET)
-    block.seal(wallet, reward, CoinbaseMetrics())
+    block.seal(signing_key, reward, CoinbaseMetrics())
     block.mill()
     with pytest.raises(
         InvalidBlockError, match='List should have at most 100 items'
@@ -165,11 +167,11 @@ def test_too_many_txns(reward, subject, txid, wallet):
         block.validate()
 
 
-def test_db(app, reward, wallet):
+def test_db(app, reward, signing_key):
     with app.app_context():
         block = Block()
         block.link(0, GENESIS_HASH, TEST_TARGET)
-        block.seal(wallet, reward, CoinbaseMetrics())
+        block.seal(signing_key, reward, CoinbaseMetrics())
         block.mill()
         block.validate()
         block.to_db()
@@ -185,14 +187,14 @@ def test_to_dao_partial_block_raises():
         block.to_dao()
 
 
-def test_genesis_from_db(app, reward, wallet):
+def test_genesis_from_db(app, reward, signing_key):
     """Block.genesis_from_db() returns None until a genesis is persisted,
     then returns the persisted canonical genesis."""
     with app.app_context():
         assert Block.genesis_from_db() is None
         block = Block()
         block.link(0, GENESIS_HASH, TEST_TARGET)
-        block.seal(wallet, reward, CoinbaseMetrics())
+        block.seal(signing_key, reward, CoinbaseMetrics())
         block.mill()
         block.validate()
         block.to_db()
