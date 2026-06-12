@@ -7,13 +7,13 @@ def _block_at(idx):
 
 
 def test_genesis_prev_hash_is_not_a_dead_link(
-    app, host, mill_block, requests_proxy, wallet
+    app, host, mill_block, requests_proxy, signing_key
 ):
     # The genesis block's prev_hash is the GENESIS_HASH sentinel, which has no
     # block row — it must render unlinked (no dead /block/<sentinel> link).
     with app.app_context():
-        mill_block(wallet)
-        mill_block(wallet)
+        mill_block(signing_key)
+        mill_block(signing_key)
         genesis = _block_at(0)
         page = (
             app.test_client()
@@ -25,11 +25,11 @@ def test_genesis_prev_hash_is_not_a_dead_link(
 
 
 def test_non_genesis_prev_hash_links_to_parent(
-    app, host, mill_block, requests_proxy, wallet
+    app, host, mill_block, requests_proxy, signing_key
 ):
     with app.app_context():
-        mill_block(wallet)
-        mill_block(wallet)
+        mill_block(signing_key)
+        mill_block(signing_key)
         genesis = _block_at(0)
         block1 = _block_at(1)
         page = (

@@ -783,7 +783,7 @@ class ChainDAO(Base):
             stmt = stmt.where(~OutflowDAO.pending.any())
         return stmt
 
-    def wallet_balance(self, address: str) -> int:
+    def signing_key_balance(self, address: str) -> int:
         stmt = self.outflows.where(OutflowDAO.address == address)
         stmt = stmt.where(self._unspent_clause())
         outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
@@ -830,7 +830,7 @@ class ChainDAO(Base):
     def support_balance(self, subject: str) -> int:
         return self._stake_balance(subject, 'support')
 
-    def wallet_leaderboard(
+    def signing_key_leaderboard(
         self,
         earliest: datetime.datetime | None = None,
         latest: datetime.datetime | None = None,

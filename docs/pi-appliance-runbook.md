@@ -1,7 +1,7 @@
 # GumptionChain Pi Appliance Runbook
 
 Operator reference for building "plug it in and forget it" miller appliances
-for EGU members. Covers wallet ceremony, bench provisioning, soak testing,
+for EGU members. Covers signing_key ceremony, bench provisioning, soak testing,
 shipping, release discipline, and recovery.
 
 The public roll-your-own path is in `docs/howto-miller-pi.md`. Cross-
@@ -14,7 +14,7 @@ duplicating them.
 
 Update this table every time an appliance is built, shipped, or recovered.
 
-| Hostname | Hardware  | Location          | Wallet address        | Channel | Shipped    |
+| Hostname | Hardware  | Location          | SigningKey address        | Channel | Shipped    |
 |----------|-----------|-------------------|-----------------------|---------|------------|
 | gcm-01   | Pi 3B+    | *(record here)*   | *(record here)*       | main    | *(canary)* |
 
@@ -24,32 +24,32 @@ receives a `v*` tag and rolls to the member fleet.
 
 Column notes:
 - **Channel** — `main` for gcm-01 (canary); `tags` for all member appliances.
-- **Wallet address** — derived from the key content; matches the original
+- **SigningKey address** — derived from the key content; matches the original
   generated filename before the rename to `gcm-NN.pem`.
 - **Shipped** — the date the appliance left the bench. Leave `(canary)` for
   gcm-01; it never ships.
-- Wallet address and location are sensitive; the table above is a
+- SigningKey address and location are sensitive; the table above is a
   template. Keep the **filled-in copy** in your private operator notes or
   a secrets store (e.g. `~/gc-fleet/roster.md`), not in the public repo.
 
 ---
 
-## 2. Wallet Ceremony
+## 2. SigningKey Ceremony
 
-**Generate the wallet on the bench workstation, never on the Pi.**
+**Generate the signing_key on the bench workstation, never on the Pi.**
 
 ### 2a. Generate
 
 ```bash
 mkdir -p ~/gc-fleet/gcm-NN
 cd ~/gumptionchain
-uv run gumptionchain wallet create -d ~/gc-fleet/gcm-NN
+uv run gumptionchain signing-key create -d ~/gc-fleet/gcm-NN
 ```
 
 The `-d` flag requires the directory to exist (it is a `click.Path(exists=True)`
 argument). The command prints the full path of the created file, e.g.:
 `Created /home/you/gc-fleet/gcm-NN/GCabc123...GC.pem`. The filename is the
-wallet address.
+signing_key address.
 
 Rename the file to the device hostname so all per-device secrets share a
 consistent naming convention:
@@ -58,7 +58,7 @@ consistent naming convention:
 mv ~/gc-fleet/gcm-NN/GCabc123...GC.pem ~/gc-fleet/gcm-NN/gcm-NN.pem
 ```
 
-The wallet loader keys wallets by the address derived from the key's content,
+The signing_key loader keys signing_keys by the address derived from the key's content,
 not by filename — the rename is safe and keeps per-device files predictably
 named.
 
@@ -118,7 +118,7 @@ Do it before provisioning so the bench soak actually exercises acceptance.
 Once allowlisted, deliver a copy of the `.pem` to the member over a
 **pre-agreed secure channel** (Signal, Bitwarden Send, age-encrypted email,
 or hand-off in person). The member's game backend signs faucet transactions
-with the same wallet — they need the private key to authorize those
+with the same signing_key — they need the private key to authorize those
 transactions. Confirm receipt before shipping the appliance.
 
 ---
@@ -131,7 +131,7 @@ Keep per-device secrets on the bench workstation at:
 
 ```
 ~/gc-fleet/gcm-NN/
-    gcm-NN.pem           # wallet private key (plaintext only during bench work)
+    gcm-NN.pem           # signing_key private key (plaintext only during bench work)
     gcm-NN.pem.gpg       # encrypted backup (always retained)
     env                  # the device's .env file
     deploy.env           # the device's deploy.env file
@@ -146,11 +146,11 @@ FLASK_SQLALCHEMY_DATABASE_URI=sqlite:////home/gc/gumptionchain/gumptionchain.db
 FLASK_SECRET_KEY=<random-string-at-least-32-chars>
 
 GC_NODE_HOST=http://localhost:5000
-GC_WALLET_DIR=/home/gc/wallets
+GC_SIGNING_KEY_DIR=/home/gc/signing_keys
 
-# The username portion of each GC_PEERS entry is the LOCAL wallet address
+# The username portion of each GC_PEERS entry is the LOCAL signing_key address
 # this node signs outgoing API requests as when talking to that peer.
-# That wallet's .pem must be in GC_WALLET_DIR.
+# That signing_key's .pem must be in GC_SIGNING_KEY_DIR.
 GC_PEERS=["https://<device-address>@hub.gumption.com"]
 ```
 
@@ -227,7 +227,7 @@ The provisioner runs in three stages:
 
 1. **Base packages + repo** — installs `unattended-upgrades`, clones the
    repo on the device (if absent).
-2. **Secrets + config** — `scp`s the wallet `.pem`, `.env`, and `deploy.env`
+2. **Secrets + config** — `scp`s the signing_key `.pem`, `.env`, and `deploy.env`
    to the device and sets `chmod 600`. This happens **before** `install.sh`
    runs, so `install.sh` always finds the config files in place and can
    proceed to `gumptionchain init` and start the services in a single pass.
@@ -301,7 +301,7 @@ default.**
 ### What to tell the member
 
 - Plug into power and a router port. Nothing else to do.
-- The box mines GRIT blocks and credits your wallet automatically.
+- The box mines GRIT blocks and credits your signing_key automatically.
 - It updates itself nightly. You will never need to log in.
 - If it stops working: mail it back. Do not attempt to debug it yourself.
 - Keep the private key copy you received — you will need it if the device
@@ -363,16 +363,16 @@ Use when a device is unresponsive, corrupted, or physically returned.
 
 ### 7a. Re-flash and re-provision
 
-The wallet address and its on-chain balance are permanent. Re-flashing
+The signing_key address and its on-chain balance are permanent. Re-flashing
 gives the device a fresh SD with the same identity.
 
-- [ ] Retrieve the encrypted wallet backup:
+- [ ] Retrieve the encrypted signing_key backup:
       `gpg -d ~/gc-fleet/gcm-NN/gcm-NN.pem.gpg > ~/gc-fleet/gcm-NN/gcm-NN.pem`
       (or `age -d ~/gc-fleet/gcm-NN/gcm-NN.pem.age > ~/gc-fleet/gcm-NN/gcm-NN.pem`)
 - [ ] Flash a fresh Raspberry Pi OS Lite SD. Hand-write `custom.toml` with
       the **same hostname** from the roster (same address, same identity).
 - [ ] Boot on the bench LAN. Confirm SSH.
-- [ ] Re-run the provisioner with the **same secrets files** — no wallet
+- [ ] Re-run the provisioner with the **same secrets files** — no signing_key
       ceremony needed:
       ```bash
       deploy/pi/provision-appliance.sh \
@@ -398,7 +398,7 @@ gives the device a fresh SD with the same identity.
 If the Pi hardware itself is dead and cannot be re-flashed:
 
 - [ ] Provision a new Pi through the full ceremony (Sections 2–4) with a
-      new wallet and a new `gcm-NN` hostname.
+      new signing_key and a new `gcm-NN` hostname.
 - [ ] Deliver the new key to the member.
 - [ ] Mark the old roster entry retired (old address, old hostname).
 - [ ] The old address's on-chain balance is inaccessible without the key.
@@ -413,7 +413,7 @@ gcm-01 currently runs an ad-hoc rsync setup. This section migrates it to
 the new kit. Complete these steps before building the first member appliance.
 
 - [ ] **Generate gcm-01's deploy.env on the bench workstation.**
-      gcm-01's wallet already exists. Locate the `.pem` and note the address.
+      gcm-01's signing_key already exists. Locate the `.pem` and note the address.
       Write `~/gc-fleet/gcm-01/env` and `~/gc-fleet/gcm-01/deploy.env` using
       the address and the real hub URL. Set `GC_UPDATE_CHANNEL=main`:
 
@@ -437,8 +437,8 @@ the new kit. Complete these steps before building the first member appliance.
       then remove them from `/etc/systemd/system/` so the new installer
       takes full ownership.
 
-- [ ] **Copy the existing wallet** to `~/gc-fleet/gcm-01/` on the bench (or
-      confirm it is already there with an encrypted backup). No new wallet
+- [ ] **Copy the existing signing_key** to `~/gc-fleet/gcm-01/` on the bench (or
+      confirm it is already there with an encrypted backup). No new signing_key
       ceremony — same key, same address.
 
 - [ ] **Flash a fresh SD or re-provision in-place.**

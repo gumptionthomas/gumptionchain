@@ -3,7 +3,7 @@
 `Node.sync_forward` network-imports a peer's longest chain forward by
 height, validating + committing each block genesis-first. These tests stand
 up a peer chain in `remote_app` (routed via `remote_requests_proxy`), build
-an `ApiClient` that signs as the MILLER wallet `remote_app` trusts, and run
+an `ApiClient` that signs as the MILLER signing_key `remote_app` trusts, and run
 `sync_forward` against the empty/behind local `app`.
 
 The headline case proves the `MAX_CHAIN_FILL_DEPTH` ceiling is gone: a peer
@@ -23,12 +23,12 @@ from gumptionchain.node import Node
 from gumptionchain.util import now
 
 
-def _mill_chain(milling_wallet, count, time_step):
+def _mill_chain(milling_signing_key, count, time_step):
     """Mill `count` blocks onto the current app's chain (one Miller, the
     standard create_block -> mill_block flow) under the supplied
     time_stepper so successive timestamps strictly increase. Returns the
     final block."""
-    m = Miller(milling_wallet=milling_wallet)
+    m = Miller(milling_signing_key=milling_signing_key)
     last: Block | None = None
     for _ in range(count):
         next(time_step)
@@ -39,12 +39,12 @@ def _mill_chain(milling_wallet, count, time_step):
     return last
 
 
-def _peer_client(remote_host_netloc, miller_2_wallet):
+def _peer_client(remote_host_netloc, miller_2_signing_key):
     """An ApiClient that (under the active remote_requests_proxy) routes
-    into remote_app and signs as miller_2_wallet — MILLER on remote_app,
+    into remote_app and signs as miller_2_signing_key — MILLER on remote_app,
     which satisfies the READER-authed /api/blocks endpoint."""
-    host = f'http://{miller_2_wallet.address}@{remote_host_netloc}'
-    return ApiClient(host, miller_2_wallet)
+    host = f'http://{miller_2_signing_key.address}@{remote_host_netloc}'
+    return ApiClient(host, miller_2_signing_key)
 
 
 def _local_node(app):
@@ -61,7 +61,7 @@ def test_sync_forward_adopts_chain_deeper_than_cap(
     remote_app,
     remote_requests_proxy,
     remote_host_netloc,
-    miller_2_wallet,
+    miller_2_signing_key,
     time_machine,
     time_stepper,
 ):
@@ -72,7 +72,7 @@ def test_sync_forward_adopts_chain_deeper_than_cap(
     time_step = time_stepper(start=start)
     # Peer holds a 7-block chain (idx 0..6).
     with remote_app.app_context():
-        tip = _mill_chain(miller_2_wallet, 7, time_step)
+        tip = _mill_chain(miller_2_signing_key, 7, time_step)
         assert tip.idx == 6
 
     app.config['MAX_CHAIN_FILL_DEPTH'] = 3
@@ -80,7 +80,7 @@ def test_sync_forward_adopts_chain_deeper_than_cap(
     with app.app_context():
         node = _local_node(app)
         assert node.longest_chain is None
-        client = _peer_client(remote_host_netloc, miller_2_wallet)
+        client = _peer_client(remote_host_netloc, miller_2_signing_key)
         result = node.sync_forward(client)
         assert result == 'caught_up'
         lc = node.longest_chain
@@ -94,7 +94,7 @@ def test_sync_forward_is_resumable_and_idempotent(
     remote_app,
     remote_requests_proxy,
     remote_host_netloc,
-    miller_2_wallet,
+    miller_2_signing_key,
     time_machine,
     time_stepper,
 ):
@@ -104,13 +104,13 @@ def test_sync_forward_is_resumable_and_idempotent(
     start = now() - datetime.timedelta(hours=2)
     time_step = time_stepper(start=start)
     with remote_app.app_context():
-        tip = _mill_chain(miller_2_wallet, 5, time_step)
+        tip = _mill_chain(miller_2_signing_key, 5, time_step)
         assert tip.idx == 4
 
     app.config['SYNC_BATCH_SIZE'] = 2
     with app.app_context():
         node = _local_node(app)
-        client = _peer_client(remote_host_netloc, miller_2_wallet)
+        client = _peer_client(remote_host_netloc, miller_2_signing_key)
 
         # Partial sync: stop after the first batch by capping get_blocks.
         real_get_blocks = client.get_blocks
@@ -151,7 +151,7 @@ def test_sync_forward_detects_divergence(
     remote_app,
     remote_requests_proxy,
     remote_host_netloc,
-    miller_2_wallet,
+    miller_2_signing_key,
     time_machine,
     time_stepper,
 ):
@@ -161,12 +161,12 @@ def test_sync_forward_detects_divergence(
     start = now() - datetime.timedelta(hours=2)
     time_step = time_stepper(start=start)
     with remote_app.app_context():
-        _mill_chain(miller_2_wallet, 3, time_step)
+        _mill_chain(miller_2_signing_key, 3, time_step)
 
     app.config['SYNC_BATCH_SIZE'] = 8
     with app.app_context():
         node = _local_node(app)
-        client = _peer_client(remote_host_netloc, miller_2_wallet)
+        client = _peer_client(remote_host_netloc, miller_2_signing_key)
         # Sync the genuine chain first so a tip exists.
         assert node.sync_forward(client) == 'caught_up'
         lc = node.longest_chain
@@ -210,7 +210,7 @@ def test_sync_forward_rejects_header_hash_mismatch(
     remote_app,
     remote_requests_proxy,
     remote_host_netloc,
-    miller_2_wallet,
+    miller_2_signing_key,
     time_machine,
     time_stepper,
 ):
@@ -220,12 +220,12 @@ def test_sync_forward_rejects_header_hash_mismatch(
     start = now() - datetime.timedelta(hours=2)
     time_step = time_stepper(start=start)
     with remote_app.app_context():
-        _mill_chain(miller_2_wallet, 2, time_step)
+        _mill_chain(miller_2_signing_key, 2, time_step)
 
     app.config['SYNC_BATCH_SIZE'] = 8
     with app.app_context():
         node = _local_node(app)
-        client = _peer_client(remote_host_netloc, miller_2_wallet)
+        client = _peer_client(remote_host_netloc, miller_2_signing_key)
 
         def tampered_get_blocks(from_idx, limit):
             # The genesis block, but with a forged self-reported block_hash
@@ -247,7 +247,7 @@ def test_sync_forward_links_genesis_to_sentinel(
     remote_app,
     remote_requests_proxy,
     remote_host_netloc,
-    miller_2_wallet,
+    miller_2_signing_key,
     time_machine,
     time_stepper,
 ):
@@ -256,14 +256,14 @@ def test_sync_forward_links_genesis_to_sentinel(
     start = now() - datetime.timedelta(hours=2)
     time_step = time_stepper(start=start)
     with remote_app.app_context():
-        genesis = _mill_chain(miller_2_wallet, 1, time_step)
+        genesis = _mill_chain(miller_2_signing_key, 1, time_step)
         assert genesis.prev_hash == GENESIS_HASH
 
     app.config['SYNC_BATCH_SIZE'] = 8
     with app.app_context():
         node = _local_node(app)
         assert node.longest_chain is None
-        client = _peer_client(remote_host_netloc, miller_2_wallet)
+        client = _peer_client(remote_host_netloc, miller_2_signing_key)
         assert node.sync_forward(client) == 'caught_up'
         lc = node.longest_chain
         assert lc is not None and lc.last_block is not None
@@ -275,7 +275,7 @@ def test_sync_forward_stops_on_no_progress(
     remote_app,
     remote_requests_proxy,
     remote_host_netloc,
-    miller_2_wallet,
+    miller_2_signing_key,
     time_machine,
     time_stepper,
     monkeypatch,
@@ -287,12 +287,14 @@ def test_sync_forward_stops_on_no_progress(
     start = now() - datetime.timedelta(hours=2)
     time_step = time_stepper(start=start)
     with remote_app.app_context():
-        _mill_chain(miller_2_wallet, 2, time_step)  # peer: genesis + block 1
+        _mill_chain(
+            miller_2_signing_key, 2, time_step
+        )  # peer: genesis + block 1
 
     app.config['SYNC_BATCH_SIZE'] = 1
     with app.app_context():
         node = _local_node(app)
-        client = _peer_client(remote_host_netloc, miller_2_wallet)
+        client = _peer_client(remote_host_netloc, miller_2_signing_key)
         # Simulate the add_block swallow path: never advance the tip.
         monkeypatch.setattr(node, 'add_block', lambda *a, **k: None)
         result = node.sync_forward(client)  # must terminate, not hang

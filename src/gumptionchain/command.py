@@ -38,9 +38,9 @@ from gumptionchain.database import db
 from gumptionchain.miller import Miller
 from gumptionchain.node import Node
 from gumptionchain.payload import StakeKind, encode_subject
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
 from gumptionchain.util import host_address, now_iso
-from gumptionchain.wallet import Wallet
 
 REFRESH_PER_SECOND = 8
 CHAIN_MISMATCH_MSG = 'Chain/file mismatch'
@@ -88,7 +88,7 @@ def http_error_message(e: httpx.HTTPStatusError) -> str | None:
 
 
 def host_api_client(
-    host: str | None = None, wallet_file: str | None = None
+    host: str | None = None, signing_key_file: str | None = None
 ) -> ApiClient:
     if not host:
         host = current_app.config.get('DEFAULT_COMMAND_HOST')
@@ -98,31 +98,33 @@ def host_api_client(
             'GC_DEFAULT_COMMAND_HOST in the environment.'
         )
         raise click.UsageError(msg)
-    if wallet_file:
-        wallet = Wallet.from_file(wallet_file)
+    if signing_key_file:
+        signing_key = SigningKey.from_file(signing_key_file)
     else:
         host, address = host_address(host)
-        wallet = current_app.wallets.get(address)  # type: ignore[attr-defined]
-    if wallet is None:
+        signing_key = current_app.signing_keys.get(address)  # type: ignore[attr-defined]
+    if signing_key is None:
         msg = (
-            f'No wallet available for host {host}: pass --wallet-file or '
-            f'load a *.pem matching {address!r} into WALLET_DIR.'
+            f'No key available for host {host}: pass --signing_key-file or '
+            f'load a *.pem matching {address!r} into SIGNING_KEY_DIR.'
         )
         raise click.UsageError(msg)
     return ApiClient(
-        host, wallet, timeout=current_app.config.get('API_CLIENT_TIMEOUT')
+        host, signing_key, timeout=current_app.config.get('API_CLIENT_TIMEOUT')
     )
 
 
-def address_wallet(address: str, wallet_file: str | None = None) -> Wallet:
-    if wallet_file:
-        wallet = Wallet.from_file(wallet_file)
+def address_signing_key(
+    address: str, signing_key_file: str | None = None
+) -> SigningKey:
+    if signing_key_file:
+        signing_key = SigningKey.from_file(signing_key_file)
     else:
-        wallet = current_app.wallets.get(address)  # type: ignore[attr-defined]
-    if wallet is None or address != wallet.address:
-        msg = f'No wallet for {address}'
+        signing_key = current_app.signing_keys.get(address)  # type: ignore[attr-defined]
+    if signing_key is None or address != signing_key.address:
+        msg = f'No signing_key for {address}'
         raise Exception(msg)
-    return wallet
+    return signing_key
 
 
 def bounded_lines(
@@ -569,10 +571,10 @@ def import_blocks_command(file: str) -> None:
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for milling coinbase rewards.',
+    help='SigningKey file to use for milling coinbase rewards.',
 )
 @click.option(
     '-p',
@@ -592,7 +594,7 @@ def mill_command(
     multi: bool,  # noqa: FBT001
     rounds: int,
     worksize: int,
-    wallet: str | None,
+    signing_key: str | None,
     peer: str | None,
     blocks: int,
 ) -> None:
@@ -601,7 +603,9 @@ def mill_command(
     \b
     ADDRESS is the address to use for milling coinbase rewards.
     """
-    milling_wallet = address_wallet(address, wallet_file=wallet)
+    milling_signing_key = address_signing_key(
+        address, signing_key_file=signing_key
+    )
     if peer is not None and current_app.clients.get(peer) is None:  # type: ignore[attr-defined]
         msg = f'Peer {peer} client not configured.'
         raise Exception(msg)
@@ -610,7 +614,7 @@ def mill_command(
         peers=current_app.config['PEERS'],
         clients=current_app.clients,  # type: ignore[attr-defined]
         logger=current_app.logger,
-        milling_wallet=milling_wallet,
+        milling_signing_key=milling_signing_key,
         milling_peer=peer,
     )
     if peer:
@@ -628,7 +632,7 @@ def mill_command(
         progress.console.print()
         progress.console.print(
             Rule(
-                title=f'Milling as address [bold]{milling_wallet.address}',
+                title=f'Milling as address [bold]{milling_signing_key.address}',
                 align='left',
                 style='milling',
             )
@@ -664,10 +668,10 @@ txn_cli = AppGroup('txn', help='Command group to create transactions.')
 @click.argument('to_address')
 @click.option(
     '-t',
-    '--txn-wallet',
+    '--txn-signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.',
+    help='SigningKey file to use for transaction source.',
 )
 @click.option(
     '-h',
@@ -677,10 +681,10 @@ txn_cli = AppGroup('txn', help='Command group to create transactions.')
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.',
+    help='SigningKey file to use for API auth.',
 )
 @click.option(
     '-y',
@@ -694,9 +698,9 @@ def create_transfer(
     from_address: str,
     amount: float,
     to_address: str,
-    txn_wallet: str | None,
+    txn_signing_key: str | None,
     host: str | None,
-    wallet: str | None,
+    signing_key: str | None,
     yes: bool,  # noqa: FBT001
 ) -> None:
     """Create and post a transfer transaction.
@@ -707,10 +711,12 @@ def create_transfer(
     TO_ADDRESS is the transaction destination address.
     """
     try:
-        txn_wallet_obj = address_wallet(from_address, wallet_file=txn_wallet)
-        client = host_api_client(host=host, wallet_file=wallet)
+        txn_signing_key_obj = address_signing_key(
+            from_address, signing_key_file=txn_signing_key
+        )
+        client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_transfer_transaction(
-            txn_wallet_obj.public_key_b64,
+            txn_signing_key_obj.public_key_b64,
             grit_to_grains(amount),
             to_address,
         )
@@ -721,7 +727,7 @@ def create_transfer(
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet_obj)
+            txn.set_signing_key(txn_signing_key_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print('Transfer created.', style='success')
@@ -741,10 +747,10 @@ def create_transfer(
 @click.argument('subject')
 @click.option(
     '-t',
-    '--txn-wallet',
+    '--txn-signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.',
+    help='SigningKey file to use for transaction source.',
 )
 @click.option(
     '-h',
@@ -754,10 +760,10 @@ def create_transfer(
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.',
+    help='SigningKey file to use for API auth.',
 )
 @click.option(
     '-y',
@@ -771,9 +777,9 @@ def create_opposition(
     address: str,
     amount: float,
     subject: str,
-    txn_wallet: str | None,
+    txn_signing_key: str | None,
     host: str | None,
-    wallet: str | None,
+    signing_key: str | None,
     yes: bool,  # noqa: FBT001
 ) -> None:
     """Create an opposition transaction.
@@ -784,10 +790,12 @@ def create_opposition(
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        txn_wallet_obj = address_wallet(address, wallet_file=txn_wallet)
-        client = host_api_client(host=host, wallet_file=wallet)
+        txn_signing_key_obj = address_signing_key(
+            address, signing_key_file=txn_signing_key
+        )
+        client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_opposition_transaction(
-            txn_wallet_obj.public_key_b64,
+            txn_signing_key_obj.public_key_b64,
             grit_to_grains(amount),
             subject,
         )
@@ -798,7 +806,7 @@ def create_opposition(
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet_obj)
+            txn.set_signing_key(txn_signing_key_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print(f'Opposition created: {txn.txid}', style='success')
@@ -824,10 +832,10 @@ def create_opposition(
 )
 @click.option(
     '-t',
-    '--txn-wallet',
+    '--txn-signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.',
+    help='SigningKey file to use for transaction source.',
 )
 @click.option(
     '-h',
@@ -837,10 +845,10 @@ def create_opposition(
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.',
+    help='SigningKey file to use for API auth.',
 )
 @click.option(
     '-y',
@@ -855,9 +863,9 @@ def create_rescind(
     amount: float,
     subject: str,
     kind: str,  # narrowed via cast below; click.Choice enforces the values
-    txn_wallet: str | None,
+    txn_signing_key: str | None,
     host: str | None,
-    wallet: str | None,
+    signing_key: str | None,
     yes: bool,  # noqa: FBT001
 ) -> None:
     """Create a rescind transaction.
@@ -868,10 +876,12 @@ def create_rescind(
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        txn_wallet_obj = address_wallet(address, wallet_file=txn_wallet)
-        client = host_api_client(host=host, wallet_file=wallet)
+        txn_signing_key_obj = address_signing_key(
+            address, signing_key_file=txn_signing_key
+        )
+        client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_rescind_transaction(
-            txn_wallet_obj.public_key_b64,
+            txn_signing_key_obj.public_key_b64,
             grit_to_grains(amount),
             subject,
             cast(StakeKind, kind),
@@ -883,7 +893,7 @@ def create_rescind(
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet_obj)
+            txn.set_signing_key(txn_signing_key_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print(f'Rescind created: {txn.txid}', style='success')
@@ -901,10 +911,10 @@ def create_rescind(
 @click.argument('subject')
 @click.option(
     '-t',
-    '--txn-wallet',
+    '--txn-signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for transaction source.',
+    help='SigningKey file to use for transaction source.',
 )
 @click.option(
     '-h',
@@ -914,10 +924,10 @@ def create_rescind(
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.',
+    help='SigningKey file to use for API auth.',
 )
 @click.option(
     '-y',
@@ -931,9 +941,9 @@ def create_support(
     address: str,
     amount: float,
     subject: str,
-    txn_wallet: str | None,
+    txn_signing_key: str | None,
     host: str | None,
-    wallet: str | None,
+    signing_key: str | None,
     yes: bool,  # noqa: FBT001
 ) -> None:
     """Create a subject support transaction.
@@ -944,10 +954,12 @@ def create_support(
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        txn_wallet_obj = address_wallet(address, wallet_file=txn_wallet)
-        client = host_api_client(host=host, wallet_file=wallet)
+        txn_signing_key_obj = address_signing_key(
+            address, signing_key_file=txn_signing_key
+        )
+        client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_support_transaction(
-            txn_wallet_obj.public_key_b64,
+            txn_signing_key_obj.public_key_b64,
             grit_to_grains(amount),
             subject,
         )
@@ -958,7 +970,7 @@ def create_support(
                 'Do you want to sign and post the transaction?'
             )
         if confirm:
-            txn.set_wallet(txn_wallet_obj)
+            txn.set_signing_key(txn_signing_key_obj)
             txn.sign()
             client.post_transaction(txn)
             console.print(f'Support created: {txn.txid}', style='success')
@@ -970,27 +982,29 @@ def create_support(
         console.print(f'Support failed: {e}', style='error')
 
 
-wallet_cli = AppGroup('wallet', help='Command group to work with wallets.')
+signing_key_cli = AppGroup(
+    'signing-key', help='Command group to work with signing keys.'
+)
 
 
-@wallet_cli.command('create')
+@signing_key_cli.command('create')
 @click.option(
     '-d',
-    '--walletdir',
+    '--signing_keydir',
     type=click.Path(exists=True),
     default=None,
-    help='Parent directory for the wallet file (default from app config).',
+    help='Parent directory for the signing-key file (default from app config).',
 )
 @with_appcontext
-def create_wallet(walletdir: str | None) -> None:
-    """Create a new wallet file."""
-    walletdir = walletdir or current_app.config.get('WALLET_DIR')
-    w = Wallet()
-    filename = w.to_file(walletdir=walletdir)
+def create_signing_key(signing_keydir: str | None) -> None:
+    """Create a new signing_key file."""
+    signing_keydir = signing_keydir or current_app.config.get('SIGNING_KEY_DIR')
+    w = SigningKey()
+    filename = w.to_file(signing_keydir=signing_keydir)
     console.print(f'Created {filename}', style='success')
 
 
-@wallet_cli.command('balance')
+@signing_key_cli.command('balance')
 @click.argument('address')
 @click.option(
     '-h',
@@ -1000,21 +1014,23 @@ def create_wallet(walletdir: str | None) -> None:
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.',
+    help='SigningKey file to use for API auth.',
 )
 @with_appcontext
-def wallet_balance(address: str, host: str | None, wallet: str | None) -> None:
-    """Get the wallet balance in GRIT for an address.
+def signing_key_balance(
+    address: str, host: str | None, signing_key: str | None
+) -> None:
+    """Get the signing-key balance in GRIT for an address.
 
     \b
-    ADDRESS is the wallet address.
+    ADDRESS is the signing_key address.
     """
     try:
-        client = host_api_client(host=host, wallet_file=wallet)
-        r = client.get_wallet_balance(address)
+        client = host_api_client(host=host, signing_key_file=signing_key)
+        r = client.get_signing_key_balance(address)
         balance = r.json().get('balance')
         console.print(f'{human_grains(balance)} GRIT', style='success')
     except httpx.HTTPStatusError as e:
@@ -1036,14 +1052,14 @@ subject_cli = AppGroup('subject', help='Command group to work with subjects.')
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth.',
+    help='SigningKey file to use for API auth.',
 )
 @with_appcontext
 def opposition_balance(
-    subject: str, host: str | None, wallet: str | None
+    subject: str, host: str | None, signing_key: str | None
 ) -> None:
     """Get the balance (i.e. opposition transactions minus rescind
        transactions) in GRIT for a subject.
@@ -1052,7 +1068,7 @@ def opposition_balance(
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        client = host_api_client(host=host, wallet_file=wallet)
+        client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_opposition_balance(encode_subject(subject))
         balance = r.json().get('balance')
         console.print(f'{human_grains(balance)} GRIT', style='success')
@@ -1075,20 +1091,22 @@ def opposition_balance(
 )
 @click.option(
     '-w',
-    '--wallet',
+    '--signing_key',
     type=click.Path(exists=True),
     default=None,
-    help='Wallet file to use for API auth',
+    help='SigningKey file to use for API auth',
 )
 @with_appcontext
-def support_balance(subject: str, host: str | None, wallet: str | None) -> None:
+def support_balance(
+    subject: str, host: str | None, signing_key: str | None
+) -> None:
     """Get the support total in GRIT for a subject.
 
     \b
     SUBJECT is the raw (unencoded) subject string.
     """
     try:
-        client = host_api_client(host=host, wallet_file=wallet)
+        client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_support_balance(encode_subject(subject))
         support = r.json().get('support')
         console.print(f'{human_grains(support)} GRIT', style='success')

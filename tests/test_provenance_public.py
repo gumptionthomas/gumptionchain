@@ -5,15 +5,15 @@ from gumptionchain.provenance import lookup_provenance
 
 
 def test_lookup_provenance_returns_dict_for_canonical_txn(
-    app, host, mill_block, requests_proxy, subject, wallet
+    app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
         assert lookup_provenance('a' * 64) is None
-        m, _b1 = mill_block(wallet)
-        txn = m.longest_chain.create_opposition(wallet, 300, subject)
+        m, _b1 = mill_block(signing_key)
+        txn = m.longest_chain.create_opposition(signing_key, 300, subject)
         txn.sign()
-        ApiClient(host, wallet).post_transaction(txn)
-        mill_block(wallet)
+        ApiClient(host, signing_key).post_transaction(txn)
+        mill_block(signing_key)
         prov = lookup_provenance(txn.txid)
         assert prov is not None
         assert prov['status'] == 'canonical'
@@ -28,14 +28,14 @@ def test_provenance_json_route_unknown_returns_404(app, test_client):
 
 
 def test_provenance_json_route_canonical(
-    app, host, mill_block, requests_proxy, subject, test_client, wallet
+    app, host, mill_block, requests_proxy, subject, test_client, signing_key
 ):
     with app.app_context():
-        m, _b1 = mill_block(wallet)
-        txn = m.longest_chain.create_opposition(wallet, 300, subject)
+        m, _b1 = mill_block(signing_key)
+        txn = m.longest_chain.create_opposition(signing_key, 300, subject)
         txn.sign()
-        ApiClient(host, wallet).post_transaction(txn)
-        _m, b2 = mill_block(wallet)
+        ApiClient(host, signing_key).post_transaction(txn)
+        _m, b2 = mill_block(signing_key)
 
         resp = test_client.get(f'/transaction/{txn.txid}/provenance.json')
         assert resp.status_code == httpx.codes.OK

@@ -1,5 +1,5 @@
 """Populate the local dev chain via the real Miller mempool flow (in-process,
-no running server): mine coinbase blocks to fund the wallet, then submit +
+no running server): mine coinbase blocks to fund the signing_key, then submit +
 confirm a confirmed opposition and support stake on a subject. Prints the
 txids and a ready-to-paste gc-msg-v1 stake attestation for /verify.
 
@@ -34,7 +34,7 @@ def mine_one(miller: Miller) -> None:
     miller.mill_block(block)
 
 
-def stake_and_confirm(miller, make_txn, wallet) -> str:
+def stake_and_confirm(miller, make_txn, signing_key) -> str:
     """Create a stake txn via make_txn(chain), submit it to the mempool, mine a
     block to confirm it, and return its txid."""
     txn = make_txn(miller.longest_chain)
@@ -47,23 +47,27 @@ def stake_and_confirm(miller, make_txn, wallet) -> str:
 def main() -> None:
     app = create_app()
     with app.app_context():
-        wallet = next(iter(app.wallets.values()))
+        signing_key = next(iter(app.signing_keys.values()))
         miller = Miller(
             host=app.config['NODE_HOST'],
             logger=app.logger,
-            milling_wallet=wallet,
+            milling_signing_key=signing_key,
         )
 
-        # fund the wallet with coinbase rewards
+        # fund the signing_key with coinbase rewards
         for _ in range(COINBASE_BLOCKS):
             mine_one(miller)
 
         enc = encode_subject(SUBJECT)
         op_txid = stake_and_confirm(
-            miller, lambda c: c.create_opposition(wallet, 300, enc), wallet
+            miller,
+            lambda c: c.create_opposition(signing_key, 300, enc),
+            signing_key,
         )
         sp_txid = stake_and_confirm(
-            miller, lambda c: c.create_support(wallet, 150, enc), wallet
+            miller,
+            lambda c: c.create_support(signing_key, 150, enc),
+            signing_key,
         )
 
         # a pasteable proof for /verify (over the opposition stake)
@@ -73,12 +77,12 @@ def main() -> None:
             'subject': enc,
             'amount': 300,
         }
-        proof = sign_stake_attestation(wallet, claim)
+        proof = sign_stake_attestation(signing_key, claim)
 
         tip = miller.longest_chain.last_block
         print('\n=== populated (canonical) ===')  # noqa: T201
         print(f'tip block idx  : {tip.idx}  hash {tip.block_hash}')  # noqa: T201
-        print(f'staker address : {wallet.address}')  # noqa: T201
+        print(f'staker address : {signing_key.address}')  # noqa: T201
         print(f'subject        : {SUBJECT!r} (encoded {enc})')  # noqa: T201
         print(f'opposition txid: {op_txid}  (300 grains)')  # noqa: T201
         print(f'support    txid: {sp_txid}  (150 grains)')  # noqa: T201

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-GumptionChain is a custom proof-of-work blockchain (Flask + SQLAlchemy) where tokens are assigned to *subjects* (UTF-8 strings, 1–79 chars) as **opposition** (`opposition`, rescindable via `rescind --kind opposition`) or **support** (`support`, rescindable via `rescind --kind support`). It runs as both a Flask web app (browser views + JSON API) and a `gumptionchain` CLI. The chain is permissioned: API access is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`) keyed off wallet addresses listed in config.
+GumptionChain is a custom proof-of-work blockchain (Flask + SQLAlchemy) where tokens are assigned to *subjects* (UTF-8 strings, 1–79 chars) as **opposition** (`opposition`, rescindable via `rescind --kind opposition`) or **support** (`support`, rescindable via `rescind --kind support`). It runs as both a Flask web app (browser views + JSON API) and a `gumptionchain` CLI. The chain is permissioned: API access is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`) keyed off signing_key addresses listed in config.
 
 Units: 1 **GRIT / grit** = 100 **grains** (`GRAIN_PER_GRIT` in `gumptionchain.chain`). Float CLI amounts are converted via `grit_to_grains`.
 
@@ -34,7 +34,7 @@ uv run pre-commit run --all-files
 uv run gumptionchain init                  # create SQLite schema (FLASK_SQLALCHEMY_DATABASE_URI)
 uv run gumptionchain import path/to/gumptionchain.jsonl   # bulk-load blocks from JSON Lines export
 uv run gumptionchain run                   # Flask dev server on :5000
-uv run gumptionchain --help                # full CLI tree (txn/, wallet/, subject/, mill, sync, validate, export, import); `gc` is a shorter alias
+uv run gumptionchain --help                # full CLI tree (txn/, signing_key/, subject/, mill, sync, validate, export, import); `gc` is a shorter alias
 
 # Production entry point (see Dockerfile)
 gunicorn --bind :$PORT app:app
@@ -76,7 +76,7 @@ Two stacked layers, both read by `create_app()` in `src/gumptionchain/__init__.p
 1. **`FLASK_*` env vars** → injected into `app.config` via `Flask.config.from_prefixed_env()` (strips the `FLASK_` prefix). This is how `SECRET_KEY`, `SQLALCHEMY_DATABASE_URI`, etc. get set.
 2. **`GC_*` env vars** → loaded into `EnvAppSettings` (`src/gumptionchain/config.py`, dataclass), then `app.config.from_object`. Values are JSON-parsed when possible, so list/bool settings (`GC_PEERS`, `GC_MILLER_ADDRESSES`, `GC_API_ASYNC_PROCESSING`) must be valid JSON strings in the env.
 
-Key `GC_*` settings: `NODE_HOST`, `PEERS` (list of `http(s)://<address>@host` URLs — `host` identifies the peer node, but the username `<address>` is the **local** wallet address this node signs requests *as* when talking to that peer: `create_clients` looks it up in `app.wallets`, so this node must hold that wallet's private key and the peer must list the address in its role allowlist), `WALLET_DIR`, `DEFAULT_COMMAND_HOST`, `{ADMIN,MILLER,TRANSACTOR,READER}_ADDRESSES` (exact-address allowlists matched against the authenticated address in `api.Role.address_role`; `READER_ADDRESSES` and `TRANSACTOR_ADDRESSES` may contain the literal `"*"` to grant that role to any authenticated wallet; a non-address entry, or `"*"` outside `READER_ADDRESSES`/`TRANSACTOR_ADDRESSES`, is rejected at startup via `Role.validate_config` → `InvalidRoleConfigError`), `MAX_CHAIN_FILL_DEPTH` (env `GC_MAX_CHAIN_FILL_DEPTH`, default 50000 — caps a single `fill_chain` ancestor walk), `MAX_PENDING_TXNS` (env `GC_MAX_PENDING_TXNS`, default 10000 — caps `pending_txns` mempool admission; a full pool returns HTTP 503). `WALLET_DIR` is walked at startup; every `*.pem` becomes an in-memory `Wallet` in `app.wallets`, keyed by address.
+Key `GC_*` settings: `NODE_HOST`, `PEERS` (list of `http(s)://<address>@host` URLs — `host` identifies the peer node, but the username `<address>` is the **local** signing_key address this node signs requests *as* when talking to that peer: `create_clients` looks it up in `app.signing_keys`, so this node must hold that signing_key's private key and the peer must list the address in its role allowlist), `SIGNING_KEY_DIR`, `DEFAULT_COMMAND_HOST`, `{ADMIN,MILLER,TRANSACTOR,READER}_ADDRESSES` (exact-address allowlists matched against the authenticated address in `api.Role.address_role`; `READER_ADDRESSES` and `TRANSACTOR_ADDRESSES` may contain the literal `"*"` to grant that role to any authenticated signing_key; a non-address entry, or `"*"` outside `READER_ADDRESSES`/`TRANSACTOR_ADDRESSES`, is rejected at startup via `Role.validate_config` → `InvalidRoleConfigError`), `MAX_CHAIN_FILL_DEPTH` (env `GC_MAX_CHAIN_FILL_DEPTH`, default 50000 — caps a single `fill_chain` ancestor walk), `MAX_PENDING_TXNS` (env `GC_MAX_PENDING_TXNS`, default 10000 — caps `pending_txns` mempool admission; a full pool returns HTTP 503). `SIGNING_KEY_DIR` is walked at startup; every `*.pem` becomes an in-memory `SigningKey` in `app.signing_keys`, keyed by address.
 
 ## Architecture
 
@@ -111,11 +111,11 @@ Domain objects own validation, serialization (Marshmallow schemas in `schema.py`
 
 ### API authentication
 
-Every API request is authenticated by a **per-request wallet signature** (`gc-sig-v1`). There is no token, no challenge/response handshake, and no `SECRET_KEY`-based bearer JWT. The scheme is stateless and node-bound.
+Every API request is authenticated by a **per-request signing_key signature** (`gc-sig-v1`). There is no token, no challenge/response handshake, and no `SECRET_KEY`-based bearer JWT. The scheme is stateless and node-bound.
 
 **How it works:**
 
-1. The client constructs a canonical string over `gc-sig-v1 / METHOD / path / query / body-digest / node-host / timestamp / address` and signs it with its RSA private key (`Wallet.sign`).
+1. The client constructs a canonical string over `gc-sig-v1 / METHOD / path / query / body-digest / node-host / timestamp / address` and signs it with its RSA private key (`SigningKey.sign`).
 2. The signature, public key, address, timestamp, and scheme version are sent as `GC-*` request headers (`GC-Sig-Version`, `GC-Address`, `GC-Public-Key`, `GC-Timestamp`, `GC-Signature`).
 3. `authorize()` in `api.py` calls `signing.verify()` to check the scheme version, request freshness (±300 s), public-key-to-address self-certification, the RSA signature, and node-binding (the canonical includes `NODE_HOST`, so a signature for node A fails verification at node B). Any failure → `401`.
 4. After signature verification, `authorize()` re-validates the caller's role against live `*_ADDRESSES` config via `Role.address_role(address)`. An address with no configured role or an insufficient role → `403`. This live re-check means role revocations take effect immediately.
@@ -130,8 +130,8 @@ When `GC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 
 ## Test conventions
 
-- `tests/.test.env` is loaded by `pytest-dotenv` (see `[tool.pytest.ini_options]`). It defines `FLASK_SECRET_KEY` (still required by Flask for session/CSRF infrastructure, but no longer used for JWT auth — API auth is now per-request wallet signatures) and a minimal `GC_READER_ADDRESSES` allowlist; `env_override_existing_values = 1` means it *overrides* anything in your shell.
-- `tests/conftest.py` builds the `app` fixture by writing temporary `.pem` wallet files into a `TemporaryDirectory` and pointing `WALLET_DIR` at it, with a `NamedTemporaryFile` SQLite DB. There are four canonical wallets (`READER_WALLET`, `TRANSACTOR_WALLET`, `MILLER_WALLET`, `MILLER_2_WALLET`) wired to the corresponding `*_ADDRESSES` configs.
+- `tests/.test.env` is loaded by `pytest-dotenv` (see `[tool.pytest.ini_options]`). It defines `FLASK_SECRET_KEY` (still required by Flask for session/CSRF infrastructure, but no longer used for JWT auth — API auth is now per-request signing_key signatures) and a minimal `GC_READER_ADDRESSES` allowlist; `env_override_existing_values = 1` means it *overrides* anything in your shell.
+- `tests/conftest.py` builds the `app` fixture by writing temporary `.pem` signing_key files into a `TemporaryDirectory` and pointing `SIGNING_KEY_DIR` at it, with a `NamedTemporaryFile` SQLite DB. There are four canonical signing_keys (`READER_SIGNING_KEY`, `TRANSACTOR_SIGNING_KEY`, `MILLER_SIGNING_KEY`, `MILLER_2_SIGNING_KEY`) wired to the corresponding `*_ADDRESSES` configs.
 - `requests_proxy` / `remote_requests_proxy` fixtures use `requests_mock` to route HTTP calls into the Flask test client — that's how peer-to-peer gossip is tested without a network.
 - `time_machine` (via `time_stepper`) is used wherever timestamps participate in validation (block ordering, txn expiry).
 - Mark new tests that fan out across CPU cores with `@pytest.mark.multi`; they're skipped unless `--runmulti` is passed.
@@ -147,7 +147,7 @@ When `GC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 ## Conventions
 
 - **Never push directly to main.** Every change — including refactors, cleanups, one-line typo fixes, and obvious-looking patches — goes through a branch + PR. The user makes the call about what's "too small" for a PR, not me.
-- **Branch names:** `<type>/<short-description>` (e.g. `feat/peer-gossip-retry`, `fix/wallet-load-race`, `docs/api-auth-readme`).
+- **Branch names:** `<type>/<short-description>` (e.g. `feat/peer-gossip-retry`, `fix/signing-key-load-race`, `docs/api-auth-readme`).
 - **Commit messages:** Conventional Commits (`feat(scope): description`, `fix: ...`, `refactor: ...`, `docs: ...`).
 - **PR merge:** `gh pr merge <N> --squash --delete-branch`. Never regular merge or rebase, never leave the branch lying around.
 - **Reviewed before merge — but not automatically by Copilot.** Automatic Copilot PR reviews are disabled (their pricing model), so don't wait on one or tell the user to. The pre-merge bar is: green CI **plus** a real review — the local subagent review pipeline run during implementation, `/code-review` (or the `ultracode` cloud review) for a heavier independent pass, and/or the user's own read. The user will **manually** request a Copilot review for large or risky changes; only then is `wor` waiting on Copilot.
@@ -169,7 +169,7 @@ When `GC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 ## Open transacting & anti-spam (EGU)
 
 `TRANSACTOR_ADDRESSES` accepts the `"*"` match-all sentinel (like `READER`), so
-any authenticated wallet may submit transactions — opt in with
+any authenticated signing_key may submit transactions — opt in with
 `GC_TRANSACTOR_ADDRESSES='["*"]'`. This exposes *load, not theft*: balance /
 ownership / double-spend validation still hold, and `MILLER`/`ADMIN` stay
 exact-allowlist. Operators running with the wildcard should:

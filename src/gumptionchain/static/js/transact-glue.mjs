@@ -1,36 +1,36 @@
 // Base /transact glue: build (via the node's authed server-side endpoints),
 // sign client-side with an unlocked key, and submit. Plus a "broadcast a
-// pre-signed txn" mode. The active Wallet lives ONLY in the shared per-page
-// wallet-session holder — never persisted from here, never sent (only the
-// signature + public key leave the browser). Two ways to obtain that wallet:
+// pre-signed txn" mode. The active SigningKey lives ONLY in the shared per-page
+// signing-key-session holder — never persisted from here, never sent (only the
+// signature + public key leave the browser). Two ways to obtain that signing_key:
 //   - Unlock the saved signing key — decrypt the gc-keyring record persisted on
-//     /wallet (passphrase or, on a secure origin, passkey), OR
+//     /signing-key (passphrase or, on a secure origin, passkey), OR
 //   - Advanced: use a one-session key — paste a base58 private key (ephemeral
 //     import; nothing is saved).
 // Either way the unlocked key is subject to the same auto-lock policy (idle /
-// tab-hide / page-unload / manual lock) via wallet-session.
+// tab-hide / page-unload / manual lock) via signing-key-session.
 //
 // The pure helpers (buildQuery / submitPath / responseMessage / buildUnsigned /
 // signAndSubmit / whichKeyPanel / unlockSaved) are exported and DOM-free so
 // they can be unit-tested with fakes. The DOM wiring is in init().
-import { Wallet } from '../wallet/gc-wallet.mjs';
-import { signHeaders } from '../wallet/gc-sig.mjs';
-import { base64encode } from '../wallet/gc-crypto.mjs';
-import { signStakeAttestation } from '../wallet/gc-attestation.mjs';
+import { SigningKey } from '../signing-key/gc-signing-key.mjs';
+import { signHeaders } from '../signing-key/gc-sig.mjs';
+import { base64encode } from '../signing-key/gc-crypto.mjs';
+import { signStakeAttestation } from '../signing-key/gc-attestation.mjs';
 import {
   signUnsignedTxn,
   txid as computeTxid,
-} from '../wallet/gc-transaction.mjs';
-import * as keyring from '../wallet/gc-keyring.mjs';
-import { makeIdbStore } from '../wallet/gc-store-idb.mjs';
-import { session as defaultSession } from './wallet-session.mjs';
-import { makePasskey } from './wallet-passkey.mjs';
-import { readTrustAck, writeTrustAck } from './wallet-glue.mjs';
+} from '../signing-key/gc-transaction.mjs';
+import * as keyring from '../signing-key/gc-keyring.mjs';
+import { makeIdbStore } from '../signing-key/gc-store-idb.mjs';
+import { session as defaultSession } from './signing-key-session.mjs';
+import { makePasskey } from './signing-key-passkey.mjs';
+import { readTrustAck, writeTrustAck } from './signing-key-glue.mjs';
 
 const API_PREFIX = '/api';
 
 // The fields each transaction type sends. public_key is always added from the
-// imported wallet; the rest come from the form. (subject is the RAW UTF-8
+// imported signing_key; the rest come from the form. (subject is the RAW UTF-8
 // subject — the server encodes it itself, so it must NOT be pre-encoded.)
 const TYPE_FIELDS = {
   transfer: ['amount', 'address'],
@@ -130,11 +130,11 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 // canonical matches what the server reconstructs from the actual request.
 async function authedFetch(
   fetchImpl,
-  { method, path, query, body, wallet, nodeHost, timestamp },
+  { method, path, query, body, signing_key, nodeHost, timestamp },
 ) {
   const bodyBytes =
     body != null ? new TextEncoder().encode(body) : new Uint8Array();
-  const headers = await signHeaders(wallet, {
+  const headers = await signHeaders(signing_key, {
     method,
     path,
     query,
@@ -158,19 +158,19 @@ async function authedFetch(
 export async function buildUnsigned({
   type,
   fields,
-  wallet,
+  signing_key,
   nodeHost,
   fetchImpl = globalThis.fetch,
   timestamp = nowSeconds(),
 }) {
-  const publicKey = await wallet.publicKeyB64();
+  const publicKey = await signing_key.publicKeyB64();
   const query = buildQuery(type, { ...fields, publicKey });
   const buildPath = `${API_PREFIX}/transaction/${type}`;
   const buildResp = await authedFetch(fetchImpl, {
     method: 'GET',
     path: buildPath,
     query,
-    wallet,
+    signing_key,
     nodeHost,
     timestamp,
   });
@@ -195,12 +195,12 @@ export async function buildUnsigned({
 // after the user has confirmed the parsed txn returned by buildUnsigned.
 export async function signAndSubmit({
   unsigned,
-  wallet,
+  signing_key,
   nodeHost,
   fetchImpl = globalThis.fetch,
 }) {
-  const signed = await signUnsignedTxn(unsigned, wallet);
-  return submitSigned({ signed, unsigned, wallet, nodeHost, fetchImpl });
+  const signed = await signUnsignedTxn(unsigned, signing_key);
+  return submitSigned({ signed, unsigned, signing_key, nodeHost, fetchImpl });
 }
 
 // Submit an already-signed txn (shared by build-sign and broadcast modes). The
@@ -210,7 +210,7 @@ export async function signAndSubmit({
 export async function submitSigned({
   signed,
   unsigned = null,
-  wallet,
+  signing_key,
   nodeHost,
   fetchImpl = globalThis.fetch,
   timestamp = nowSeconds(),
@@ -227,7 +227,7 @@ export async function submitSigned({
     path: submitPath(signed.txid),
     query: '',
     body,
-    wallet,
+    signing_key,
     nodeHost,
     timestamp,
   });
@@ -264,7 +264,7 @@ export async function signAttestation({
   kind,
   rawSubject,
   amount,
-  wallet,
+  signing_key,
   timestamp,
 }) {
   const claim = {
@@ -273,10 +273,10 @@ export async function signAttestation({
     subject: encodeSubject(rawSubject),
     amount,
   };
-  return signStakeAttestation(wallet, claim, { timestamp });
+  return signStakeAttestation(signing_key, claim, { timestamp });
 }
 
-// --- Saved-wallet unlock ----------------------------------------------------
+// --- Saved-signing_key unlock ----------------------------------------------------
 
 // Pure state decision for the key panel (#262). unlockedKind is
 // null (locked / no key), 'saved' (unlocked from the keyring), or
@@ -310,7 +310,7 @@ export function whichKeyPanel({
   };
 }
 
-// Unlock the saved (gc-keyring) wallet and hold it in the shared session for
+// Unlock the saved (gc-keyring) signing_key and hold it in the shared session for
 // this page's life (auto-locked like the ephemeral path). passphrase OR passkey
 // is supplied. A wrong secret rejects out of the keyring (GCM auth-tag failure)
 // and the session is left untouched (still locked). keyringImpl is injectable
@@ -326,9 +326,9 @@ export async function unlockSaved({
   const secrets = {};
   if (passkey) deps.passkey = passkey;
   if (passphrase != null) secrets.passphrase = passphrase;
-  const wallet = await keyringImpl.unlock(deps, secrets);
-  session.setWallet(wallet);
-  return wallet;
+  const signing_key = await keyringImpl.unlock(deps, secrets);
+  session.setSigningKey(signing_key);
+  return signing_key;
 }
 
 // --- DOM wiring ------------------------------------------------------------
@@ -341,7 +341,7 @@ function setStatus(el, text, kind = 'info') {
 
 // Import from a pasted b58 private key (primary path). PEM is a follow-up.
 async function importB58(b58) {
-  return Wallet.fromPrivateKeyB58(b58.trim());
+  return SigningKey.fromPrivateKeyB58(b58.trim());
 }
 
 // Render the parsed unsigned txn for explicit confirmation before submit.
@@ -423,7 +423,7 @@ export function init(
   // Cached passkey capability (resolved once below). Drives which unlock
   // controls show, plus the passkey-unlock click.
   let passkey = null;
-  // Whether a wallet was unlocked since the last lock — so an idle/hide lock
+  // Whether a signing_key was unlocked since the last lock — so an idle/hide lock
   // only reports 'locked' when there was actually a key to drop.
   let wasUnlocked = false;
 
@@ -438,17 +438,17 @@ export function init(
     }
   }
 
-  // Is a wallet available for signing (from a saved-wallet unlock OR an
+  // Is a signing_key available for signing (from a saved-signing_key unlock OR an
   // ephemeral import)? If not, surface the no-key message and return null.
   const NO_KEY_MSG =
     'Unlock your signing key or import a one-session key first.';
-  function requireWallet(statusEl) {
-    const wallet = session.getWallet();
-    if (!wallet) {
+  function requireSigningKey(statusEl) {
+    const signing_key = session.getSigningKey();
+    if (!signing_key) {
       setStatus(statusEl, NO_KEY_MSG, 'error');
       return null;
     }
-    return wallet;
+    return signing_key;
   }
 
   // Render the key panel from the current state: show exactly one state
@@ -471,7 +471,7 @@ export function init(
     }
     const c = whichKeyPanel({
       hasRecord: rec !== null,
-      unlockedKind: session.getWallet() ? unlockSource : null,
+      unlockedKind: session.getSigningKey() ? unlockSource : null,
       passkeySupported: passkey != null,
     });
     for (const el of root.querySelectorAll('[data-key-state]')) {
@@ -481,7 +481,7 @@ export function init(
     const addrEl = root.querySelector('[data-key-address]');
     if (addrEl && rec) addrEl.textContent = `${rec.address.slice(0, 12)}…`;
     if (keyBadge && c.state === 'unlocked') {
-      const addr = await session.getWallet().address();
+      const addr = await session.getSigningKey().address();
       keyBadge.textContent =
         c.badge === 'session'
           ? `one-session key · ${addr.slice(0, 12)}…`
@@ -495,11 +495,11 @@ export function init(
 
   // After any unlock/import, report the now-available address (in memory only).
   const onUnlocked = async (statusEl, label) => {
-    const wallet = session.getWallet();
+    const signing_key = session.getSigningKey();
     wasUnlocked = true;
     setStatus(
       statusEl,
-      `${label}: ${await wallet.address()} (in memory only).`,
+      `${label}: ${await signing_key.address()} (in memory only).`,
       'ok',
     );
   };
@@ -556,7 +556,7 @@ export function init(
     });
   }
 
-  // --- Create handler: generate a new wallet, enroll in keyring, set session.
+  // --- Create handler: generate a new signing_key, enroll in keyring, set session.
   if (createBtn) {
     createBtn.addEventListener('click', async () => {
       const passphrase = createPassphrase ? createPassphrase.value : '';
@@ -579,9 +579,9 @@ export function init(
       }
       createBtn.disabled = true; // no double-submit while enrolling
       try {
-        const wallet = await Wallet.generate();
-        await keyring.enroll(wallet, { store }, { passphrase });
-        session.setWallet(wallet);
+        const signing_key = await SigningKey.generate();
+        await keyring.enroll(signing_key, { store }, { passphrase });
+        session.setSigningKey(signing_key);
         unlockSource = 'saved';
         if (backupNudge) show(backupNudge, true);
         await renderKeyPanel();
@@ -611,7 +611,7 @@ export function init(
           setStatus(keyStatus, 'Paste a base58 private key first.', 'error');
           return;
         }
-        session.setWallet(await importB58(b58));
+        session.setSigningKey(await importB58(b58));
         unlockSource = 'session';
         await onUnlocked(keyStatus, 'Key imported');
         await renderKeyPanel();
@@ -636,7 +636,7 @@ export function init(
   }
   if (forgetBtn) {
     forgetBtn.addEventListener('click', () => {
-      // Lock clears the session wallet (whether it came from a saved-wallet
+      // Lock clears the session signing_key (whether it came from a saved-signing_key
       // unlock or an ephemeral import); the persisted ciphertext is untouched.
       unlockSource = null;
       session.lock();
@@ -672,8 +672,8 @@ export function init(
   if (buildBtn) {
     buildBtn.addEventListener('click', async () => {
       resetPending();
-      const wallet = requireWallet(buildResult);
-      if (!wallet) return;
+      const signing_key = requireSigningKey(buildResult);
+      if (!signing_key) return;
       const type = typeSelect.value;
       const fields = collectFields(root, type);
       try {
@@ -681,7 +681,7 @@ export function init(
         const { unsigned } = await buildUnsigned({
           type,
           fields,
-          wallet,
+          signing_key,
           nodeHost,
         });
         pendingUnsigned = unsigned;
@@ -707,13 +707,13 @@ export function init(
         setStatus(buildResult, 'Build a transaction first.', 'error');
         return;
       }
-      const wallet = requireWallet(buildResult);
-      if (!wallet) return;
+      const signing_key = requireSigningKey(buildResult);
+      if (!signing_key) return;
       try {
         setStatus(buildResult, 'Signing & submitting…', 'info');
         const result = await signAndSubmit({
           unsigned: pendingUnsigned,
-          wallet,
+          signing_key,
           nodeHost,
         });
         setStatus(
@@ -735,14 +735,14 @@ export function init(
   const broadcastBtn = $('#broadcast-btn');
   if (broadcastBtn) {
     broadcastBtn.addEventListener('click', async () => {
-      const wallet = requireWallet(broadcastResult);
-      if (!wallet) return;
+      const signing_key = requireSigningKey(broadcastResult);
+      if (!signing_key) return;
       try {
         const signed = JSON.parse(broadcastInput.value);
         setStatus(broadcastResult, 'Submitting…', 'info');
         const result = await submitSigned({
           signed,
-          wallet,
+          signing_key,
           nodeHost,
         });
         setStatus(
@@ -773,8 +773,8 @@ export function init(
     attBtn.addEventListener('click', async () => {
       if (attProof) attProof.textContent = '';
       if (attCopyBtn) attCopyBtn.hidden = true;
-      const wallet = requireWallet(attResult);
-      if (!wallet) return;
+      const signing_key = requireSigningKey(attResult);
+      if (!signing_key) return;
       try {
         setStatus(attResult, 'Signing attestation…', 'info');
         const proof = await signAttestation({
@@ -782,7 +782,7 @@ export function init(
           kind: attKind ? attKind.value : 'opposition',
           rawSubject: attSubject ? attSubject.value : '',
           amount: attAmount ? Number(attAmount.value) : NaN,
-          wallet,
+          signing_key,
         });
         if (attProof) attProof.textContent = JSON.stringify(proof, null, 2);
         if (attCopyBtn) attCopyBtn.hidden = false;

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from gumptionchain.exceptions import InvalidKeyError
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 SIG_VERSION = '1'  # GC-Sig-Version header value (dispatch key)
 SIG_SCHEME = 'gc-sig-v1'  # scheme id bound into the signed canonical
@@ -49,7 +49,7 @@ def _canonical(
 
 
 def sign_headers(
-    wallet: Wallet,
+    signing_key: SigningKey,
     *,
     method: str,
     path: str,
@@ -66,14 +66,14 @@ def sign_headers(
         body=body,
         node_host=node_host,
         timestamp=ts,
-        address=wallet.address,
+        address=signing_key.address,
     )
     return {
         H_VERSION: SIG_VERSION,
-        H_ADDRESS: wallet.address,
-        H_PUBKEY: wallet.public_key_b64,
+        H_ADDRESS: signing_key.address,
+        H_PUBKEY: signing_key.public_key_b64,
         H_TIMESTAMP: ts,
-        H_SIGNATURE: wallet.sign(canonical),
+        H_SIGNATURE: signing_key.sign(canonical),
     }
 
 
@@ -110,11 +110,11 @@ def verify(
         msg = 'stale or future timestamp'
         raise SignatureError(msg)
     try:
-        wallet = Wallet(b64ks=pubkey)
+        signing_key = SigningKey(b64ks=pubkey)
     except InvalidKeyError as e:
         msg = 'invalid public key'
         raise SignatureError(msg) from e
-    if wallet.address != address:
+    if signing_key.address != address:
         msg = 'public key does not match address'
         raise SignatureError(msg)
     canonical = _canonical(
@@ -126,7 +126,7 @@ def verify(
         timestamp=ts,
         address=address,
     )
-    if not wallet.validate_signature(canonical, sig):
+    if not signing_key.validate_signature(canonical, sig):
         msg = 'signature verification failed'
         raise SignatureError(msg)
     return address

@@ -3,14 +3,14 @@
 These vectors lock the JS `gc-transaction.mjs` reconstruction of a
 transaction's canonical `data_csv`, `txid`, and `signing_data` to the
 Python implementation byte-for-byte. The JS parity test
-(`clients/wallet/gc-transaction.test.mjs`) loads the JSON this writes.
+(`clients/signing-key/gc-transaction.test.mjs`) loads the JSON this writes.
 
 Run: `uv run python tests/fixtures/gen_txn_fixtures.py`
 
 Each transaction is built from FIXED, deterministic inputs (literal
 `Inflow`/`Outflow` objects — NOT via a chain) so the output is stable
-across runs and machines. The signing wallet is the canonical conftest
-test wallet, whose b58 private key is embedded in every vector so the JS
+across runs and machines. The signing signing_key is the canonical conftest
+test signing_key, whose b58 private key is embedded in every vector so the JS
 test can import the same key and sign.
 """
 
@@ -22,16 +22,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Make the conftest test wallet importable when run as a plain script
+# Make the conftest test signing_key importable when run as a plain script
 # (`tests/` is not an installed package). The b58 private key there is the
-# single canonical test wallet the JS parity test also imports.
+# single canonical test signing_key the JS parity test also imports.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from conftest import WALLET_PRIVATE_KEY_B58
+from conftest import SIGNING_KEY_PRIVATE_KEY_B58
 
 from gumptionchain.payload import Inflow, Outflow, encode_subject
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
-from gumptionchain.wallet import Wallet
 
 # Fixed inputs: a stable timestamp and two realistic 64-hex inflow txids.
 TIMESTAMP = '1700000000'
@@ -48,17 +48,17 @@ OUTPUT = Path(__file__).resolve().parent / 'txn_signing_vectors.json'
 def _vec(
     name: str, inflows: list[Inflow], outflows: list[Outflow]
 ) -> dict[str, Any]:
-    w = Wallet(b58ks=WALLET_PRIVATE_KEY_B58)
+    w = SigningKey(b58ks=SIGNING_KEY_PRIVATE_KEY_B58)
     t = Transaction(
         timestamp=TIMESTAMP,
         inflows=inflows,
         outflows=outflows,
     )
-    t.set_wallet(w)
+    t.set_signing_key(w)
     t.seal()
     return {
         'name': name,
-        'wallet_b58': WALLET_PRIVATE_KEY_B58,
+        'signing_key_b58': SIGNING_KEY_PRIVATE_KEY_B58,
         'txn': t.to_dict(),
         'data_csv': t.data_csv,
         'txid': t.txid,

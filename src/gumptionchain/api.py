@@ -54,9 +54,9 @@ from gumptionchain.schema import (
     validate_address_format,
 )
 from gumptionchain.signals import http_post as http_post_signal
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.tasks import post_process
 from gumptionchain.util import ciso_2_dt, host_address, now, now_iso
-from gumptionchain.wallet import Wallet
 
 blueprint = Blueprint('api', __name__)
 
@@ -104,24 +104,24 @@ def queue_post_process(
 ) -> None:
     host, address = host_address(current_app.config['NODE_HOST'])
     if address is None:
-        # NODE_HOST carries no embedded wallet address (e.g. just
-        # http://host:port), so we can't determine which local wallet
+        # NODE_HOST carries no embedded signing_key address (e.g. just
+        # http://host:port), so we can't determine which local signing_key
         # signs outbound peer requests. Async post-processing needs
         # NODE_HOST in http(s)://<address>@host form.
         current_app.logger.warning(
-            'queue_post_process: NODE_HOST %r has no embedded wallet address '
+            'queue_post_process: NODE_HOST %r has no embedded key address '
             '(expected http(s)://<address>@host); cannot sign async '
             'post-processing — skipping',
             current_app.config['NODE_HOST'],
         )
         return
-    wallet: Wallet | None = current_app.wallets.get(address)  # type: ignore[attr-defined]
-    if wallet is None:
-        # No local wallet held for this node's NODE_HOST address means we
+    signing_key: SigningKey | None = current_app.signing_keys.get(address)  # type: ignore[attr-defined]
+    if signing_key is None:
+        # No local signing_key held for this node's NODE_HOST address means we
         # can't sign an outbound peer request. Log and skip rather than
         # fail later.
         current_app.logger.warning(
-            'queue_post_process: no local wallet for node address %s; skipping',
+            'queue_post_process: no local key for node address %s; skipping',
             address,
         )
         return
@@ -521,12 +521,12 @@ class TransferTxnView(MethodView):
             public_key_b64 = args['public_key']
             amount = args['amount']
             dest_address = args['address']
-            wallet = Wallet(b64ks=public_key_b64)
+            signing_key = SigningKey(b64ks=public_key_b64)
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
             return make_json_response(
-                lc.create_transfer(wallet, amount, dest_address).to_json()
+                lc.create_transfer(signing_key, amount, dest_address).to_json()
             )
         except GCError as err:
             return make_error_response(err)
@@ -578,12 +578,12 @@ class OppositionTxnView(MethodView):
             public_key_b64 = args['public_key']
             amount = args['amount']
             subject = encode_subject(args['subject'])
-            wallet = Wallet(b64ks=public_key_b64)
+            signing_key = SigningKey(b64ks=public_key_b64)
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
             return make_json_response(
-                lc.create_opposition(wallet, amount, subject).to_json()
+                lc.create_opposition(signing_key, amount, subject).to_json()
             )
         except GCError as err:
             return make_error_response(err)
@@ -614,12 +614,12 @@ class RescindTxnView(MethodView):
             amount = args['amount']
             subject = encode_subject(args['subject'])
             kind = args['kind']
-            wallet = Wallet(b64ks=public_key_b64)
+            signing_key = SigningKey(b64ks=public_key_b64)
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
             return make_json_response(
-                lc.create_rescind(wallet, amount, subject, kind).to_json()
+                lc.create_rescind(signing_key, amount, subject, kind).to_json()
             )
         except GCError as err:
             return make_error_response(err)
@@ -649,12 +649,12 @@ class SupportTxnView(MethodView):
             public_key_b64 = args['public_key']
             amount = args['amount']
             subject = encode_subject(args['subject'])
-            wallet = Wallet(b64ks=public_key_b64)
+            signing_key = SigningKey(b64ks=public_key_b64)
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
             return make_json_response(
-                lc.create_support(wallet, amount, subject).to_json()
+                lc.create_support(signing_key, amount, subject).to_json()
             )
         except GCError as err:
             return make_error_response(err)
@@ -714,14 +714,14 @@ blueprint.add_url_rule(
 )
 
 
-class WalletBalanceView(MethodView):
+class SigningKeyBalanceView(MethodView):
     def get(self, address: str, **kwargs: Any) -> Response:
         try:
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
             block_hash = lc.block_hash
-            key = f'{block_hash}.{address}.wallet-balance'
+            key = f'{block_hash}.{address}.signing-key-balance'
             if (balance := cache.get(key)) is None:
                 balance = lc.balance(address)
                 cache.set(key, balance)
@@ -735,9 +735,9 @@ class WalletBalanceView(MethodView):
 
 
 blueprint.add_url_rule(
-    '/wallet/<address:address>/balance',
+    '/signing-key/<address:address>/balance',
     view_func=authorize_reader(
-        WalletBalanceView.as_view('wallet_balance_transactor')
+        SigningKeyBalanceView.as_view('signing_key_balance_transactor')
     ),
     methods=['GET'],
 )

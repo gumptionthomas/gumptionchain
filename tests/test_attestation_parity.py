@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from test_browser_wallet_vectors import VECTOR_WALLET_B58
+from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
 
 from gumptionchain.attestation import (
     BadAttestationError,
@@ -16,12 +16,12 @@ from gumptionchain.attestation import (
     verify_binding,
     verify_stake,
 )
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 CLI = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'wallet'
+    / 'signing-key'
     / 'attestation-cli.mjs'
 )
 TS = '1700002000'
@@ -55,13 +55,13 @@ def test_js_signed_attestation_verifies_in_python() -> None:
         _node(
             'sign',
             {
-                'private_key_b58': VECTOR_WALLET_B58,
+                'private_key_b58': VECTOR_SIGNING_KEY_B58,
                 'claim': CLAIM,
                 'timestamp': TS,
             },
         )
     )
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     prov = {
         'txid': '1' * 64,
         'address': w.address,
@@ -76,7 +76,7 @@ def test_js_signed_attestation_verifies_in_python() -> None:
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_python_signed_attestation_verifies_in_js() -> None:
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     proof = sign_stake_attestation(w, CLAIM, timestamp=int(TS))
     prov = {
         'txid': '1' * 64,
@@ -119,7 +119,7 @@ def test_js_signed_binding_verifies_in_python() -> None:
         _node(
             'sign-binding',
             {
-                'private_key_b58': VECTOR_WALLET_B58,
+                'private_key_b58': VECTOR_SIGNING_KEY_B58,
                 'claim': _BINDING_CLAIM_WITH_URL,
                 'timestamp': _BINDING_TS,
             },
@@ -132,7 +132,7 @@ def test_js_signed_binding_verifies_in_python() -> None:
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_python_signed_binding_verifies_in_js() -> None:
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     proof = sign_social_binding(
         w, _BINDING_CLAIM_WITH_URL, timestamp=int(_BINDING_TS)
     )
@@ -143,7 +143,7 @@ def test_python_signed_binding_verifies_in_js() -> None:
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_binding_reject_parity() -> None:
     # Build a non-canonical proof: reordered keys (handle before platform).
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     good_proof = sign_social_binding(
         w, _BINDING_CLAIM_MINIMAL, timestamp=int(_BINDING_TS)
     )

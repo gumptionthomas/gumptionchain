@@ -43,7 +43,7 @@ def _explain_plans(fn):
 
 
 def test_inflows_in_chain_count_uses_index(
-    app, add_chain_block, time_stepper, wallet
+    app, add_chain_block, time_stepper, signing_key
 ):
     """The per-inflow double-spend check must seek via
     ix_inflow_outflow_txid_idx, not SCAN block_transaction / build an
@@ -51,7 +51,7 @@ def test_inflows_in_chain_count_uses_index(
     """
     with app.app_context():
         _chain, block1, block2, _spend = _build_canonical_chain_with_spend(
-            add_chain_block, time_stepper, wallet
+            add_chain_block, time_stepper, signing_key
         )
         tip = BlockDAO.get(block2.block_hash)
         assert tip is not None
@@ -67,21 +67,21 @@ def test_inflows_in_chain_count_uses_index(
 
 
 def test_balance_read_builds_no_automatic_index(
-    app, add_chain_block, time_stepper, wallet
+    app, add_chain_block, time_stepper, signing_key
 ):
-    """unspent_outflows (basis of wallet/stake balances) must not fall back
+    """unspent_outflows (basis of signing_key/stake balances) must not fall back
     to an AUTOMATIC index, and must use an outflow/inflow index.
     """
     with app.app_context():
         _chain, _block1, block2, _spend = _build_canonical_chain_with_spend(
-            add_chain_block, time_stepper, wallet
+            add_chain_block, time_stepper, signing_key
         )
         chain_dao = ChainDAO.get(block2.block_hash)
         assert chain_dao is not None
 
         plans = _explain_plans(
             lambda: db.session.execute(
-                chain_dao.unspent_outflows(wallet.address)
+                chain_dao.unspent_outflows(signing_key.address)
             ).all()
         )
         joined = '\n'.join(p for _s, p in plans)
@@ -109,7 +109,7 @@ def test_balance_read_builds_no_automatic_index(
 
 
 def test_pending_q_exclude_confirmed_uses_index(
-    app, add_chain_block, time_stepper, wallet
+    app, add_chain_block, time_stepper, signing_key
 ):
     """pending_q(exclude_confirmed=True) correlated NOT EXISTS must seek via
     ix_transaction_txid, not SCAN the transaction table or build an AUTOMATIC
@@ -118,7 +118,7 @@ def test_pending_q_exclude_confirmed_uses_index(
     with app.app_context():
         _chain, _block1, _block2, spend_txid = (
             _build_canonical_chain_with_spend(
-                add_chain_block, time_stepper, wallet
+                add_chain_block, time_stepper, signing_key
             )
         )
         # Insert a pending row for the canonical txn so the filter is exercised.

@@ -35,14 +35,14 @@ def _oracle_block_ids(select_stmt):
     return sorted(b.id for b in db.session.execute(select_stmt).scalars().all())
 
 
-def test_unspent_outflows(app, subject, time_stepper, wallet):
+def test_unspent_outflows(app, subject, time_stepper, signing_key):
     with app.app_context():
         time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
         _ = next(time_step)
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         cb_1 = block_1.coinbase
@@ -53,15 +53,15 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         assert _count(BlockDAO) == 1
         assert _count(LongestChainBlockDAO) == 1
         assert dao_a is not None
-        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 1
+        assert _count_select(dao_a.unspent_outflows(signing_key.address)) == 1
         balance = chain_a.block_reward()
-        assert dao_a.wallet_balance(wallet.address) == balance
+        assert dao_a.signing_key_balance(signing_key.address) == balance
 
         _ = next(time_step)
         t_2a = Transaction()
         t_2a.add_inflow(Inflow(outflow_txid=cb_1.txid, outflow_idx=0))
         t_2a.add_outflow(Outflow(amount=cb_1_amount, opposition=subject))
-        t_2a.set_wallet(wallet)
+        t_2a.set_signing_key(signing_key)
         t_2a.seal()
         t_2a.sign()
 
@@ -76,13 +76,13 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
             ),
             CoinbaseMetrics(),
         )
-        chain_a.seal_block(block_2a, wallet, metrics_2a)
+        chain_a.seal_block(block_2a, signing_key, metrics_2a)
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -91,9 +91,9 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
 
         assert _count(BlockDAO) == 2
         assert _count(LongestChainBlockDAO) == 2
-        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 2
+        assert _count_select(dao_a.unspent_outflows(signing_key.address)) == 2
         balance = int(1.5 * chain_a.block_reward())
-        assert dao_a.wallet_balance(wallet.address) == balance
+        assert dao_a.signing_key_balance(signing_key.address) == balance
         assert dao_a.opposition_balance(subject) == cb_1_amount
 
         _ = next(time_step)
@@ -110,24 +110,24 @@ def test_unspent_outflows(app, subject, time_stepper, wallet):
         # materialization holds chain_a's 2 blocks (not the 3 distinct
         # BlockDAOs in the database).
         assert _count(LongestChainBlockDAO) == 2
-        assert _count_select(dao_b.unspent_outflows(wallet.address)) == 2
+        assert _count_select(dao_b.unspent_outflows(signing_key.address)) == 2
         balance = 2 * chain_b.block_reward()
-        assert dao_b.wallet_balance(wallet.address) == balance
+        assert dao_b.signing_key_balance(signing_key.address) == balance
         assert dao_b.opposition_balance(subject) == 0
 
-        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 2
+        assert _count_select(dao_a.unspent_outflows(signing_key.address)) == 2
         balance = int(1.5 * chain_a.block_reward())
-        assert dao_a.wallet_balance(wallet.address) == balance
+        assert dao_a.signing_key_balance(signing_key.address) == balance
         assert dao_a.opposition_balance(subject) == cb_1_amount
 
 
-def test_longest_chain_block_bootstrap(app, mill_block, wallet):
+def test_longest_chain_block_bootstrap(app, mill_block, signing_key):
     """Building the first chain populates the materialization table
     with one row per block, ordered position 0 (genesis) → N-1 (tip).
     """
     with app.app_context():
-        _m, _b1 = mill_block(wallet)
-        _m, b2 = mill_block(wallet)
+        _m, _b1 = mill_block(signing_key)
+        _m, b2 = mill_block(signing_key)
         rows = (
             db.session.execute(
                 db.select(LongestChainBlockDAO).order_by(
@@ -144,12 +144,12 @@ def test_longest_chain_block_bootstrap(app, mill_block, wallet):
         assert rows[1].block_id == BlockDAO.get(b2.block_hash).id
 
 
-def test_longest_chain_block_single_extend(app, mill_block, wallet):
+def test_longest_chain_block_single_extend(app, mill_block, signing_key):
     """Each subsequent block inserts exactly one new row at the next
     position; prior rows are untouched.
     """
     with app.app_context():
-        _m, _b1 = mill_block(wallet)
+        _m, _b1 = mill_block(signing_key)
         rows_before = (
             db.session.execute(
                 db.select(LongestChainBlockDAO).order_by(
@@ -162,7 +162,7 @@ def test_longest_chain_block_single_extend(app, mill_block, wallet):
         before_count = len(rows_before)
         before_ids = [r.block_id for r in rows_before]
 
-        _m, b2 = mill_block(wallet)
+        _m, b2 = mill_block(signing_key)
 
         rows_after = (
             db.session.execute(
@@ -181,7 +181,9 @@ def test_longest_chain_block_single_extend(app, mill_block, wallet):
         assert rows_after[-1].block_id == BlockDAO.get(b2.block_hash).id
 
 
-def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
+def test_longest_chain_block_non_longest_extend_noop(
+    app, time_stepper, signing_key
+):
     """Calling sync on a non-longest chain leaves the materialization
     aligned with whichever chain IS longest.
 
@@ -195,7 +197,7 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -203,13 +205,13 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -260,7 +262,7 @@ def test_longest_chain_block_non_longest_extend_noop(app, time_stepper, wallet):
         ]
 
 
-def test_prune_stale_forks_on_canonical_add(app, time_stepper, wallet):
+def test_prune_stale_forks_on_canonical_add(app, time_stepper, signing_key):
     """Advancing the canonical chain past FORK_PRUNE_DEPTH prunes the
     stale fork's ChainDAO row — chain rows only, no cascade to blocks.
 
@@ -279,7 +281,7 @@ def test_prune_stale_forks_on_canonical_add(app, time_stepper, wallet):
             _ = next(time_step)
             block = Block()
             chain.link_block(block)
-            chain.seal_block(block, wallet, CoinbaseMetrics())
+            chain.seal_block(block, signing_key, CoinbaseMetrics())
             block.mill()
             chain.add_block(block)
             chain.to_db()
@@ -290,7 +292,7 @@ def test_prune_stale_forks_on_canonical_add(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -299,13 +301,13 @@ def test_prune_stale_forks_on_canonical_add(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -332,13 +334,13 @@ def test_prune_stale_forks_on_canonical_add(app, time_stepper, wallet):
         _ = next(time_step)
         block_5b = Block()
         chain_a.link_block(block_5b)
-        chain_a.seal_block(block_5b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_5b, signing_key, CoinbaseMetrics())
         block_5b.mill()
         # block_5a (idx 4) is the canonical winner at this height.
         _ = next(time_step)
         block_5a = Block()
         chain_a.link_block(block_5a)
-        chain_a.seal_block(block_5a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_5a, signing_key, CoinbaseMetrics())
         block_5a.mill()
 
         _ = next(time_step)
@@ -378,7 +380,7 @@ def test_prune_stale_forks_on_canonical_add(app, time_stepper, wallet):
 
 
 def test_longest_chain_block_property_matches_prev_walk(
-    app, mill_block, wallet
+    app, mill_block, signing_key
 ):
     """After any chain build, the materialization table contents
     (ordered position DESC, i.e. tip→genesis) must match the pure-Python
@@ -386,7 +388,7 @@ def test_longest_chain_block_property_matches_prev_walk(
     """
     with app.app_context():
         for _ in range(5):
-            mill_block(wallet)
+            mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
         oracle_ids = _pythonic_ancestry_ids(longest.block)
@@ -403,14 +405,16 @@ def test_longest_chain_block_property_matches_prev_walk(
         assert oracle_ids == mat_ids
 
 
-def test_longest_chain_blocks_q_fast_path_skips_cte(app, mill_block, wallet):
+def test_longest_chain_blocks_q_fast_path_skips_cte(
+    app, mill_block, signing_key
+):
     """ChainDAO.longest().blocks uses the materialization JOIN, not
     the recursive CTE. Verified by emitted SQL: the fast-path query
     should NOT contain a 'WITH RECURSIVE' clause.
     """
     with app.app_context():
-        _m, _b1 = mill_block(wallet)
-        _m, _b2 = mill_block(wallet)
+        _m, _b1 = mill_block(signing_key)
+        _m, _b2 = mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
         compiled_sql = str(
@@ -422,7 +426,7 @@ def test_longest_chain_blocks_q_fast_path_skips_cte(app, mill_block, wallet):
         assert 'longest_chain_block' in compiled_sql.lower()
 
 
-def test_non_longest_chain_blocks_is_cte_free(app, time_stepper, wallet):
+def test_non_longest_chain_blocks_is_cte_free(app, time_stepper, signing_key):
     """A non-longest ChainDAO's .blocks must NOT emit a recursive CTE after
     #158 — it resolves ancestry via the divergent-suffix + materialization
     predicate. Verified by emitted SQL.
@@ -436,7 +440,7 @@ def test_non_longest_chain_blocks_is_cte_free(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -444,13 +448,13 @@ def test_non_longest_chain_blocks_is_cte_free(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -486,15 +490,15 @@ def test_non_longest_chain_blocks_is_cte_free(app, time_stepper, wallet):
         assert 'longest_chain_block' in compiled_sql.lower()
 
 
-def test_longest_chain_block_rebuild_on_reorg(app, mill_block, wallet):
+def test_longest_chain_block_rebuild_on_reorg(app, mill_block, signing_key):
     """Forcing a rebuild (via _rebuild_longest_chain_blocks) wipes
     the table and repopulates it from the longest chain's prev-walk
     so the contents match exactly.
     """
     with app.app_context():
-        _m, b1 = mill_block(wallet)
-        _m, _b2 = mill_block(wallet)
-        _m, _b3 = mill_block(wallet)
+        _m, b1 = mill_block(signing_key)
+        _m, _b2 = mill_block(signing_key)
+        _m, _b3 = mill_block(signing_key)
         # Sanity: table has 3 rows.
         assert _count(LongestChainBlockDAO) == 3
 
@@ -531,13 +535,13 @@ def test_longest_chain_block_rebuild_on_reorg(app, mill_block, wallet):
         assert len(mat_ids) == 3
 
 
-def test_iterative_walk_matches_prev_walk(app, mill_block, wallet):
+def test_iterative_walk_matches_prev_walk(app, mill_block, signing_key):
     """_rebuild_longest_chain_blocks via current.prev produces the
     same block ordering as the pure-Python prev-walk oracle.
     """
     with app.app_context():
         for _ in range(10):
-            mill_block(wallet)
+            mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
 
@@ -563,14 +567,14 @@ def test_iterative_walk_matches_prev_walk(app, mill_block, wallet):
         assert len(mat_ids) == 10
 
 
-def test_iterative_walk_long_chain(app, mill_block, wallet):
+def test_iterative_walk_long_chain(app, mill_block, signing_key):
     """Iterative walk handles a longer chain (50 blocks) and produces
     the right count with no exceptions. Primarily a smoke test that
     the walk terminates and the materialization stays consistent.
     """
     with app.app_context():
         for _ in range(50):
-            mill_block(wallet)
+            mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
         longest._rebuild_longest_chain_blocks()
@@ -579,12 +583,12 @@ def test_iterative_walk_long_chain(app, mill_block, wallet):
         assert count == 50
 
 
-def test_is_longest_cache_hit_avoids_query(app, mill_block, wallet):
+def test_is_longest_cache_hit_avoids_query(app, mill_block, signing_key):
     """Calling _is_longest twice on the same instance hits the cache
     on the second call and does NOT re-issue ChainDAO.longest().
     """
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
         # Reset cache state and bump generation so the next call is a miss.
@@ -599,12 +603,12 @@ def test_is_longest_cache_hit_avoids_query(app, mill_block, wallet):
             )
 
 
-def test_is_longest_cache_invalidated_by_bump(app, mill_block, wallet):
+def test_is_longest_cache_invalidated_by_bump(app, mill_block, signing_key):
     """Calling ChainDAO._bump_generation() after a cached _is_longest
     call forces a recomputation on the next access.
     """
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
         if hasattr(longest, '_is_longest_cache'):
@@ -619,35 +623,37 @@ def test_is_longest_cache_invalidated_by_bump(app, mill_block, wallet):
             )
 
 
-def test_is_longest_cache_survives_across_method_calls(app, mill_block, wallet):
-    """One ChainDAO.longest() call total across a wallet_balance read
+def test_is_longest_cache_survives_across_method_calls(
+    app, mill_block, signing_key
+):
+    """One ChainDAO.longest() call total across a signing_key_balance read
     that internally accesses self.outflows AND self.inflows. Without
     caching this would be 2+ calls.
     """
     with app.app_context():
-        _m, _b = mill_block(wallet)
+        _m, _b = mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
         if hasattr(longest, '_is_longest_cache'):
             delattr(longest, '_is_longest_cache')
         with patch.object(ChainDAO, 'longest', wraps=ChainDAO.longest) as spy:
-            # wallet_balance reads self.outflows and self.inflows;
+            # signing_key_balance reads self.outflows and self.inflows;
             # each property accessor calls _is_longest.
-            longest.wallet_balance(wallet.address)
+            longest.signing_key_balance(signing_key.address)
             assert spy.call_count == 1, (
                 f'expected one ChainDAO.longest() call across the '
-                f'wallet_balance method (cached after the first '
+                f'signing_key_balance method (cached after the first '
                 f'property access), got {spy.call_count}'
             )
 
 
-def test_smart_reorg_shallow(app, mill_block, wallet):
+def test_smart_reorg_shallow(app, mill_block, signing_key):
     """A steady-state +1 block via smart-reorg preserves earlier
     positions (common ancestor at position max-1, only the new tip
     is inserted)."""
     with app.app_context():
-        _m, _a1 = mill_block(wallet)
-        _m, _a2 = mill_block(wallet)
+        _m, _a1 = mill_block(signing_key)
+        _m, _a2 = mill_block(signing_key)
 
         before = (
             db.session.execute(
@@ -665,7 +671,7 @@ def test_smart_reorg_shallow(app, mill_block, wallet):
         # one step to find common ancestor at position 1, insert one
         # row at position 2" path — equivalent to the old extend path
         # in observable behavior.
-        _m, _a3 = mill_block(wallet)
+        _m, _a3 = mill_block(signing_key)
 
         after = (
             db.session.execute(
@@ -683,7 +689,9 @@ def test_smart_reorg_shallow(app, mill_block, wallet):
         assert len(after) == 3
 
 
-def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
+def test_smart_reorg_walks_only_to_common_ancestor(
+    app, mill_block, signing_key
+):
     """The walk stops at the first block found in the materialization
     instead of falling through to the rebuild path. Verified by
     patching ChainDAO._rebuild_longest_chain_blocks and asserting it
@@ -692,7 +700,7 @@ def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
     """
     with app.app_context():
         for _ in range(5):
-            mill_block(wallet)
+            mill_block(signing_key)
 
         rows_before = (
             db.session.execute(
@@ -710,7 +718,7 @@ def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
             '_rebuild_longest_chain_blocks',
             autospec=True,
         ) as rebuild_spy:
-            _m, _new_tip = mill_block(wallet)
+            _m, _new_tip = mill_block(signing_key)
 
         # The smart-reorg path must NOT have invoked the rebuild
         # method for a steady-state extend. If the implementation
@@ -734,14 +742,16 @@ def test_smart_reorg_walks_only_to_common_ancestor(app, mill_block, wallet):
         assert rows_after[-1].position == 5
 
 
-def test_smart_reorg_already_in_sync_short_circuits(app, mill_block, wallet):
+def test_smart_reorg_already_in_sync_short_circuits(
+    app, mill_block, signing_key
+):
     """Calling sync_longest_chain_blocks twice on the same chain
     instance: the second call finds the tip already in the table on
     its first walk iteration and returns without mutation or
     generation bump.
     """
     with app.app_context():
-        mill_block(wallet)
+        mill_block(signing_key)
         longest = ChainDAO.longest()
         assert longest is not None
 
@@ -779,7 +789,7 @@ def test_smart_reorg_already_in_sync_short_circuits(app, mill_block, wallet):
 
 
 def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
-    app, mill_block, time_stepper, wallet
+    app, mill_block, time_stepper, signing_key
 ):
     """If the materialization holds block_ids that aren't reachable
     from the current chain's tip via prev pointers, the walk reaches
@@ -799,7 +809,7 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
 
         # Build chain_a of length 3 (the canonical chain).
         for _ in range(3):
-            mill_block(wallet)
+            mill_block(signing_key)
             _ = next(time_step)
         chain_a_longest = ChainDAO.longest()
         assert chain_a_longest is not None
@@ -826,14 +836,14 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
         chain_b = Chain()
         block_b1 = Block()
         chain_b.link_block(block_b1)
-        chain_b.seal_block(block_b1, wallet, CoinbaseMetrics())
+        chain_b.seal_block(block_b1, signing_key, CoinbaseMetrics())
         block_b1.mill()
         block_b1.to_db()
         chain_b.block_hash = block_b1.block_hash
         _ = next(time_step)
         block_b2 = Block()
         chain_b.link_block(block_b2)
-        chain_b.seal_block(block_b2, wallet, CoinbaseMetrics())
+        chain_b.seal_block(block_b2, signing_key, CoinbaseMetrics())
         block_b2.mill()
         block_b2.to_db()
         chain_b.block_hash = block_b2.block_hash
@@ -891,21 +901,23 @@ def test_smart_reorg_deep_reorg_with_no_common_ancestor_falls_back(
         assert [r.position for r in rows] == [0, 1, 2]
 
 
-def _build_canonical_chain_with_spend(add_chain_block, time_stepper, wallet):
+def _build_canonical_chain_with_spend(
+    add_chain_block, time_stepper, signing_key
+):
     """Build a 2-block canonical chain where block 2 contains a txn that
     spends block 1's coinbase. Returns (chain, block1, block2, spend_txid)."""
     time_step = time_stepper(
         start=datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
     )
     _ = next(time_step)
-    chain, block1 = add_chain_block(milling_wallet=wallet)
+    chain, block1 = add_chain_block(milling_signing_key=signing_key)
     cb = block1.coinbase
     cb_amount = next(iter(cb.outflows)).amount
     _ = next(time_step)
     t = Transaction()
     t.add_inflow(Inflow(outflow_txid=cb.txid, outflow_idx=0))
-    t.add_outflow(Outflow(amount=cb_amount, address=wallet.address))
-    t.set_wallet(wallet)
+    t.add_outflow(Outflow(amount=cb_amount, address=signing_key.address))
+    t.set_signing_key(signing_key)
     t.seal()
     t.sign()
     t.to_db()
@@ -913,7 +925,7 @@ def _build_canonical_chain_with_spend(add_chain_block, time_stepper, wallet):
     block2 = Block()
     block2.add_txn(t)
     _, block2 = add_chain_block(
-        chain=chain, block=block2, milling_wallet=wallet
+        chain=chain, block=block2, milling_signing_key=signing_key
     )
     chain.to_db()
     return chain, block1, block2, t.txid
@@ -957,7 +969,7 @@ def _oracle_inflow_exists(block_dao, outflow_txid, outflow_idx):
     return 1 if hit is not None else 0
 
 
-def _build_fork(time_stepper, wallet, subject):
+def _build_fork(time_stepper, signing_key, subject):
     """Build a real fork: chain_a (canonical, longest) and chain_b (fork)
     both share block_1. chain_b's tip block_2b spends block_1's coinbase, so
     the divergent suffix carries a genuine inflow. Returns a dict with the
@@ -968,7 +980,7 @@ def _build_fork(time_stepper, wallet, subject):
     chain_a = Chain()
     block_1 = Block()
     chain_a.link_block(block_1)
-    chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+    chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
     block_1.mill()
     chain_a.add_block(block_1)
     chain_a.to_db()
@@ -978,7 +990,7 @@ def _build_fork(time_stepper, wallet, subject):
     _ = next(time_step)
     block_2a = Block()
     chain_a.link_block(block_2a)
-    chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+    chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
     block_2a.mill()
 
     # Fork tip spends block_1's coinbase, so the divergent suffix has a
@@ -987,7 +999,7 @@ def _build_fork(time_stepper, wallet, subject):
     spend = Transaction()
     spend.add_inflow(Inflow(outflow_txid=cb_1.txid, outflow_idx=0))
     spend.add_outflow(Outflow(amount=cb_1_amount, opposition=subject))
-    spend.set_wallet(wallet)
+    spend.set_signing_key(signing_key)
     spend.seal()
     spend.sign()
 
@@ -1001,7 +1013,7 @@ def _build_fork(time_stepper, wallet, subject):
         (chain_a.validate_block_txn(block_2b, txn) for txn in block_2b.txns),
         CoinbaseMetrics(),
     )
-    chain_a.seal_block(block_2b, wallet, metrics_2b)
+    chain_a.seal_block(block_2b, signing_key, metrics_2b)
     block_2b.mill()
 
     # block_2a has the earlier seal timestamp, so chain_a wins the
@@ -1030,11 +1042,11 @@ def _build_fork(time_stepper, wallet, subject):
 
 
 def test_hot_path_methods_match_oracle_canonical(
-    app, add_chain_block, time_stepper, wallet
+    app, add_chain_block, time_stepper, signing_key
 ):
     with app.app_context():
         _chain, block1, block2, spend_txid = _build_canonical_chain_with_spend(
-            add_chain_block, time_stepper, wallet
+            add_chain_block, time_stepper, signing_key
         )
         cb1_txid = block1.coinbase.txid
         tip = BlockDAO.get(block2.block_hash)
@@ -1066,12 +1078,14 @@ def test_hot_path_methods_match_oracle_canonical(
             ), f'block mismatch for {kwargs!r}'
 
 
-def test_hot_path_methods_match_oracle_fork(app, time_stepper, wallet, subject):
+def test_hot_path_methods_match_oracle_fork(
+    app, time_stepper, signing_key, subject
+):
     """A fork (non-longest) block resolves its divergent-suffix ancestry the
     same as the prev-walk oracle.
     """
     with app.app_context():
-        f = _build_fork(time_stepper, wallet, subject)
+        f = _build_fork(time_stepper, signing_key, subject)
         fork = f['fork']
         assert fork is not None
         assert fork._ancestry()[0]  # non-empty divergent suffix
@@ -1111,14 +1125,14 @@ def test_hot_path_methods_match_oracle_fork(app, time_stepper, wallet, subject):
 
 
 def test_hot_path_methods_match_oracle_empty_materialization(
-    app, add_chain_block, time_stepper, wallet
+    app, add_chain_block, time_stepper, signing_key
 ):
     """With an empty LongestChainBlockDAO (bootstrap), _ancestry walks the
     whole chain into divergent_ids and the methods still match the oracle.
     """
     with app.app_context():
         _chain, block1, block2, spend_txid = _build_canonical_chain_with_spend(
-            add_chain_block, time_stepper, wallet
+            add_chain_block, time_stepper, signing_key
         )
         db.session.execute(db.delete(LongestChainBlockDAO))
         db.session.commit()
@@ -1160,14 +1174,14 @@ def test_recursive_cte_is_deleted():
 
 
 def test_ancestry_read_paths_match_oracle_canonical(
-    app, add_chain_block, time_stepper, wallet
+    app, add_chain_block, time_stepper, signing_key
 ):
     """ChainDAO read accessors + address_transactions on a canonical tip
     return exactly the ancestry computed by the Python prev-walk oracle.
     """
     with app.app_context():
         _chain, _block1, block2, _spend = _build_canonical_chain_with_spend(
-            add_chain_block, time_stepper, wallet
+            add_chain_block, time_stepper, signing_key
         )
         tip = BlockDAO.get(block2.block_hash)
         assert tip is not None
@@ -1187,24 +1201,24 @@ def test_ancestry_read_paths_match_oracle_canonical(
 
         addr_txns = list(
             db.session.execute(
-                tip.address_transactions(wallet.address)
+                tip.address_transactions(signing_key.address)
             ).scalars()
         )
         assert addr_txns
-        assert all(t.address == wallet.address for t in addr_txns)
+        assert all(t.address == signing_key.address for t in addr_txns)
         for t in addr_txns:
             assert {b.id for b in t.blocks} & set(oracle_ids)
 
 
 def test_ancestry_read_paths_match_oracle_fork(
-    app, time_stepper, wallet, subject
+    app, time_stepper, signing_key, subject
 ):
     """The non-longest (fork) read accessors resolve the fork tip's ancestry
     (divergent suffix + shared prefix) identically to the Python oracle, and
     fork balances/outflows are correct.
     """
     with app.app_context():
-        f = _build_fork(time_stepper, wallet, subject)
+        f = _build_fork(time_stepper, signing_key, subject)
         fork = f['fork']
         assert fork is not None
         assert fork._ancestry()[0]  # genuine non-empty divergent suffix
@@ -1220,7 +1234,7 @@ def test_ancestry_read_paths_match_oracle_fork(
 
         unspent = list(
             db.session.execute(
-                chain_dao.unspent_outflows(wallet.address)
+                chain_dao.unspent_outflows(signing_key.address)
             ).scalars()
         )
         assert unspent
@@ -1229,14 +1243,14 @@ def test_ancestry_read_paths_match_oracle_fork(
 
 
 def test_ancestry_read_paths_match_oracle_bootstrap(
-    app, add_chain_block, time_stepper, wallet
+    app, add_chain_block, time_stepper, signing_key
 ):
     """With an empty materialization, ancestry_*_q resolve via the
     all-divergent predicate and still match the oracle.
     """
     with app.app_context():
         _chain, _block1, block2, _spend = _build_canonical_chain_with_spend(
-            add_chain_block, time_stepper, wallet
+            add_chain_block, time_stepper, signing_key
         )
         db.session.execute(db.delete(LongestChainBlockDAO))
         db.session.commit()
@@ -1248,13 +1262,13 @@ def test_ancestry_read_paths_match_oracle_bootstrap(
         assert _oracle_block_ids(tip.ancestry_blocks_q()) == oracle_ids
 
 
-def test_longest_chain_blocks_range_ascending(app, mill_block, wallet):
+def test_longest_chain_blocks_range_ascending(app, mill_block, signing_key):
     """longest_chain_blocks_range returns the canonical blocks at the
     requested positions, ascending (genesis→tip)."""
     with app.app_context():
-        _m, b0 = mill_block(wallet)  # idx 0 (genesis)
-        _m, b1 = mill_block(wallet)  # idx 1
-        _m, b2 = mill_block(wallet)  # idx 2
+        _m, b0 = mill_block(signing_key)  # idx 0 (genesis)
+        _m, b1 = mill_block(signing_key)  # idx 1
+        _m, b2 = mill_block(signing_key)  # idx 2
 
         rows = db.session.scalars(
             BlockDAO.longest_chain_blocks_range(1, 2)
@@ -1266,18 +1280,22 @@ def test_longest_chain_blocks_range_ascending(app, mill_block, wallet):
         assert b0.idx == 0
 
 
-def test_longest_chain_blocks_range_past_tip_empty(app, mill_block, wallet):
+def test_longest_chain_blocks_range_past_tip_empty(
+    app, mill_block, signing_key
+):
     """A range entirely past the tip returns no rows."""
     with app.app_context():
-        mill_block(wallet)  # idx 0
-        mill_block(wallet)  # idx 1
+        mill_block(signing_key)  # idx 0
+        mill_block(signing_key)  # idx 1
         rows = db.session.scalars(
             BlockDAO.longest_chain_blocks_range(5, 3)
         ).all()
         assert list(rows) == []
 
 
-def test_longest_chain_blocks_range_excludes_fork(app, time_stepper, wallet):
+def test_longest_chain_blocks_range_excludes_fork(
+    app, time_stepper, signing_key
+):
     """A fork block at a shared height is not returned — only the
     longest-chain (materialized) block per position."""
     with app.app_context():
@@ -1286,7 +1304,7 @@ def test_longest_chain_blocks_range_excludes_fork(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -1294,13 +1312,13 @@ def test_longest_chain_blocks_range_excludes_fork(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -1343,7 +1361,7 @@ def test_longest_returns_none_on_empty_db(app):
         assert ChainDAO.longest() is None
 
 
-def test_longest_picks_highest_tip_idx(app, time_stepper, wallet):
+def test_longest_picks_highest_tip_idx(app, time_stepper, signing_key):
     """With forks at different tip heights, longest() returns the chain
     whose tip has the highest idx — independent of insertion order."""
     with app.app_context():
@@ -1352,7 +1370,7 @@ def test_longest_picks_highest_tip_idx(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -1362,13 +1380,13 @@ def test_longest_picks_highest_tip_idx(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         # Persist the short fork tip (block_2a) first as its own chain row.
@@ -1386,7 +1404,7 @@ def test_longest_picks_highest_tip_idx(app, time_stepper, wallet):
         _ = next(time_step)
         block_3 = Block()
         chain_a.link_block(block_3)
-        chain_a.seal_block(block_3, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_3, signing_key, CoinbaseMetrics())
         block_3.mill()
         chain_a.add_block(block_3)
         chain_a.to_db()
@@ -1399,7 +1417,9 @@ def test_longest_picks_highest_tip_idx(app, time_stepper, wallet):
         assert ChainDAO.get(block_hash=block_2a.block_hash) is not None
 
 
-def test_longest_tiebreak_matches_old_chains_first(app, time_stepper, wallet):
+def test_longest_tiebreak_matches_old_chains_first(
+    app, time_stepper, signing_key
+):
     """On a SAME-tip-idx tie, longest() returns the same row the old
     chains().first() would: (earliest timestamp, then lowest block_hash).
 
@@ -1413,7 +1433,7 @@ def test_longest_tiebreak_matches_old_chains_first(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -1421,13 +1441,13 @@ def test_longest_tiebreak_matches_old_chains_first(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         _ = next(time_step)
@@ -1461,7 +1481,7 @@ def test_longest_tiebreak_matches_old_chains_first(app, time_stepper, wallet):
         assert longest.id == old_first.id
 
 
-def test_tip_idx_maintained_on_extend_and_fork(app, time_stepper, wallet):
+def test_tip_idx_maintained_on_extend_and_fork(app, time_stepper, signing_key):
     """Extending the canonical chain advances the in-place row's tip_idx;
     a fork creates a NEW row whose tip_idx is the fork tip's height."""
     with app.app_context():
@@ -1470,7 +1490,7 @@ def test_tip_idx_maintained_on_extend_and_fork(app, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -1485,13 +1505,13 @@ def test_tip_idx_maintained_on_extend_and_fork(app, time_stepper, wallet):
         _ = next(time_step)
         block_2a = Block()
         chain_a.link_block(block_2a)
-        chain_a.seal_block(block_2a, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2a, signing_key, CoinbaseMetrics())
         block_2a.mill()
 
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         # Extend the canonical chain in place along block_2a.
@@ -1519,7 +1539,9 @@ def test_tip_idx_maintained_on_extend_and_fork(app, time_stepper, wallet):
         assert fork_row.tip_idx == 1
 
 
-def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
+def test_antijoin_equivalence_all_methods(
+    app, subject, time_stepper, signing_key
+):
     """Pin exact results for every unspent/balance method over a real fork
     so both the longest-chain and ancestry routings of self.inflows run.
 
@@ -1528,7 +1550,7 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
     not change when the anti-join SQL is restructured.
 
     Fixture shape (matches the sibling-fork pattern in test_unspent_outflows /
-    test_longest_chain_block_non_longest_extend_noop): block_1 funds wallet
+    test_longest_chain_block_non_longest_extend_noop): block_1 funds signing_key
     with coinbase cb_1; block_2a and block_2b are real SIBLINGS off block_1
     (both linked while block_1 is still the tip, before either is committed).
     block_2a spends cb_1 entirely into an opposition stake on `subject`;
@@ -1537,19 +1559,19 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
     block_2b) routes through ancestry_inflows_q.
 
     Coinbase note: sealing block_2a over the opposition stake mints a second
-    coinbase outflow to the wallet (half the net new stake on the subject),
-    so on chain_a the wallet holds TWO unspent outflows — cb_2a's base reward
+    coinbase outflow to the signing_key (half the net new stake on the subject),
+    so on chain_a the key holds TWO unspent outflows — cb_2a's base reward
     plus that mint — not one. The pinned values below reflect that.
     """
     with app.app_context():
         time_step = time_stepper(start=datetime.datetime.now(datetime.UTC))
         _ = next(time_step)
 
-        # block_1: coinbase cb_1 to wallet.
+        # block_1: coinbase cb_1 to signing_key.
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         cb_1 = block_1.coinbase
@@ -1566,7 +1588,7 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
         t_2a = Transaction()
         t_2a.add_inflow(Inflow(outflow_txid=cb_1.txid, outflow_idx=0))
         t_2a.add_outflow(Outflow(amount=cb_1_amount, opposition=subject))
-        t_2a.set_wallet(wallet)
+        t_2a.set_signing_key(signing_key)
         t_2a.seal()
         t_2a.sign()
         _ = next(time_step)
@@ -1580,7 +1602,7 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
             ),
             CoinbaseMetrics(),
         )
-        chain_a.seal_block(block_2a, wallet, metrics_2a)
+        chain_a.seal_block(block_2a, signing_key, metrics_2a)
         block_2a.mill()
 
         # block_2b: a REAL sibling of block_2a — linked while block_1 is still
@@ -1589,7 +1611,7 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
         _ = next(time_step)
         block_2b = Block()
         chain_a.link_block(block_2b)
-        chain_a.seal_block(block_2b, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_2b, signing_key, CoinbaseMetrics())
         block_2b.mill()
 
         # Commit block_2a as chain_a's tip (chain_a is the longest chain).
@@ -1610,10 +1632,10 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
         assert not dao_b._is_longest()  # ancestry routing
 
         # On chain_a: cb_1 is SPENT (consumed by t_2a). block_2a's coinbase
-        # yields TWO unspent outflows to wallet — base reward + the stake mint.
+        # yields TWO unspent outflows to key — base reward + the stake mint.
         # The opposition stake (an outflow on `subject`, no address) is unspent.
-        assert _count_select(dao_a.unspent_outflows(wallet.address)) == 2
-        assert dao_a.wallet_balance(wallet.address) == reward + mint
+        assert _count_select(dao_a.unspent_outflows(signing_key.address)) == 2
+        assert dao_a.signing_key_balance(signing_key.address) == reward + mint
         assert dao_a.opposition_balance(subject) == cb_1_amount
         assert dao_a.support_balance(subject) == 0
         assert (
@@ -1624,8 +1646,8 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
             _count_select(dao_a.unrescinded_outflows(subject, 'support')) == 0
         )
         # Leaderboards (longest chain = chain_a).
-        wl = db.session.execute(dao_a.wallet_leaderboard()).all()
-        assert wl == [(wallet.address, reward + mint)]
+        wl = db.session.execute(dao_a.signing_key_leaderboard()).all()
+        assert wl == [(signing_key.address, reward + mint)]
         sl = db.session.execute(dao_a.subject_leaderboard()).all()
         # (subject, opposition, support, total)
         assert sl == [(subject, cb_1_amount, 0, cb_1_amount)]
@@ -1633,20 +1655,20 @@ def test_antijoin_equivalence_all_methods(app, subject, time_stepper, wallet):
         # On chain_b (ancestry routing): t_2a is NOT in chain_b, so cb_1 is
         # UNSPENT; block_2b's coinbase is a single unspent reward (no stake →
         # no mint). Two unspent transfers, no stake on subject.
-        assert _count_select(dao_b.unspent_outflows(wallet.address)) == 2
-        assert dao_b.wallet_balance(wallet.address) == 2 * reward
+        assert _count_select(dao_b.unspent_outflows(signing_key.address)) == 2
+        assert dao_b.signing_key_balance(signing_key.address) == 2 * reward
         assert dao_b.opposition_balance(subject) == 0
         assert (
             _count_select(dao_b.unrescinded_outflows(subject, 'opposition'))
             == 0
         )
         assert db.session.execute(dao_b.subject_leaderboard()).all() == []
-        assert db.session.execute(dao_b.wallet_leaderboard()).all() == [
-            (wallet.address, 2 * reward)
+        assert db.session.execute(dao_b.signing_key_leaderboard()).all() == [
+            (signing_key.address, 2 * reward)
         ]
 
         # chain_a values are unchanged by chain_b's existence.
-        assert dao_a.wallet_balance(wallet.address) == reward + mint
+        assert dao_a.signing_key_balance(signing_key.address) == reward + mint
         assert dao_a.opposition_balance(subject) == cb_1_amount
 
 
@@ -1667,7 +1689,7 @@ def _query_plan_rows(stmt):
     return [str(row[-1]).upper() for row in rows]
 
 
-def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
+def test_antijoin_no_materialization(app, subject, time_stepper, signing_key):
     """The unspent/balance reads must not MATERIALIZE the whole-chain inflow
     set nor build a per-call AUTOMATIC index over it (#165).
 
@@ -1683,7 +1705,7 @@ def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
     index seek, no materialization, no AUTOMATIC index over inflows.
 
     Step-9 contingency, settled against the actual SQLite plan: a residual
-    ``AUTOMATIC COVERING INDEX`` survives — but ONLY in wallet_leaderboard,
+    ``AUTOMATIC COVERING INDEX`` survives — but ONLY in signing_key_leaderboard,
     and ONLY over ``anon_1``, which is the chain-**transactions** membership
     sub-select (a ``CO-ROUTINE`` over block_transaction/transaction backing
     the txn_alias join), NOT the inflow set. That subquery is shared,
@@ -1706,7 +1728,7 @@ def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
         AUTOMATIC. So ``AUTOMATIC`` paired with ``outflow_id`` in one node is
         the precise regression signature.
 
-    The two int-returning methods (wallet_balance / _stake_balance) share the
+    The int-returning methods (signing_key_balance / _stake_balance) share the
     exact same _unspent_clause(), so the Select-returners are a sufficient
     witness.
     """
@@ -1716,7 +1738,7 @@ def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
         chain_a = Chain()
         block_1 = Block()
         chain_a.link_block(block_1)
-        chain_a.seal_block(block_1, wallet, CoinbaseMetrics())
+        chain_a.seal_block(block_1, signing_key, CoinbaseMetrics())
         block_1.mill()
         chain_a.add_block(block_1)
         chain_a.to_db()
@@ -1724,9 +1746,9 @@ def test_antijoin_no_materialization(app, subject, time_stepper, wallet):
         assert dao_a is not None
 
         plans = [
-            _query_plan_rows(dao_a.unspent_outflows(wallet.address)),
+            _query_plan_rows(dao_a.unspent_outflows(signing_key.address)),
             _query_plan_rows(dao_a.unrescinded_outflows(subject, 'opposition')),
-            _query_plan_rows(dao_a.wallet_leaderboard()),
+            _query_plan_rows(dao_a.signing_key_leaderboard()),
             _query_plan_rows(dao_a.subject_leaderboard()),
         ]
         for plan in plans:

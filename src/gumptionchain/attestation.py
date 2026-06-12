@@ -10,7 +10,7 @@ from gumptionchain.message import (
     sign_message,
     verify_message,
 )
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 KINDS = frozenset({'opposition', 'support', 'rescind', 'transfer'})
 
@@ -19,7 +19,7 @@ KINDS = frozenset({'opposition', 'support', 'rescind', 'transfer'})
 # (rather than only "non-empty string") means a malformed txid is rejected as a
 # bad attestation up front, instead of slipping through to a provenance fetch
 # that 404s and gets mis-reported as 'txn-not-found'. Kept in lockstep with the
-# JS validator's TXID_RE in clients/wallet/gc-attestation.mjs.
+# JS validator's TXID_RE in clients/signing-key/gc-attestation.mjs.
 _TXID_RE = re.compile(r'[0-9a-f]{64}')
 
 
@@ -85,9 +85,11 @@ def build_stake_message(claim: dict[str, Any]) -> str:
 
 
 def sign_stake_attestation(
-    wallet: Wallet, claim: dict[str, Any], timestamp: int | None = None
+    signing_key: SigningKey, claim: dict[str, Any], timestamp: int | None = None
 ) -> dict[str, str]:
-    return sign_message(wallet, build_stake_message(claim), timestamp=timestamp)
+    return sign_message(
+        signing_key, build_stake_message(claim), timestamp=timestamp
+    )
 
 
 def parse_stake_attestation(proof: Any) -> dict[str, Any]:
@@ -111,7 +113,7 @@ def parse_stake_attestation(proof: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Wallet ↔ social-platform binding envelope (#251)
+# SigningKey ↔ social-platform binding envelope (#251)
 # Spec: docs/superpowers/specs/
 #   2026-06-10-egu-251-social-binding-envelope-design.md
 # Verification of proof_url content and storage of the binding record are
@@ -120,7 +122,7 @@ def parse_stake_attestation(proof: Any) -> dict[str, Any]:
 
 # Platform identifier: lowercase alphanumeric + hyphen, 1-32 chars. Kept in
 # lockstep with the JS validator's PLATFORM_RE in
-# clients/wallet/gc-attestation.mjs.
+# clients/signing-key/gc-attestation.mjs.
 _PLATFORM_RE = re.compile(r'^[a-z0-9-]{1,32}$')
 _MAX_HANDLE_LEN = 256
 _MAX_PROOF_URL_LEN = 512
@@ -166,10 +168,10 @@ def build_binding_message(claim: dict[str, Any]) -> str:
 
 
 def sign_social_binding(
-    wallet: Wallet, claim: dict[str, Any], timestamp: int | None = None
+    signing_key: SigningKey, claim: dict[str, Any], timestamp: int | None = None
 ) -> dict[str, str]:
     return sign_message(
-        wallet, build_binding_message(claim), timestamp=timestamp
+        signing_key, build_binding_message(claim), timestamp=timestamp
     )
 
 

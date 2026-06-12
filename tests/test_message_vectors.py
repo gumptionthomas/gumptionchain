@@ -2,15 +2,15 @@ import json
 import os
 from pathlib import Path
 
-from test_browser_wallet_vectors import VECTOR_WALLET_B58
+from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
 
 from gumptionchain.message import sign_message
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'wallet'
+    / 'signing-key'
     / 'testdata'
     / 'gc-msg-vectors.json'
 )
@@ -25,7 +25,7 @@ _CASES = [
 
 
 def _expected() -> list[dict]:
-    w = Wallet(b58ks=VECTOR_WALLET_B58)
+    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
     out = []
     for c in _CASES:
         proof = sign_message(w, c['message'], timestamp=int(c['timestamp']))

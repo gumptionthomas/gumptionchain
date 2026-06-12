@@ -4,7 +4,7 @@ from gumptionchain import create_app
 from gumptionchain.browser import explorer_home_context
 from gumptionchain.database import db
 from gumptionchain.payload import encode_subject
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 _CONSUMER_BASE = (
     '<!doctype html><html><head>'
@@ -204,7 +204,7 @@ def test_consumer_base_html_reskins_address_detail_page(tmp_path):
     with app.app_context():
         db.create_all()
         client = app.test_client()
-        resp = client.get(f'/address/{Wallet().address}')
+        resp = client.get(f'/address/{SigningKey().address}')
         assert resp.status_code == 200
         assert b'SKINNED' in resp.data  # consumer skin won over blueprint
 
@@ -237,18 +237,18 @@ def test_consumer_base_html_reskins_transact_page(tmp_path):
         assert b'never leaves your browser' in resp.data
 
 
-def test_consumer_base_html_reskins_wallet_page(tmp_path):
-    # Seam check for the /wallet management page. It is a static shell (all key
+def test_consumer_base_html_reskins_signing_key_page(tmp_path):
+    # Seam check for the /signing-key management page. A static shell (all key
     # work is client-side, no chain), so the consumer skin must win while
-    # base's wallet content still renders.
+    # base's signing_key content still renders.
     app = _consumer_app(tmp_path)
     with app.app_context():
         db.create_all()
         client = app.test_client()
-        resp = client.get('/wallet')
+        resp = client.get('/signing-key')
         assert resp.status_code == 200
         assert b'SKINNED' in resp.data  # consumer skin won over blueprint
-        # base wallet content still rendered
+        # base signing_key content still rendered
         assert b'Persist only on a node you trust' in resp.data
 
 

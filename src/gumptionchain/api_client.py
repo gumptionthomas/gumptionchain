@@ -8,12 +8,12 @@ import httpx
 
 from gumptionchain import signing
 from gumptionchain.block import Block
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
 from gumptionchain.util import dt_2_ciso, host_address
-from gumptionchain.wallet import Wallet
 
 PEER_HOST_HEADER = 'Peer-Hosts'
-ADDRESS_MISMATCH_MSG = 'Address/wallet mismatch'
+ADDRESS_MISMATCH_MSG = 'Address/signing-key mismatch'
 
 
 def _make_client(base_url: str, timeout: float) -> httpx.Client:
@@ -44,14 +44,14 @@ class ApiClient:
     def __init__(
         self,
         host: str,
-        wallet: Wallet,
+        signing_key: SigningKey,
         timeout: int | float | None = None,
     ) -> None:
         host, address = host_address(host)
-        if address and address != wallet.address:
+        if address and address != signing_key.address:
             raise ValueError(ADDRESS_MISMATCH_MSG)
         self.host = host
-        self.wallet = wallet
+        self.signing_key = signing_key
         self.timeout: int | float = timeout if timeout is not None else 10
         self._client = _make_client(self.host, float(self.timeout))
 
@@ -93,7 +93,7 @@ class ApiClient:
             timeout=timeout_v,
         )
         sig_headers = signing.sign_headers(
-            self.wallet,
+            self.signing_key,
             method=method,
             path=req.url.path,
             query=req.url.query.decode(),
@@ -295,14 +295,14 @@ class ApiClient:
             raise_for_status=raise_for_status,
         )
 
-    def get_wallet_balance(
+    def get_signing_key_balance(
         self,
         address: str,
         timeout: int | float | None = None,
         raise_for_status: bool = True,  # noqa: FBT001
     ) -> httpx.Response:
         return self.get(
-            f'/api/wallet/{address}/balance',
+            f'/api/signing-key/{address}/balance',
             timeout=timeout,
             raise_for_status=raise_for_status,
         )

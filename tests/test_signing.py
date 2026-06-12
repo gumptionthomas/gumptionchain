@@ -3,7 +3,7 @@ import time
 import pytest
 
 from gumptionchain import signing
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 REQ = {
     'method': 'POST',
@@ -15,7 +15,7 @@ REQ = {
 
 
 def test_sign_then_verify_roundtrip():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     assert headers[signing.H_VERSION] == signing.SIG_VERSION
     assert headers[signing.H_ADDRESS] == w.address
@@ -24,7 +24,7 @@ def test_sign_then_verify_roundtrip():
 
 
 def test_verify_rejects_tampered_path():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     bad = {**REQ, 'path': '/api/block/DIFFERENT'}
     with pytest.raises(signing.SignatureError):
@@ -32,7 +32,7 @@ def test_verify_rejects_tampered_path():
 
 
 def test_verify_rejects_tampered_query():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     bad = {**REQ, 'query': 'earliest=999'}
     with pytest.raises(signing.SignatureError):
@@ -40,7 +40,7 @@ def test_verify_rejects_tampered_query():
 
 
 def test_verify_rejects_tampered_method():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     bad = {**REQ, 'method': 'GET'}
     with pytest.raises(signing.SignatureError):
@@ -48,7 +48,7 @@ def test_verify_rejects_tampered_method():
 
 
 def test_verify_rejects_tampered_body():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     bad = {**REQ, 'body': b'{"x":2}'}
     with pytest.raises(signing.SignatureError):
@@ -56,7 +56,7 @@ def test_verify_rejects_tampered_body():
 
 
 def test_verify_rejects_wrong_node():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     bad = {**REQ, 'node_host': 'http://peer.node:8888'}
     with pytest.raises(signing.SignatureError):
@@ -70,7 +70,7 @@ def test_verify_rejects_stale_timestamp():
     # offset + truncation can net to exactly FRESHNESS_SECONDS, which the
     # strict `>` does not reject) — a real flake. verify() exposes `now`
     # precisely for this.
-    w = Wallet()
+    w = SigningKey()
     now = int(time.time())
     old = now - (signing.FRESHNESS_SECONDS + 1)
     headers = signing.sign_headers(w, timestamp=old, **REQ)
@@ -81,7 +81,7 @@ def test_verify_rejects_stale_timestamp():
 def test_verify_rejects_future_timestamp():
     # See test_verify_rejects_stale_timestamp: pin one `now` for both sides
     # so the int(time.time()) truncation race cannot collapse the boundary.
-    w = Wallet()
+    w = SigningKey()
     now = int(time.time())
     future = now + (signing.FRESHNESS_SECONDS + 1)
     headers = signing.sign_headers(w, timestamp=future, **REQ)
@@ -90,8 +90,8 @@ def test_verify_rejects_future_timestamp():
 
 
 def test_verify_rejects_pubkey_address_mismatch():
-    w = Wallet()
-    other = Wallet()
+    w = SigningKey()
+    other = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     headers[signing.H_PUBKEY] = other.public_key_b64
     with pytest.raises(signing.SignatureError):
@@ -99,7 +99,7 @@ def test_verify_rejects_pubkey_address_mismatch():
 
 
 def test_verify_rejects_missing_header():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     del headers[signing.H_SIGNATURE]
     with pytest.raises(signing.SignatureError):
@@ -107,7 +107,7 @@ def test_verify_rejects_missing_header():
 
 
 def test_verify_rejects_unknown_version():
-    w = Wallet()
+    w = SigningKey()
     headers = signing.sign_headers(w, **REQ)
     headers[signing.H_VERSION] = '999'
     with pytest.raises(signing.SignatureError):

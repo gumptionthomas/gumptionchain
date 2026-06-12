@@ -25,7 +25,7 @@ A conformant consumer skin should define every block (even if empty); base
 page templates confine themselves to `content`/`title`/`scripts`.
 
 Note on `scripts` and `{{ super() }}`: base pages with client JS
-(`verify.html`, `transact.html`, `wallet.html`) open their `scripts` block
+(`verify.html`, `transact.html`, `signing_key.html`) open their `scripts` block
 with `{{ super() }}` before their inline modules. Under base's own
 `base.html`, that pulls in the jQuery slim + Bootstrap bundle CDN tags; under
 a consumer skin it resolves to *the skin's* `scripts` block — empty skin
@@ -84,8 +84,8 @@ subjects lists import it via `{% from "_pagination.html" import render_paginatio
 
 Reference base-bundled assets via `url_for('browser.static', filename=...)`
 (served from `/static/gumptionchain`), which resolves standalone or embedded.
-Wallet ESM is vendored into `static/wallet/` from `clients/wallet/` via
-`scripts/sync_wallet.py`.
+SigningKey ESM is vendored into `static/signing-key/` from `clients/signing-key/` via
+`scripts/sync_signing_key.py`.
 
 ## CSP considerations
 

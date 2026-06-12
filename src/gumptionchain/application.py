@@ -13,8 +13,8 @@ from gumptionchain import __version__, api, browser, command
 from gumptionchain.api_client import ApiClient
 from gumptionchain.payload import decode_subject, validate_subject
 from gumptionchain.schema import validate_address_format, validate_base64
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.util import host_address
-from gumptionchain.wallet import Wallet
 
 
 def close_clients(clients: dict[str, ApiClient]) -> None:
@@ -31,7 +31,7 @@ def init_app(
     app: Flask,
     register_browser: bool = True,  # noqa: FBT001
 ) -> None:
-    app.wallets = read_wallets(app)  # type: ignore[attr-defined]
+    app.signing_keys = read_signing_keys(app)  # type: ignore[attr-defined]
     app.clients = create_clients(app)  # type: ignore[attr-defined]
     # Close pooled httpx.Clients when the app is garbage-collected or
     # at process exit. Refcount-based collection fires promptly on the
@@ -55,7 +55,7 @@ def init_app(
     app.cli.add_command(command.import_blocks_command)
     app.cli.add_command(command.mill_command)
     app.cli.add_command(command.txn_cli)
-    app.cli.add_command(command.wallet_cli)
+    app.cli.add_command(command.signing_key_cli)
     app.cli.add_command(command.subject_cli)
 
     @app.context_processor
@@ -113,22 +113,24 @@ def init_app(
         return response
 
 
-def read_wallets(app: Flask) -> dict[str, Wallet]:
-    walletdir = app.config.get('WALLET_DIR')
-    wallets: dict[str, Wallet] = {}
-    if walletdir and os.path.isdir(walletdir):
-        for dirpath, _, filenames in os.walk(walletdir):
+def read_signing_keys(app: Flask) -> dict[str, SigningKey]:
+    signing_keydir = app.config.get('SIGNING_KEY_DIR')
+    signing_keys: dict[str, SigningKey] = {}
+    if signing_keydir and os.path.isdir(signing_keydir):
+        for dirpath, _, filenames in os.walk(signing_keydir):
             for filename in filenames:
                 if filename.endswith('.pem'):
                     try:
-                        w = Wallet.from_file(os.path.join(dirpath, filename))
-                        wallets[w.address] = w
+                        w = SigningKey.from_file(
+                            os.path.join(dirpath, filename)
+                        )
+                        signing_keys[w.address] = w
                     except Exception as e:
                         app.logger.error(
                             f'Error reading {os.path.join(dirpath, filename)}'
                         )
                         app.logger.exception(e)
-    return wallets
+    return signing_keys
 
 
 def create_clients(app: Flask) -> dict[str, ApiClient]:
@@ -136,11 +138,11 @@ def create_clients(app: Flask) -> dict[str, ApiClient]:
     timeout: Any = app.config.get('API_CLIENT_TIMEOUT')
     for peer in app.config.get('PEERS') or []:
         host, address = host_address(peer)
-        if wallet := app.wallets.get(address):  # type: ignore[attr-defined]
-            clients[peer] = ApiClient(peer, wallet, timeout=timeout)
+        if signing_key := app.signing_keys.get(address):  # type: ignore[attr-defined]
+            clients[peer] = ApiClient(peer, signing_key, timeout=timeout)
         else:
             app.logger.warning(
-                f'Peer client wallet {address} for {host} not found'
+                f'Peer client signing_key {address} for {host} not found'
             )
     return clients
 

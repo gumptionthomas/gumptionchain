@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from gumptionchain.exceptions import InvalidKeyError
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 MSG_SCHEME = 'gc-msg-v1'
 MSG_VERSION = '1'
@@ -31,20 +31,20 @@ def _message_canonical(*, address: str, timestamp: str, message: str) -> bytes:
 
 
 def sign_message(
-    wallet: Wallet, message: str, timestamp: int | None = None
+    signing_key: SigningKey, message: str, timestamp: int | None = None
 ) -> dict[str, str]:
     ts = str(int(timestamp if timestamp is not None else time.time()))
     canonical = _message_canonical(
-        address=wallet.address, timestamp=ts, message=message
+        address=signing_key.address, timestamp=ts, message=message
     )
     return {
         'scheme': MSG_SCHEME,
         'version': MSG_VERSION,
-        'address': wallet.address,
-        'public_key': wallet.public_key_b64,
+        'address': signing_key.address,
+        'public_key': signing_key.public_key_b64,
         'timestamp': ts,
         'message': message,
-        'signature': wallet.sign(canonical),
+        'signature': signing_key.sign(canonical),
     }
 
 
@@ -81,7 +81,7 @@ def verify_message(
         msg = 'malformed gc-msg-v1 proof'
         raise BadProofError(msg)
     try:
-        wallet = Wallet(b64ks=pubkey)
+        signing_key = SigningKey(b64ks=pubkey)
     except InvalidKeyError as e:
         msg = 'invalid public key'
         raise BadProofError(msg) from e
@@ -90,12 +90,12 @@ def verify_message(
         'timestamp': ts,
         'message': message,
     }
-    if wallet.address != address:
+    if signing_key.address != address:
         return {**result, 'valid': False, 'reason': 'address-mismatch'}
     canonical = _message_canonical(
         address=address, timestamp=ts, message=message
     )
-    if not wallet.validate_signature(canonical, sig):
+    if not signing_key.validate_signature(canonical, sig):
         return {**result, 'valid': False, 'reason': 'bad-signature'}
     if max_age is not None:
         current = int(now if now is not None else time.time())

@@ -1,7 +1,7 @@
 import time
 
 import pytest
-from test_browser_wallet_vectors import VECTOR_WALLET_B58
+from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
 
 from gumptionchain.attestation import (
     BadAttestationError,
@@ -14,7 +14,7 @@ from gumptionchain.attestation import (
     verify_binding,
     verify_stake,
 )
-from gumptionchain.wallet import Wallet
+from gumptionchain.signing_key import SigningKey
 
 TS = '1700002000'
 # A canonical txid is a 64-char lowercase-hex mill hash.
@@ -27,8 +27,8 @@ CLAIM = {
 }
 
 
-def _wallet() -> Wallet:
-    return Wallet(b58ks=VECTOR_WALLET_B58)
+def _signing_key() -> SigningKey:
+    return SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
 
 
 def _provenance(
@@ -89,12 +89,12 @@ def test_build_stake_message_rejects_malformed_txid() -> None:
 
 
 def test_sign_then_parse_round_trips() -> None:
-    proof = sign_stake_attestation(_wallet(), CLAIM, timestamp=int(TS))
+    proof = sign_stake_attestation(_signing_key(), CLAIM, timestamp=int(TS))
     assert parse_stake_attestation(proof) == CLAIM
 
 
 def test_verify_stake_valid() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_stake_attestation(w, CLAIM, timestamp=int(TS))
     v = verify_stake(proof, lambda _txid: _provenance(w.address))
     assert v['valid'] is True
@@ -109,7 +109,7 @@ def test_verify_stake_valid() -> None:
 
 
 def test_verify_stake_failure_reasons() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_stake_attestation(w, CLAIM, timestamp=int(TS))
 
     assert 'txn-not-found' in verify_stake(proof, lambda _t: None)['reasons']
@@ -200,7 +200,7 @@ def test_validate_rejects_present_offside_key() -> None:
 
 
 def test_verify_stake_wraps_bad_proof_envelope() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_stake_attestation(w, CLAIM, timestamp=int(TS))
     proof['scheme'] = 'gc-sig-v1'  # malformed gc-msg-v1 envelope
     with pytest.raises(BadAttestationError):
@@ -332,7 +332,7 @@ def test_build_binding_message_proof_url_none_omitted() -> None:
 
 
 def test_sign_parse_binding_round_trip() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_social_binding(w, BINDING_CLAIM)
     assert parse_social_binding(proof) == BINDING_CLAIM
 
@@ -373,7 +373,7 @@ def test_parse_binding_rejects_unicode_escaped() -> None:
 
 
 def test_binding_domain_separation() -> None:
-    w = _wallet()
+    w = _signing_key()
     binding_proof = sign_social_binding(w, BINDING_CLAIM)
     stake_proof = sign_stake_attestation(w, CLAIM)
     # stake parser must reject a binding proof
@@ -392,7 +392,7 @@ TS_BINDING = 1700002000
 
 
 def test_verify_binding_valid() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
     verdict = verify_binding(proof)
     assert verdict == {
@@ -405,14 +405,14 @@ def test_verify_binding_valid() -> None:
 
 
 def test_verify_binding_signer_from_proof_address() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
     verdict = verify_binding(proof)
     assert verdict['signer'] == proof['address']
 
 
 def test_verify_binding_tampered_message() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
     # Swap message to a different canonical binding message (parse still passes)
     other_claim = {'platform': 'github', 'handle': 'otheruser'}
@@ -425,7 +425,7 @@ def test_verify_binding_tampered_message() -> None:
 
 
 def test_verify_binding_expired() -> None:
-    w = _wallet()
+    w = _signing_key()
     # Sign with a timestamp 1000 s in the past; max_age=300 must mark it expired
     stale_ts = int(time.time()) - 1000
     stale_proof = sign_social_binding(w, BINDING_CLAIM, timestamp=stale_ts)
@@ -435,7 +435,7 @@ def test_verify_binding_expired() -> None:
 
 
 def test_verify_binding_malformed_envelope_raises() -> None:
-    w = _wallet()
+    w = _signing_key()
     proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
     bad = dict(proof)
     del bad['public_key']
@@ -446,7 +446,7 @@ def test_verify_binding_malformed_envelope_raises() -> None:
 def test_verify_binding_rejects_non_binding_proof() -> None:
     # A stake proof passed to verify_binding must raise BadAttestationError
     # (the parse_social_binding step rejects the claim shape)
-    w = _wallet()
+    w = _signing_key()
     stake_proof = sign_stake_attestation(w, CLAIM, timestamp=TS_BINDING)
     with pytest.raises(BadAttestationError):
         verify_binding(stake_proof)

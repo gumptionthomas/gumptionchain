@@ -26,15 +26,15 @@ class GCError(Exception):
             self.messages = msg
 
 
-class InvalidWalletError(GCError):
+class InvalidSigningKeyError(GCError):
     pass
 
 
-class InvalidKeyError(InvalidWalletError):
+class InvalidKeyError(InvalidSigningKeyError):
     pass
 
 
-class NoPrivateKeyError(InvalidWalletError):
+class NoPrivateKeyError(InvalidSigningKeyError):
     pass
 
 
@@ -70,7 +70,7 @@ class UnsealedTransactionError(InvalidTransactionError):
     pass
 
 
-class MissingWalletError(InvalidTransactionError):
+class MissingSigningKeyError(InvalidTransactionError):
     pass
 
 

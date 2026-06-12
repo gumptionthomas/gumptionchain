@@ -37,6 +37,7 @@ from gumptionchain.schema import (
     asdict_sans_none,
     pydantic_errors_to_messages,
 )
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import (
     CoinbaseMetrics,
     Transaction,
@@ -44,7 +45,6 @@ from gumptionchain.transaction import (
     txn_from_model_data,
 )
 from gumptionchain.util import dt_2_iso, iso_2_dt, now_iso
-from gumptionchain.wallet import Wallet
 
 VERSION_1 = '1'
 MAX_TRANSACTIONS = 100
@@ -218,12 +218,12 @@ class Block:
         self.txns.append(txn)
 
     def create_coinbase(
-        self, wallet: Wallet, reward: int, metrics: CoinbaseMetrics
+        self, signing_key: SigningKey, reward: int, metrics: CoinbaseMetrics
     ) -> Transaction:
         if self.prev_hash is None:
             raise UnlinkedBlockError()
         return Transaction.coinbase(
-            wallet,
+            signing_key,
             reward,
             metrics.schadenfreude,
             metrics.grace,
@@ -233,10 +233,10 @@ class Block:
         )
 
     def add_coinbase(
-        self, wallet: Wallet, reward: int, metrics: CoinbaseMetrics
+        self, signing_key: SigningKey, reward: int, metrics: CoinbaseMetrics
     ) -> None:
         self.add_txn(
-            self.create_coinbase(wallet, reward, metrics), is_coinbase=True
+            self.create_coinbase(signing_key, reward, metrics), is_coinbase=True
         )
 
     def link(self, idx: int, prev_hash: str, target: str) -> None:
@@ -246,7 +246,7 @@ class Block:
 
     def seal(
         self,
-        wallet: Wallet,
+        signing_key: SigningKey,
         reward: int,
         metrics: CoinbaseMetrics,
     ) -> None:
@@ -255,7 +255,7 @@ class Block:
         if (self.prev_hash is None) or (self.idx is None):
             raise UnlinkedBlockError()
         self.txns.sort()
-        self.add_coinbase(wallet, reward, metrics)
+        self.add_coinbase(signing_key, reward, metrics)
         self.merkle_root = self.get_merkle_root()
         self.timestamp = now_iso()
 

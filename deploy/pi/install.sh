@@ -71,7 +71,7 @@ if [ -f "${REPO_DIR}/.env" ] && [ -f "${REPO_DIR}/deploy.env" ]; then
 else
   cat <<'EOF'
 Installed. Before the miller can start you must:
-  1. put your wallet .pem in the wallet dir,
+  1. put your signing_key .pem in the signing_key dir,
   2. write .env and deploy.env in the repo root (see docs/howto-miller-pi.md),
   3. ask the hub operator to allowlist your address,
 then re-run this installer (it will init the database and start the

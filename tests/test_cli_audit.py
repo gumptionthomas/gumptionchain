@@ -17,9 +17,9 @@ import stat
 from gumptionchain.command import MAX_IMPORT_LINE_BYTES
 
 
-def test_cli1_wallet_create_writes_private_key_0600(app, runner, tmp_path):
-    """CLI1 (Medium) — REMEDIATED. `gumptionchain wallet create` used to write
-    the new RSA private key via `Wallet.to_file` → `open(filename, 'wb')` with
+def test_cli1_signing_key_create_writes_private_key_0600(app, runner, tmp_path):
+    """CLI1 (Medium) — REMEDIATED. `gumptionchain signing-key create` wrote
+    the RSA key via `SigningKey.to_file` → `open(filename, 'wb')` with
     no `chmod 0o600`, landing at the process umask (commonly 0o644/0o664 →
     readable by a different local user/process, who then held a live signing
     identity). `to_file` now creates the PEM owner-only via
@@ -31,7 +31,7 @@ def test_cli1_wallet_create_writes_private_key_0600(app, runner, tmp_path):
     try:
         with app.app_context():
             result = runner.invoke(
-                args=['wallet', 'create', '-d', str(tmp_path)]
+                args=['signing-key', 'create', '-d', str(tmp_path)]
             )
         assert result.exit_code == 0, result.output
         pems = list(tmp_path.glob('*.pem'))

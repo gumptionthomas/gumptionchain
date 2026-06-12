@@ -16,9 +16,9 @@ from gumptionchain.payload import (
 )
 
 
-def test_outflow_data_csv(subject, wallet):
-    outflow = Outflow(amount=9, address=wallet.address)
-    assert outflow.data_csv == f'9,{wallet.address},,,,'
+def test_outflow_data_csv(subject, signing_key):
+    outflow = Outflow(amount=9, address=signing_key.address)
+    assert outflow.data_csv == f'9,{signing_key.address},,,,'
     outflow = Outflow(amount=9, opposition=subject)
     assert outflow.data_csv == f'9,,{subject},,,'
     outflow = Outflow(amount=9, rescind=subject, rescind_kind='opposition')
@@ -46,10 +46,10 @@ def test_validate_subject(subject_raw, subject):
 VALID_MILL_HASH = b64encode(b'A' * 48).decode()  # 48 bytes → 64 base64 chars
 
 
-def test_outflow_model_accepts_address_only(wallet):
-    m = OutflowModel(amount=10, address=wallet.address)
+def test_outflow_model_accepts_address_only(signing_key):
+    m = OutflowModel(amount=10, address=signing_key.address)
     assert m.amount == 10
-    assert m.address == wallet.address
+    assert m.address == signing_key.address
     assert m.opposition is None
     assert m.rescind is None
     assert m.support is None
@@ -76,10 +76,10 @@ def test_outflow_model_accepts_support_only():
     assert m.address is None
 
 
-def test_outflow_model_rejects_address_and_opposition(wallet):
+def test_outflow_model_rejects_address_and_opposition(signing_key):
     subject = encode_subject('test')
     with pytest.raises(PydanticValidationError) as exc_info:
-        OutflowModel(amount=5, address=wallet.address, opposition=subject)
+        OutflowModel(amount=5, address=signing_key.address, opposition=subject)
     assert any(
         INVALID_DESTINATION_MSG in err['msg'] for err in exc_info.value.errors()
     )
@@ -94,7 +94,7 @@ def test_outflow_model_rejects_two_opposition_options():
     )
 
 
-def test_outflow_model_rejects_no_destination(wallet):
+def test_outflow_model_rejects_no_destination(signing_key):
     with pytest.raises(PydanticValidationError) as exc_info:
         OutflowModel(amount=5)
     assert any(
@@ -102,9 +102,9 @@ def test_outflow_model_rejects_no_destination(wallet):
     )
 
 
-def test_outflow_model_rejects_zero_amount(wallet):
+def test_outflow_model_rejects_zero_amount(signing_key):
     with pytest.raises(PydanticValidationError):
-        OutflowModel(amount=0, address=wallet.address)
+        OutflowModel(amount=0, address=signing_key.address)
 
 
 def test_inflow_model_accepts_valid():
