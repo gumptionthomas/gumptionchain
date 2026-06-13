@@ -22,7 +22,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 
 # Trees and files that make up the live product surface.
 SCAN_DIRS = ('src', 'clients', 'tests', 'deploy', 'scripts')
-SCAN_FILES = ('README.rst', 'CLAUDE.md')
+SCAN_FILES = ('README.md', 'CLAUDE.md')
 
 # docs/*.md at the top level only — docs/superpowers/ is preserved history.
 DOC_DIR = _ROOT / 'docs'

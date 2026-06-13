@@ -7,7 +7,7 @@ build-backend = "uv_build"
 name = "gumptionchain"
 version = "1.4.1"
 description = "A Blockchain of Accountability, Forgiveness, and Support"
-readme = "README.rst"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
