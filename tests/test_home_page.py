@@ -56,6 +56,14 @@ def test_home_empty_chain(test_client):
     assert b'No chain' in resp.data
 
 
+def test_base_links_node_favicon(test_client):
+    # The base node ships the green "G" node favicon by default; the hub
+    # overrides the favicon block (or shadows base.html) for its own.
+    resp = test_client.get('/')
+    assert resp.status_code == 200
+    assert b'img/favicon-node.svg' in resp.data
+
+
 def test_home_shows_stats_and_recent_blocks(
     app, host, mill_block, requests_proxy, subject, signing_key
 ):

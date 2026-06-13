@@ -30,19 +30,19 @@
               <td>{{ block.timestamp_dt | utc_datetime }}</td>
             </tr>
             <tr>
-              <th class="col-3"><i class="bi-bookmark-check"></i>&nbsp;Proof Of Work</th>
+              <th class="col-3"><i class="bi-bookmark-check"></i>&nbsp;Proof of work</th>
               <td>{{ block.proof_of_work }}</td>
             </tr>
             <tr>
-              <th class="col-3"><i class="bi-diagram-2"></i>&nbsp;Merkle Root</th>
+              <th class="col-3"><i class="bi-diagram-2"></i>&nbsp;Merkle root</th>
               <td>{{ block.merkle_root }}</td>
             </tr>
             <tr>
-              <th class="col-3"><i class="bi-box-arrow-in-left"></i>&nbsp;Previous Block Hash</th>
+              <th class="col-3"><i class="bi-box-arrow-in-left"></i>&nbsp;Previous block hash</th>
               <td>{% if block_dao.prev %}<a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.prev_hash) }}">{{ block.prev_hash }}</a>{% else %}<span class="text-muted">{{ block.prev_hash }} (genesis)</span>{% endif %}</td>
             </tr>
             <tr>
-              <th class="col-3"><i class="bi-box-arrow-in-right"></i>&nbsp;Next Block Hash</th>
+              <th class="col-3"><i class="bi-box-arrow-in-right"></i>&nbsp;Next block hash</th>
               <td>{% for next_block in block_dao.next %}<a class="text-dark" href="{{ url_for('browser.block_view', block_hash=next_block.block_hash) }}">{{ next_block.block_hash }}</a><br/>{% else %}None{% endfor %}</td>
             </tr>
           </tbody>

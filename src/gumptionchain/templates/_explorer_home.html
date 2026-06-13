@@ -35,15 +35,15 @@
 
   <div class="row my-3"><div class="col">
     <div class="card bg-light"><div class="card-body">
-      <div class="card-title h5">Chain Tip</div>
+      <div class="card-title h5">Chain tip</div>
       <table class="table table-hover block" style="table-layout:fixed;">
         <tbody class="font-monospace">
           <tr>
-            <th class="col-2"><i class="bi-info"></i>&nbsp;Last Block Index</th>
+            <th class="col-2"><i class="bi-info"></i>&nbsp;Last block index</th>
             <td>{{ lc.last_block.idx }}</td>
           </tr>
           <tr>
-            <th class="col-2"><i class="bi-hash"></i>&nbsp;Last Block Hash</th>
+            <th class="col-2"><i class="bi-hash"></i>&nbsp;Last block hash</th>
             <td><a class="text-dark" href="{{ url_for('browser.block_view', block_hash=lc.last_block.block_hash) }}">{{ lc.last_block.block_hash }}</a></td>
           </tr>
           <tr>
@@ -58,7 +58,7 @@
   <div class="row my-3"><div class="col">
     <div class="card bg-light"><div class="card-body">
       <div class="d-flex justify-content-between align-items-center">
-        <div class="card-title h5 mb-0">Recent Blocks</div>
+        <div class="card-title h5 mb-0">Recent blocks</div>
         <div>
           <a href="{{ url_for('browser.blocks_view') }}">View all blocks</a>
           &middot;
@@ -84,7 +84,7 @@
   {%- else %}
   <div class="row my-3"><div class="col">
     <div class="card bg-light"><div class="card-body">
-      <div class="card-title h5">Current Chain</div>
+      <div class="card-title h5">Current chain</div>
       <p>No chain</p>
     </div></div>
   </div></div>
