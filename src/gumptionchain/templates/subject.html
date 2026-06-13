@@ -4,6 +4,7 @@
 {% block content -%}
 <div class="container-fluid">
   <div class="row my-3"><div class="col">
+    <p class="mb-1"><a href="{{ url_for('browser.subjects_view') }}">&larr; Subjects</a></p>
     <h3>{{ subject | human_subject }}</h3>
     <p class="h5">Net: {{ net_stance(opposition, support) }}</p>
   </div></div>

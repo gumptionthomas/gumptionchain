@@ -106,6 +106,8 @@ def test_subject_detail_shows_totals_and_links(
         assert b'150 opposed' in resp.data
         # link to the staking transaction
         assert f'/transaction/{txn.txid}'.encode() in resp.data
+        # explicit link back to the Subjects index (not the browser back button)
+        assert b'href="/subjects"' in resp.data
 
 
 def test_subject_detail_unknown_valid_subject_is_200_zeros(
