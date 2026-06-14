@@ -15,8 +15,8 @@ jobs:
           enable-cache: true
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --group dev --python ${{ matrix.python-version }}
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests app.py
+      - run: uv run ruff format --check src tests app.py
       # Node is needed on PATH for the live JS->Python gc-sig cross-verify in
       # tests/test_browser_signing_key_parity.py (it shells out to `node`). The
       # browser signing_key is pure Web Crypto + vanilla JS — zero npm packages.
