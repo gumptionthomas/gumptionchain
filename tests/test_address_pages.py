@@ -64,6 +64,7 @@ def test_addresses_index_shows_milled_address(
         assert resp.status_code == 200
         assert signing_key.address.encode() in resp.data
         assert f'/address/{signing_key.address}'.encode() in resp.data
+        assert b'clickable' in resp.data  # rows clickable into address detail
         assert str(balance).encode() in resp.data
 
 
@@ -88,6 +89,8 @@ def test_address_detail_shows_balance_and_holdings(
         assert str(balance).encode() in resp.data
         # a holding links to its source transaction
         assert f'/transaction/{a_txid}'.encode() in resp.data
+        # breadcrumb back to the Addresses index
+        assert b'&larr; Addresses' in resp.data
 
 
 def test_address_detail_unknown_valid_address_is_200_zeros(

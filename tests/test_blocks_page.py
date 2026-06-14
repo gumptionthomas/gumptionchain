@@ -39,6 +39,8 @@ def test_blocks_list_shows_mined_blocks(
         assert resp.status_code == 200
         assert tip_hash.encode() in resp.data
         assert b'/block/' in resp.data
+        # rows are clickable into the block detail page
+        assert b'clickable' in resp.data
 
 
 def test_blocks_list_shows_transaction_count(

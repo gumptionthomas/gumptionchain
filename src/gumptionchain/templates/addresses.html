@@ -12,7 +12,7 @@
         <thead><tr><th>#</th><th>Address</th><th>Balance</th></tr></thead>
         <tbody>
         {%- for row in addresses_page.items %}
-          <tr>
+          <tr class="clickable" style="cursor: pointer;" onclick="window.location='{{ url_for('browser.address_view', address=row.address) }}'">
             <td>{{ loop.index + (addresses_page.page - 1) * addresses_page.per_page }}</td>
             <td class="font-monospace"><a class="text-dark" href="{{ url_for('browser.address_view', address=row.address) }}">{{ row.address }}</a></td>
             <td>{{ row.ct }} <small class="text-muted">grains</small></td>

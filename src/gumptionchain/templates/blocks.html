@@ -11,7 +11,7 @@
         <thead><tr><th>#</th><th>Hash</th><th>Timestamp</th><th>Txns</th></tr></thead>
         <tbody class="font-monospace">
         {%- for block in blocks_page.items %}
-          <tr>
+          <tr class="clickable" style="cursor: pointer;" onclick="window.location='{{ url_for('browser.block_view', block_hash=block.block_hash) }}'">
             <td>{{ block.idx }}</td>
             <td><a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.block_hash) }}">{{ block.block_hash }}</a></td>
             <td>{{ block.timestamp | utc_datetime }}</td>

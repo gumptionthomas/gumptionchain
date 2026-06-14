@@ -21,18 +21,19 @@
 </head>
 
 <body>
-  <nav class="navbar mx-3" >
-    <a class="navbar-brand" href="{{ url_for('browser.index_view') }}">Home</a>
-    <a class="navbar-nav" href="{{ url_for('browser.chains_view') }}">Chains</a>
-    <a class="navbar-nav" href="{{ url_for('browser.blocks_view') }}">Blocks</a>
-    <a class="navbar-nav" href="{{ url_for('browser.subjects_view') }}">Subjects</a>
-    <a class="navbar-nav" href="{{ url_for('browser.addresses_view') }}">Addresses</a>
-    <a class="navbar-nav" href="{{ url_for('browser.mempool_view') }}">Mempool</a>
-    <a class="navbar-nav" href="{{ url_for('browser.transact_view') }}">Transact</a>
-    <a class="navbar-nav" href="{{ url_for('browser.signing_key_view') }}">Signing key</a>
-    <a class="navbar-nav" href="{{ url_for('browser.advanced_view') }}">Advanced</a>
-    {% block nav -%}
-    {%- endblock %}
+  <nav class="navbar border-bottom mb-3 px-3">
+    <a class="navbar-brand" href="{{ url_for('browser.index_view') }}">Gumption<span class="text-muted fw-normal small"> · node</span></a>
+    <div class="navbar-nav flex-row flex-wrap align-items-center">
+      <a class="nav-link px-2" href="{{ url_for('browser.chains_view') }}">Chains</a>
+      <a class="nav-link px-2" href="{{ url_for('browser.blocks_view') }}">Blocks</a>
+      <a class="nav-link px-2" href="{{ url_for('browser.subjects_view') }}">Subjects</a>
+      <a class="nav-link px-2" href="{{ url_for('browser.addresses_view') }}">Addresses</a>
+      <a class="nav-link px-2" href="{{ url_for('browser.mempool_view') }}">Mempool</a>
+      <a class="nav-link px-2" href="{{ url_for('browser.transact_view') }}">Transact</a>
+      <a class="nav-link px-2" href="{{ url_for('browser.signing_key_view') }}">Signing key</a>
+      <a class="nav-link px-2" href="{{ url_for('browser.advanced_view') }}">Advanced</a>
+      {% block nav %}{% endblock %}
+    </div>
   </nav>
 
   {% block content -%}

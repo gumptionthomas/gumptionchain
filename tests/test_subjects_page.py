@@ -47,6 +47,7 @@ def test_subjects_index_shows_stakes(
         assert b'150 opposed' in resp.data
         # links to the detail page using the encoded subject
         assert f'/subject/{subject}'.encode() in resp.data
+        assert b'clickable' in resp.data  # rows clickable into subject detail
 
 
 def test_subjects_index_paginates_across_pages(

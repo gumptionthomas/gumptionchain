@@ -4,6 +4,7 @@
 {% block content -%}
 <div class="container-fluid">
   <div class="row my-3"><div class="col">
+    <p class="mb-1"><a href="{{ url_for('browser.addresses_view') }}">&larr; Addresses</a></p>
     <h3 class="font-monospace">{{ address }}</h3>
     <p class="h4">{{ balance }} <small class="text-muted">grains</small></p>
   </div></div>
