@@ -33,6 +33,8 @@ def test_transaction_view_marks_coinbase(
         assert 'newly minted' in page  # the no-inputs message
         # a coinbase's reward outputs are address transfers
         assert 'transfer' in page
+        # breadcrumb back to the Blocks index
+        assert '&larr; Blocks' in page
 
 
 def test_transaction_view_labels_stake_and_rescind_kinds(

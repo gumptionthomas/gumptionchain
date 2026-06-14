@@ -22,6 +22,8 @@ def test_genesis_prev_hash_is_not_a_dead_link(
         )
         assert f'/block/{genesis.prev_hash}' not in page  # no dead link
         assert '(genesis)' in page
+        # breadcrumb back to the Blocks index
+        assert '&larr; Blocks' in page
 
 
 def test_non_genesis_prev_hash_links_to_parent(

@@ -13,7 +13,7 @@
         <thead><tr><th>#</th><th>Subject</th><th>Opposition</th><th>Support</th><th>Net</th><th>Total</th></tr></thead>
         <tbody>
         {%- for row in subjects_page.items %}
-          <tr>
+          <tr class="clickable" style="cursor: pointer;" onclick="window.location='{{ url_for('browser.subject_view', subject=row.subject) }}'">
             <td>{{ loop.index + (subjects_page.page - 1) * subjects_page.per_page }}</td>
             <td><a class="text-dark" href="{{ url_for('browser.subject_view', subject=row.subject) }}">{{ row.subject | human_subject }}</a></td>
             <td>{{ row.opposition }}</td>
