@@ -13,6 +13,11 @@ def test_verify_page_renders(app, test_client):
         assert 'data-check="signature"' in body
         assert 'verdict-seal' in body
         assert 'verdict-reasons' in body
+        # The verdict mark uses a project-functional class, not a design-system
+        # one — base stays free of the proprietary hub vocabulary. The hub's CSS
+        # paints `.verdict-mark` (themed) at serve time via its seam.
+        assert 'verdict-mark' in body
+        assert 'seal-dot' not in body
         # super() in the scripts block must keep base's bundled JS (Bootstrap).
         assert 'bootstrap' in body
 
