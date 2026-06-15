@@ -25,7 +25,11 @@
 //   store (single record): get()->record|null, put(record), delete().
 //   passkey: isSupported()->bool, enroll(ids)->{credentialId, prfOutput},
 //            unlock(credentialId)->prfOutput (Uint8Array).
-import { NoSigningKeyError, UnsupportedError } from './gc-errors.mjs';
+import {
+  NoSigningKeyError,
+  UnsupportedError,
+  BadPassphraseError,
+} from './gc-errors.mjs';
 import { sealWithKey, openWithKey, deriveAesKey } from './gc-envelope.mjs';
 import { deriveKey } from './gc-backup.mjs';
 import { SigningKey } from './gc-signing-key.mjs';
@@ -100,7 +104,14 @@ async function unwrapDek(rec, { passkey } = {}, { passphrase } = {}) {
   if (passphrase != null && wraps.passphrase) {
     const w = wraps.passphrase;
     const kek = await deriveKey(passphrase, w.salt, w.iterations);
-    return new Uint8Array(await openWithKey(kek, w));
+    try {
+      return new Uint8Array(await openWithKey(kek, w));
+    } catch {
+      // Wrong passphrase -> GCM auth-tag failure. Surface a typed error (parity
+      // with gc-backup.importEncrypted) so consumers catch it uniformly; never
+      // leak the underlying WebCrypto OperationError.
+      throw new BadPassphraseError('wrong passphrase');
+    }
   }
   if (passkey && wraps.passkey) {
     const prfOutput = await passkey.unlock(wraps.passkey.credentialId);
