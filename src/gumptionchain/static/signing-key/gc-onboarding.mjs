@@ -55,14 +55,26 @@ export function makeOnboarding({
     }
   }
 
+  // Which unlock methods the STORED record is enrolled under, read from its
+  // wraps without unlocking. Stable order: passphrase, then passkey.
+  function enrolledMethods(rec) {
+    const wraps = (rec && rec.wraps) || {};
+    return ['passphrase', 'passkey'].filter((m) => Boolean(wraps[m]));
+  }
+
   async function status() {
     const rec = await store.get();
     const address = key ? await key.address() : (rec ? rec.address : null);
+    const methods = enrolledMethods(rec);
     return {
       hasKey: Boolean(rec),
       unlocked: Boolean(key),
       address,
+      // passkeySupported = device capability; passkeyEnrolled = stored state.
+      // Gate an "add a passkey" affordance on supported && !enrolled.
       passkeySupported: await passkeySupported(),
+      passkeyEnrolled: methods.includes('passkey'),
+      methods,
       secureContext: secureContext(),
     };
   }

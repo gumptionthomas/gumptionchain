@@ -144,7 +144,11 @@ Minimal use:
     import { makeOnboarding } from '/static/gumptionchain/signing-key/gc-onboarding.mjs';
     const onb = makeOnboarding({ rpId: location.hostname, rpName: 'My App' });
     onb.onChange(render);                       // app re-renders its own DOM
-    await onb.status();                         // { hasKey, unlocked, address, passkeySupported, secureContext }
+    await onb.status();                         // { hasKey, unlocked, address, secureContext,
+                                                //   passkeySupported,  // device capability
+                                                //   passkeyEnrolled,   // stored key has a passkey wrap
+                                                //   methods }          // e.g. ['passphrase','passkey']
+    // Gate an "add a passkey" affordance on: passkeySupported && !passkeyEnrolled
     await onb.create({ passphrase, withPasskey: true });
     await onb.unlock({ passphrase });           // or { passkey: true }
     const { artifact, filename } = await onb.backup({ passphrase });

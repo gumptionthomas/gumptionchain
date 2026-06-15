@@ -74,7 +74,10 @@ const onb = makeOnboarding({
 
 ```js
 await onb.status();
-// → { hasKey, unlocked, address|null, passkeySupported, secureContext }
+// → { hasKey, unlocked, address|null, secureContext,
+//     passkeySupported,   // device capability
+//     passkeyEnrolled,    // the stored record has a passkey wrap (added post-#280)
+//     methods }           // enrolled wrap names, e.g. ['passphrase','passkey']
 const off = onb.onChange(status => render(status)); // fires after every transition; returns unsubscribe
 ```
 

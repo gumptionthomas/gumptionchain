@@ -34,6 +34,28 @@ test('empty store: status reports no key, passkey off without an adapter', async
   assert.equal(s.address, null);
   assert.equal(s.passkeySupported, false);
   assert.equal(s.secureContext, true);
+  assert.deepEqual(s.methods, []);
+  assert.equal(s.passkeyEnrolled, false);
+});
+
+test('status reports enrolled methods (passphrase-only) from the record, no unlock', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
+  await onb.create({ passphrase: 'pw' });
+  await onb.lock(); // prove it reads wraps from the record, not the held key
+  const s = await onb.status();
+  assert.deepEqual(s.methods, ['passphrase']);
+  assert.equal(s.passkeyEnrolled, false);
+});
+
+test('status reports passkeyEnrolled + both methods after create-with-passkey', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
+  await onb.create({ passphrase: 'pw', withPasskey: true });
+  await onb.lock();
+  const s = await onb.status();
+  assert.deepEqual(s.methods, ['passphrase', 'passkey']);
+  assert.equal(s.passkeyEnrolled, true);
+  // capability vs enrollment are distinct signals
+  assert.equal(s.passkeySupported, true);
 });
 
 test('create persists + holds unlocked, and onChange fires with fresh status', async () => {
