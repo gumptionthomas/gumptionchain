@@ -65,7 +65,14 @@ export function makeOnboarding({
 
   async function notify() {
     const snapshot = await status();
-    for (const fn of listeners) fn(snapshot);
+    for (const fn of listeners) {
+      try {
+        fn(snapshot);
+      } catch {
+        // A consumer's onChange handler must not break the action or starve
+        // other listeners. Render errors are the app's problem, not ours.
+      }
+    }
   }
 
   function onChange(fn) {
@@ -110,12 +117,17 @@ export function makeOnboarding({
   }
 
   async function backup({ passphrase } = {}) {
-    if (!key) {
+    const wasLocked = !key;
+    if (wasLocked) {
       key = await keyring.unlock({ store }, { passphrase });
     }
     const artifact = await exportEncrypted(key, passphrase);
+    const filename = backupFilename(await key.address());
+    if (wasLocked) {
+      key = null; // a backup is a read; don't leave the key unlocked
+    }
     await notify();
-    return { artifact, filename: backupFilename(await key.address()) };
+    return { artifact, filename };
   }
 
   async function addPasskey({ passphrase, userName } = {}) {
