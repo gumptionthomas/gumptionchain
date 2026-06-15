@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { makeOnboarding, NoSigningKeyError } from './gc-onboarding.mjs';
+import {
+  makeOnboarding, NoSigningKeyError, BadPassphraseError,
+} from './gc-onboarding.mjs';
 import { verifyMessage } from './gc-message.mjs';
 
 function fakeStore() {
@@ -66,7 +68,10 @@ test('unlock by passphrase re-holds the key; wrong passphrase rejects', async ()
   assert.equal(r.address, address);
   assert.equal((await onb.status()).unlocked, true);
   await onb.lock();
-  await assert.rejects(() => onb.unlock({ passphrase: 'WRONG' }));
+  await assert.rejects(
+    () => onb.unlock({ passphrase: 'WRONG' }),
+    BadPassphraseError, // typed + catchable through the controller (#279)
+  );
 });
 
 test('passkey: create with passkey, unlock by passkey', async () => {

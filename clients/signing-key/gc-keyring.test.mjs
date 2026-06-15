@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SigningKey } from './gc-signing-key.mjs';
 import * as keyring from './gc-keyring.mjs';
+import { BadPassphraseError } from './gc-errors.mjs';
 
 // In-memory single-record store mirroring the gc-store-idb contract.
 function fakeStore() {
@@ -40,10 +41,15 @@ test('enroll(passphrase) then unlock(passphrase) recovers the same signing_key',
   assert.equal(await unlocked.address(), addr);
 });
 
-test('wrong passphrase fails closed (unlock rejects)', async () => {
+test('wrong passphrase fails closed with a typed BadPassphraseError', async () => {
   const store = fakeStore();
   await keyring.enroll(await SigningKey.generate(), { store }, { passphrase: 'right' });
-  await assert.rejects(() => keyring.unlock({ store }, { passphrase: 'wrong' }));
+  // Parity with gc-backup.importEncrypted: a wrong passphrase must surface as
+  // BadPassphraseError, not a raw WebCrypto OperationError (#279).
+  await assert.rejects(
+    () => keyring.unlock({ store }, { passphrase: 'wrong' }),
+    BadPassphraseError,
+  );
 });
 
 test('the stored record is always ciphertext (no plaintext b58/DEK leaks)', async () => {
