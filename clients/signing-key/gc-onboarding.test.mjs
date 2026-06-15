@@ -78,6 +78,21 @@ test('passkey: create with passkey, unlock by passkey', async () => {
   assert.equal(r.address, address);
 });
 
+test('create with withPasskey silently skips the passkey when unsupported (no throw)', async () => {
+  // An adapter that reports unsupported must NOT be enrolled — create gates on
+  // the live support state, not merely the adapter's presence.
+  const passkey = {
+    isSupported: async () => false,
+    enroll: async () => { throw new Error('enroll must not run when unsupported'); },
+    unlock: async () => { throw new Error('unlock must not run when unsupported'); },
+  };
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey });
+  assert.equal((await onb.status()).passkeySupported, false);
+  const { address } = await onb.create({ passphrase: 'pw', withPasskey: true });
+  assert.match(address, /^GC.*GC$/);
+  assert.equal((await onb.status()).unlocked, true);
+});
+
 test('backup yields an encrypted artifact (no raw key) + filename; restore into a fresh store recovers the same address', async () => {
   const onb1 = makeOnboarding({ store: fakeStore(), window: SECURE });
   const { address } = await onb1.create({ passphrase: 'pw' });

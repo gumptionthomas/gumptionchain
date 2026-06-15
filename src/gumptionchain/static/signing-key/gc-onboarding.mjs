@@ -43,22 +43,26 @@ export function makeOnboarding({
 
   const secureContext = () => Boolean(win && win.isSecureContext);
 
+  // Feature-detect passkey support: an adapter must exist, the context must be
+  // secure, and the adapter must report support (guarded — a throwing adapter
+  // counts as unsupported). Reused by status() and create().
+  async function passkeySupported() {
+    if (!(pk && secureContext())) return false;
+    try {
+      return await pk.isSupported();
+    } catch {
+      return false;
+    }
+  }
+
   async function status() {
     const rec = await store.get();
     const address = key ? await key.address() : (rec ? rec.address : null);
-    let passkeySupported = false;
-    if (pk && secureContext()) {
-      try {
-        passkeySupported = await pk.isSupported();
-      } catch {
-        passkeySupported = false;
-      }
-    }
     return {
       hasKey: Boolean(rec),
       unlocked: Boolean(key),
       address,
-      passkeySupported,
+      passkeySupported: await passkeySupported(),
       secureContext: secureContext(),
     };
   }
@@ -88,7 +92,7 @@ export function makeOnboarding({
     const sk = await SigningKey.generate();
     await keyring.enroll(sk, { store }, { passphrase });
     const address = await sk.address();
-    if (withPasskey && pk) {
+    if (withPasskey && (await passkeySupported())) {
       await keyring.addPasskey(
         { store, passkey: pk }, { passphrase }, passkeyIds(userName, address),
       );
