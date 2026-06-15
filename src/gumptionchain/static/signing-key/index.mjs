@@ -10,6 +10,9 @@ export const version = '0.2.0';
 // Identity / keys
 export { SigningKey } from './gc-signing-key.mjs';
 
+// Onboarding controller (headless create / back up / restore / unlock / sign-login)
+export { makeOnboarding } from './gc-onboarding.mjs';
+
 // API request signing (gc-sig-v1)
 export { canonical, signHeaders } from './gc-sig.mjs';
 

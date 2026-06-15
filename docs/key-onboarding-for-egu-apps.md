@@ -126,13 +126,37 @@ Reusable building blocks (don't reinvent them):
 
 ---
 
-## Recommended follow-up
+## The reusable drop-in (shipped)
 
-Base should extract the hub's onboarding into a **reusable drop-in** — a base
-template/partial plus glue that an app can `include`/mount — so apps adopt the
-proper flow by inclusion rather than reimplementation, and improvements land
-once for everyone. Until then, treat the hub's `onboarding.html` as the
-reference to copy.
+Base ships **`gc-onboarding.mjs`** — a headless, style-agnostic controller that
+orchestrates the modules above into the full flow. The consuming app owns all
+DOM/CSS and drives the controller; logic and improvements land once for everyone.
+
+Served at `/static/gumptionchain/signing-key/gc-onboarding.mjs`. Non-node
+consumers that don't register the chain-explorer blueprint can mount the assets
+with `static_assets_blueprint()`:
+
+    from gumptionchain import static_assets_blueprint
+    app.register_blueprint(static_assets_blueprint())  # serves /static/gumptionchain/...
+
+Minimal use:
+
+    import { makeOnboarding } from '/static/gumptionchain/signing-key/gc-onboarding.mjs';
+    const onb = makeOnboarding({ rpId: location.hostname, rpName: 'My App' });
+    onb.onChange(render);                       // app re-renders its own DOM
+    await onb.status();                         // { hasKey, unlocked, address, passkeySupported, secureContext }
+    await onb.create({ passphrase, withPasskey: true });
+    await onb.unlock({ passphrase });           // or { passkey: true }
+    const { artifact, filename } = await onb.backup({ passphrase });
+    await onb.restore({ backup, passphrase });
+    const proof = await onb.signLogin(challenge); // gc-msg-v1, POST to your server
+    onb.lock();
+
+Auto-lock is the app's policy — wire it to your own lifecycle, e.g.:
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) onb.lock();
+    });
 
 ---
 

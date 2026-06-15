@@ -26,6 +26,10 @@ from flask import Flask
 from flask.cli import FlaskGroup
 from flask_migrate import Migrate
 
+from gumptionchain.static_assets import (
+    static_assets_blueprint as static_assets_blueprint,
+)
+
 __version__ = _pkg_version('gumptionchain')
 
 # Package-relative migrations path so `gumptionchain init` / `gumptionchain db
