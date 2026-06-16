@@ -26,6 +26,9 @@ from flask import Flask
 from flask.cli import FlaskGroup
 from flask_migrate import Migrate
 
+from gumptionchain.node_proxy import (
+    node_proxy_blueprint as node_proxy_blueprint,
+)
 from gumptionchain.static_assets import (
     static_assets_blueprint as static_assets_blueprint,
 )
