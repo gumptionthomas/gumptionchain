@@ -8,6 +8,7 @@ import { makeIdbStore } from './gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from './gc-backup.mjs';
 import { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
 import { signMessage } from './gc-message.mjs';
+import { signUnsignedTxn } from './gc-transaction.mjs';
 import {
   NoSigningKeyError,
   UnsupportedError,
@@ -164,6 +165,15 @@ export function makeOnboarding({
     return signMessage(key, challenge, { timestamp });
   }
 
+  async function signTransaction(unsigned) {
+    if (!key) {
+      throw new NoSigningKeyError('locked: unlock before signing a transaction');
+    }
+    // signUnsignedTxn recomputes the txid and throws on mismatch, so a
+    // dishonest node can't get a signature over fields the user didn't authorize.
+    return signUnsignedTxn(unsigned, key);
+  }
+
   async function lock() {
     key = null;
     await notify();
@@ -177,6 +187,6 @@ export function makeOnboarding({
 
   return {
     status, onChange, create, unlock, restore, backup, addPasskey,
-    signLogin, lock, forget,
+    signLogin, signTransaction, lock, forget,
   };
 }
