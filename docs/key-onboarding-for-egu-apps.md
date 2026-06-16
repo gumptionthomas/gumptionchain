@@ -154,6 +154,7 @@ Minimal use:
     const { artifact, filename } = await onb.backup({ passphrase });
     await onb.restore({ backup, passphrase });
     const proof = await onb.signLogin(challenge); // gc-msg-v1, POST to your server
+    const signed = await onb.signTransaction(unsigned); // sign a node-built txn (GRIT spend)
     onb.lock();
 
 Auto-lock is the app's policy — wire it to your own lifecycle, e.g.:
@@ -161,6 +162,22 @@ Auto-lock is the app's policy — wire it to your own lifecycle, e.g.:
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) onb.lock();
     });
+
+### Spending GRIT — the node-proxy blueprint
+
+For **spending GRIT** (support/oppose a subject), base also ships a
+`node_proxy_blueprint(make_client)` — a browser-facing JSON relay over the node
+client that keeps the node host server-side. A consumer mounts it like
+`static_assets_blueprint()`:
+
+    from gumptionchain import node_proxy_blueprint
+    app.register_blueprint(node_proxy_blueprint(make_client))  # () -> ApiClient
+
+Flow: `GET /api/node/balance/<address>` (confirmed GRIT) → `POST /api/node/txn/support`
+or `…/txn/oppose` `{public_key, amount_grit, subject}` → `onb.signTransaction(unsigned)`
+→ `POST /api/node/txn/submit {signed}` → poll `GET /api/node/txn/<txid>/status`.
+Amounts are whole/2-dp GRIT; the proxy converts to grains. The `make_client`
+callable must hold a node key with TRANSACTOR (build/submit) + READER (reads).
 
 ---
 

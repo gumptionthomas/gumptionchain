@@ -5,6 +5,9 @@ import {
   makeOnboarding, NoSigningKeyError, BadPassphraseError,
 } from './gc-onboarding.mjs';
 import { verifyMessage } from './gc-message.mjs';
+import { SigningKey } from './gc-signing-key.mjs';
+import { exportEncrypted } from './gc-backup.mjs';
+import { txid as txnTxid, signingData } from './gc-transaction.mjs';
 
 function fakeStore() {
   let rec = null;
@@ -157,4 +160,34 @@ test('forget deletes the device record', async () => {
   const s = await onb.status();
   assert.equal(s.hasKey, false);
   assert.equal(s.unlocked, false);
+});
+
+test('signTransaction: throws when locked; signs a node-built unsigned txn when unlocked', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
+  await assert.rejects(() => onb.signTransaction({ txid: 'x' }), NoSigningKeyError);
+
+  // Inject a KNOWN key via restore so the test controls address/public_key.
+  const k = await SigningKey.generate();
+  const backup = await exportEncrypted(k, 'pw');
+  await onb.restore({ backup, passphrase: 'pw' });
+
+  // Build a self-consistent unsigned support txn, as the node would return one.
+  const base = {
+    timestamp: '1700000000',
+    address: await k.address(),
+    public_key: await k.publicKeyB64(),
+    signature: null,
+    inflows: [],
+    outflows: [{ amount: 100, support: 'Z29ibGlucw' }],
+    version: '1',
+    prev_hash: null,
+  };
+  const unsigned = { ...base, txid: await txnTxid(base) };
+
+  const signed = await onb.signTransaction(unsigned);
+  assert.equal(signed.address, await k.address());
+  assert.equal(signed.public_key, await k.publicKeyB64());
+  assert.equal(typeof signed.signature, 'string');
+  // The signature is real: it verifies over the canonical signing data.
+  assert.equal(await k.verify(signingData(signed), signed.signature), true);
 });
