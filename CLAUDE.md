@@ -107,7 +107,7 @@ Domain objects own validation, serialization (Marshmallow schemas in `schema.py`
 
 ### Proof of work
 
-`milling.mill_hash = sha256(sha512(data))`. The block header (`Block.unproven_header`) concatenates `idx,timestamp,prev_hash,target,merkle_root,version,` plus a trailing `proof_of_work` integer. Difficulty retargets every `TARGET_INTERVAL = 2016` blocks (`chain.Chain.block_target`) toward `TARGET_GOAL_SECONDS = 600` (10 min), clamped to ×4 / ÷4 per interval. `MAX_TARGET` (in production) has 6 leading hex zeros; tests patch it to `F * 64` via the session-scoped `easy_mill_chain` fixture so blocks mine instantly. `gumptionchain mill --multi` uses a `multiprocessing.Pool`; those tests are gated behind `--runmulti`.
+`milling.mill_hash = sha256(sha512(data))`. The block header (`Block.unproven_header`) concatenates `idx,timestamp,prev_hash,target,merkle_root,version,` plus a trailing `proof_of_work` integer. Difficulty retargets every `TARGET_INTERVAL = 24` blocks (`chain.Chain.block_target`) toward `TARGET_GOAL_SECONDS = 300` (5 min), clamped to ×4 / ÷4 per interval. `MAX_TARGET` (in production) has 5 leading hex zeros; tests patch it to `F * 64` via the session-scoped `easy_mill_chain` fixture so blocks mine instantly. `gumptionchain mill --multi` uses a `multiprocessing.Pool`; those tests are gated behind `--runmulti`.
 
 ### API authentication
 
