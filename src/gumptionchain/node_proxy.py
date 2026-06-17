@@ -125,9 +125,8 @@ def node_proxy_blueprint(
         support = int(
             _ok(_call(client.get_support_balance, enc)).json()['support']
         )
-        # The node's /opposition endpoint returns grains under "balance" (#283).
         opp = int(
-            _ok(_call(client.get_opposition_balance, enc)).json()['balance']
+            _ok(_call(client.get_opposition_balance, enc)).json()['opposition']
         )
         return jsonify(
             {

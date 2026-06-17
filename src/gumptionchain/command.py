@@ -1070,7 +1070,7 @@ def opposition_balance(
     try:
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_opposition_balance(encode_subject(subject))
-        balance = r.json().get('balance')
+        balance = r.json().get('opposition')
         console.print(f'{human_grains(balance)} GRIT', style='success')
     except httpx.HTTPStatusError as e:
         console.print(

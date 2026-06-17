@@ -755,7 +755,7 @@ class OppositionBalanceView(MethodView):
                 balance = lc.opposition_balance(subject)
                 cache.set(key, balance)
             return make_json_response(
-                {'balance': balance, 'as_of_block': block_hash}
+                {'opposition': balance, 'as_of_block': block_hash}
             )
         except GCError as err:
             return make_error_response(err)

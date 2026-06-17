@@ -78,14 +78,14 @@ def test_balance_converts_grains_to_grit():
 def test_subject_balances_normalizes_and_converts():
     client = FakeClient(
         support=FakeResponse(200, {'support': 500, 'as_of_block': 'b1'}),
-        opposition=FakeResponse(200, {'balance': 300, 'as_of_block': 'b1'}),
+        opposition=FakeResponse(200, {'opposition': 300, 'as_of_block': 'b1'}),
     )
     resp = _app(client).get(
         '/api/node/subject/balances?subject=Tabs %3E Spaces'
     )
     assert resp.status_code == 200
-    # Proves normalization: support.grains came from the node's "support" key
-    # while opposition.grains came from the node's "balance" key (#283).
+    # support.grains comes from the node's "support" key, opposition.grains
+    # from its now-symmetric "opposition" key (#283).
     assert resp.get_json() == {
         'subject': 'Tabs > Spaces',
         'support': {'grit': 5.0, 'grains': 500},
