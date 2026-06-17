@@ -79,6 +79,23 @@ def test_search_ranks_by_total_and_caps(
         assert [r.subject for r in top] == ['Tankard']
 
 
+def test_opposition_balance_endpoint_uses_symmetric_key(
+    app, host, mill_block, requests_proxy, signing_key, reader_signing_key
+):
+    # The /opposition balance endpoint returns grains under "opposition",
+    # symmetric with /support's "support" key (#283) — not the old "balance".
+    sub = encode_subject('loud chewing')
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        _stake(host, m.longest_chain, signing_key, oppose=(sub, 200))
+        mill_block(signing_key)
+    client = ApiClient(host, reader_signing_key)
+    body = client.get_opposition_balance(sub).json()
+    assert body['opposition'] == 200
+    assert 'balance' not in body
+    assert 'as_of_block' in body
+
+
 def test_search_blank_query_returns_nothing(
     app, host, mill_block, requests_proxy, signing_key
 ):
