@@ -558,7 +558,9 @@ class Chain:
     def subject_leaderboard(self, limit: int | None = None) -> Select[Any]:
         return self.to_dao().subject_leaderboard(limit)
 
-    def search_subjects(self, query: str, limit: int = 8) -> Select[Any]:
+    def search_subjects(
+        self, query: str, limit: int | None = None
+    ) -> Select[Any]:
         return self.to_dao().search_subjects(query, limit)
 
     def recent_blocks(self, count: int = 10) -> list[Block]:

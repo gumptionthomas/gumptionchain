@@ -926,10 +926,11 @@ class ChainDAO(Base):
         return stmt  # type: ignore[no-any-return]
 
     def search_subjects(
-        self, query: str, limit: int = _SEARCH_LIMIT_DEFAULT
+        self, query: str, limit: int | None = None
     ) -> Select[Any]:
         q = (query or '').strip()
-        bounded = max(1, min(int(limit), _SEARCH_LIMIT_MAX))
+        effective = _SEARCH_LIMIT_DEFAULT if limit is None else int(limit)
+        bounded = max(1, min(effective, _SEARCH_LIMIT_MAX))
 
         def _leg(stake_col: Any, kind: StakeKind) -> Select[Any]:
             stmt = self.outflows.where(stake_col.is_not(None))
