@@ -808,9 +808,9 @@ class SubjectSearchView(MethodView):
             if lc is None:
                 raise EmptyChainError()
             q = request.args.get('q', default='', type=str)
-            limit = request.args.get('limit', default=8, type=int)
-            if limit is None:
-                limit = 8
+            # type=int yields None for a missing or non-integer value; the
+            # DAO normalizes None to its default and clamps the range.
+            limit = request.args.get('limit', type=int)
             rows = db.session.execute(lc.search_subjects(q, limit)).all()
             subjects = [
                 {
