@@ -49,8 +49,10 @@ and a dedicated index table (over-built for now).
 
 ## Match semantics (shipped)
 
-- **Prefix, case-insensitive.** `lower(subject_plain) LIKE lower(:q) || '%'`.
-  Left-anchored, so the `lower()` expression index is used as a real seek.
+- **Prefix, case-insensitive.** `subject_lower LIKE :q_lower || '%'` (the query
+  lowercased in Python, LIKE metacharacters escaped). Left-anchored, so the
+  plain index on `subject_lower` (`ix_outflow_subject_lower`) is used as a real
+  seek.
 - Subjects are **case-sensitive literals** — `"Tabs > Spaces"` ≠
   `"tabs > spaces"` are distinct subjects. We match loosely (case-insensitive)
   but **return the exact canonical string**, never an altered one.
@@ -106,8 +108,9 @@ A leaderboard-shaped query, filtered by the plaintext prefix:
 - Order by `total` desc (tiebreak by subject), `LIMIT :limit`.
 - Returns rows of `(subject_plain canonical, opposition_grains, support_grains,
   total_grains)` — **grains** (internal units).
-- Guard: a query that is empty or whitespace-only after `strip()` returns an
-  empty result without touching the DB.
+- Guard: a query that is empty or whitespace-only after `strip()` matches
+  nothing — each leg's predicate becomes `false()`, so the statement executes
+  but returns no rows (never dumps the whole set).
 - `limit` is clamped to a sane ceiling (e.g. `1..50`) to bound result size.
 
 Returns canonical plaintext directly (grouping key is the subject), so no
