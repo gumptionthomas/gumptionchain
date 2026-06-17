@@ -23,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gumptionchain.database import Base, db
-from gumptionchain.payload import StakeKind
+from gumptionchain.payload import StakeKind, decode_subject
 
 # Chain-factory returns below carry `# type: ignore[no-any-return]` because
 # Flask-SQLAlchemy's `db.select` / `db.aliased` / `db.desc` facade methods
@@ -123,6 +123,8 @@ class OutflowDAO(Base):
     opposition: Mapped[str | None] = mapped_column(String(500))
     rescind: Mapped[str | None] = mapped_column(String(500))
     support: Mapped[str | None] = mapped_column(String(500))
+    subject_plain: Mapped[str | None] = mapped_column(String(500))
+    subject_lower: Mapped[str | None] = mapped_column(String(500))
     rescind_kind: Mapped[str | None] = mapped_column(String(16))
     transaction_id: Mapped[int] = mapped_column(
         Integer, ForeignKey('transaction.id')
@@ -141,7 +143,22 @@ class OutflowDAO(Base):
         db.Index('ix_outflow_address', 'address'),
         db.Index('ix_outflow_opposition', 'opposition'),
         db.Index('ix_outflow_support', 'support'),
+        db.Index('ix_outflow_subject_lower', 'subject_lower'),
     )
+
+    @staticmethod
+    def _derive_subject_plain(
+        opposition: str | None, support: str | None
+    ) -> str | None:
+        encoded = opposition if opposition is not None else support
+        if encoded is None:
+            return None
+        try:
+            return decode_subject(encoded)
+        except Exception:
+            # Subjects are validated upstream; a decode failure must never
+            # break row construction. Leave the searchable columns null.
+            return None
 
     def __init__(
         self,
@@ -164,6 +181,9 @@ class OutflowDAO(Base):
             self.rescind = rescind
             self.support = support
             self.rescind_kind = rescind_kind
+            plain = self._derive_subject_plain(opposition, support)
+            self.subject_plain = plain
+            self.subject_lower = plain.lower() if plain is not None else None
             self.transaction = transaction_dao or None  # type: ignore[assignment]
 
     @classmethod
