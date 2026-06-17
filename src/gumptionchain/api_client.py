@@ -330,3 +330,17 @@ class ApiClient:
             timeout=timeout,
             raise_for_status=raise_for_status,
         )
+
+    def get_subject_search(
+        self,
+        query: str,
+        limit: int = 8,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> httpx.Response:
+        return self.get(
+            '/api/subjects/search',
+            params={'q': query, 'limit': str(limit)},
+            timeout=timeout,
+            raise_for_status=raise_for_status,
+        )

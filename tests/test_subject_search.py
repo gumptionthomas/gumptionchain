@@ -139,3 +139,18 @@ def test_search_endpoint_blank_query_is_empty(
     resp = client.get('/api/subjects/search', params={'q': '', 'limit': '8'})
     assert resp.status_code == 200
     assert resp.json()['subjects'] == []
+
+
+def test_api_client_get_subject_search_round_trips(
+    app, host, mill_block, requests_proxy, signing_key, reader_signing_key
+):
+    tabs = encode_subject('Tabs')
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        _stake(host, m.longest_chain, signing_key, oppose=(tabs, 75))
+        mill_block(signing_key)
+    resp = ApiClient(host, reader_signing_key).get_subject_search('tab', 8)
+    assert resp.status_code == 200
+    assert resp.json()['subjects'] == [
+        {'subject': 'Tabs', 'opposition': 75, 'support': 0}
+    ]
