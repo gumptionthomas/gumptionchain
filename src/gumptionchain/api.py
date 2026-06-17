@@ -799,3 +799,40 @@ blueprint.add_url_rule(
     ),
     methods=['GET'],
 )
+
+
+class SubjectSearchView(MethodView):
+    def get(self, **kwargs: Any) -> Response:
+        try:
+            _, lc, _ = node_lc_dao()
+            if lc is None:
+                raise EmptyChainError()
+            q = request.args.get('q', default='', type=str)
+            limit = request.args.get('limit', default=8, type=int)
+            if limit is None:
+                limit = 8
+            rows = db.session.execute(lc.search_subjects(q, limit)).all()
+            subjects = [
+                {
+                    'subject': r.subject,
+                    'opposition': int(r.opposition),
+                    'support': int(r.support),
+                }
+                for r in rows
+            ]
+            return make_json_response(
+                {'subjects': subjects, 'as_of_block': lc.block_hash}
+            )
+        except GCError as err:
+            return make_error_response(err)
+        except Exception as e:
+            exception_response(e)
+
+
+blueprint.add_url_rule(
+    '/subjects/search',
+    view_func=authorize_reader(
+        SubjectSearchView.as_view('subjects_search_reader')
+    ),
+    methods=['GET'],
+)

@@ -106,3 +106,36 @@ def test_search_escapes_like_metacharacters(
         dao = m.longest_chain.to_dao()
         rows = db.session.execute(dao.search_subjects('50%', 8)).all()
         assert [r.subject for r in rows] == ['50% off']
+
+
+def test_search_endpoint_returns_shape(
+    app, host, mill_block, requests_proxy, signing_key, reader_signing_key
+):
+    tabs = encode_subject('Tabs')
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        _stake(host, m.longest_chain, signing_key, oppose=(tabs, 250))
+        mill_block(signing_key)
+
+    client = ApiClient(host, reader_signing_key)
+    resp = client.get('/api/subjects/search', params={'q': 'tab', 'limit': '8'})
+    body = resp.json()
+    assert resp.status_code == 200
+    assert body['subjects'] == [
+        {'subject': 'Tabs', 'opposition': 250, 'support': 0}
+    ]
+    assert 'as_of_block' in body
+
+
+def test_search_endpoint_blank_query_is_empty(
+    app, host, mill_block, requests_proxy, signing_key, reader_signing_key
+):
+    sub = encode_subject('Tabs')
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        _stake(host, m.longest_chain, signing_key, oppose=(sub, 100))
+        mill_block(signing_key)
+    client = ApiClient(host, reader_signing_key)
+    resp = client.get('/api/subjects/search', params={'q': '', 'limit': '8'})
+    assert resp.status_code == 200
+    assert resp.json()['subjects'] == []
