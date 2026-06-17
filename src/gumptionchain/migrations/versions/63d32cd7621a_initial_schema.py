@@ -115,6 +115,8 @@ def upgrade():
     sa.Column('opposition', sa.String(length=500), nullable=True),
     sa.Column('rescind', sa.String(length=500), nullable=True),
     sa.Column('support', sa.String(length=500), nullable=True),
+    sa.Column('subject_plain', sa.String(length=500), nullable=True),
+    sa.Column('subject_lower', sa.String(length=500), nullable=True),
     sa.Column('rescind_kind', sa.String(length=16), nullable=True),
     sa.Column('transaction_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['transaction_id'], ['transaction.id'], name=op.f('fk_outflow_transaction_transaction_id')),
@@ -127,6 +129,7 @@ def upgrade():
         batch_op.create_index('ix_outflow_address', ['address'], unique=False)
         batch_op.create_index('ix_outflow_opposition', ['opposition'], unique=False)
         batch_op.create_index('ix_outflow_support', ['support'], unique=False)
+        batch_op.create_index('ix_outflow_subject_lower', ['subject_lower'], unique=False)
 
     op.create_table('inflow',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -172,6 +175,7 @@ def downgrade():
 
     op.drop_table('inflow')
     with op.batch_alter_table('outflow', schema=None) as batch_op:
+        batch_op.drop_index('ix_outflow_subject_lower')
         batch_op.drop_index('ix_outflow_support')
         batch_op.drop_index('ix_outflow_opposition')
         batch_op.drop_index('ix_outflow_address')

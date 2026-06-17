@@ -23,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gumptionchain.database import Base, db
-from gumptionchain.payload import StakeKind
+from gumptionchain.payload import StakeKind, decode_subject
 
 # Chain-factory returns below carry `# type: ignore[no-any-return]` because
 # Flask-SQLAlchemy's `db.select` / `db.aliased` / `db.desc` facade methods
@@ -35,6 +35,18 @@ from gumptionchain.payload import StakeKind
 
 def rollback_session() -> None:
     db.session.rollback()
+
+
+_SEARCH_LIMIT_DEFAULT = 8
+_SEARCH_LIMIT_MAX = 50
+
+
+def _search_like_pattern(query: str) -> str:
+    """Left-anchored LIKE pattern with metacharacters escaped (escape '\\')."""
+    escaped = (
+        query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    )
+    return f'{escaped}%'
 
 
 block_transactions = db.Table(
@@ -123,6 +135,8 @@ class OutflowDAO(Base):
     opposition: Mapped[str | None] = mapped_column(String(500))
     rescind: Mapped[str | None] = mapped_column(String(500))
     support: Mapped[str | None] = mapped_column(String(500))
+    subject_plain: Mapped[str | None] = mapped_column(String(500))
+    subject_lower: Mapped[str | None] = mapped_column(String(500))
     rescind_kind: Mapped[str | None] = mapped_column(String(16))
     transaction_id: Mapped[int] = mapped_column(
         Integer, ForeignKey('transaction.id')
@@ -141,7 +155,23 @@ class OutflowDAO(Base):
         db.Index('ix_outflow_address', 'address'),
         db.Index('ix_outflow_opposition', 'opposition'),
         db.Index('ix_outflow_support', 'support'),
+        db.Index('ix_outflow_subject_lower', 'subject_lower'),
     )
+
+    @staticmethod
+    def _derive_subject_plain(
+        opposition: str | None, support: str | None
+    ) -> str | None:
+        encoded = opposition if opposition is not None else support
+        if encoded is None:
+            return None
+        try:
+            return decode_subject(encoded)
+        except (TypeError, ValueError):
+            # Subjects are validated upstream; a decode failure (bad padding
+            # → TypeError; bad base64/UTF-8 → ValueError subclasses) must
+            # never break row construction. Leave the searchable columns null.
+            return None
 
     def __init__(
         self,
@@ -164,6 +194,9 @@ class OutflowDAO(Base):
             self.rescind = rescind
             self.support = support
             self.rescind_kind = rescind_kind
+            plain = self._derive_subject_plain(opposition, support)
+            self.subject_plain = plain
+            self.subject_lower = plain.lower() if plain is not None else None
             self.transaction = transaction_dao or None  # type: ignore[assignment]
 
     @classmethod
@@ -891,6 +924,49 @@ class ChainDAO(Base):
             stmt = stmt.limit(limit)
             return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]
         return stmt  # type: ignore[no-any-return]
+
+    def search_subjects(
+        self, query: str, limit: int | None = None
+    ) -> Select[Any]:
+        q = (query or '').strip()
+        effective = _SEARCH_LIMIT_DEFAULT if limit is None else int(limit)
+        bounded = max(1, min(effective, _SEARCH_LIMIT_MAX))
+
+        def _leg(stake_col: Any, kind: StakeKind) -> Select[Any]:
+            stmt = self.outflows.where(stake_col.is_not(None))
+            stmt = stmt.where(self._unspent_clause())
+            if q:
+                stmt = stmt.where(
+                    OutflowDAO.subject_lower.like(
+                        _search_like_pattern(q.lower()), escape='\\'
+                    )
+                )
+            else:
+                stmt = stmt.where(false())
+            stmt = stmt.with_only_columns(
+                OutflowDAO.subject_plain.label('subject'),
+                OutflowDAO.amount.label('amount'),
+                db.literal(kind).label('kind'),
+            )
+            return stmt.order_by(None)
+
+        opp = _leg(OutflowDAO.opposition, 'opposition')
+        sup = _leg(OutflowDAO.support, 'support')
+        union = opp.union_all(sup).subquery()
+        stmt = db.select(
+            union.c.subject,
+            db.func.sum(
+                db.case((union.c.kind == 'opposition', union.c.amount), else_=0)
+            ).label('opposition'),
+            db.func.sum(
+                db.case((union.c.kind == 'support', union.c.amount), else_=0)
+            ).label('support'),
+            db.func.sum(union.c.amount).label('total'),
+        )
+        stmt = stmt.group_by(union.c.subject)
+        stmt = stmt.order_by(db.desc('total'), union.c.subject)
+        stmt = stmt.limit(bounded)
+        return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]
 
     def _is_longest(self) -> bool:
         """True iff this ChainDAO row is currently the longest chain.
