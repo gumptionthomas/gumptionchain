@@ -69,13 +69,19 @@ In `OutflowDAO` (`models.py`):
 
 - Add `subject_plain: Mapped[str | None] = mapped_column(String(500))` — the
   **decoded canonical plaintext** of whichever stake column is set.
-- Populate it in `__init__`: when `opposition` or `support` is non-`None`, set
-  `self.subject_plain = decode_subject(opposition or support)`; otherwise
-  `None` (address / rescind outflows carry no searchable subject). Decode
-  defensively — subjects are validated upstream, but a decode failure must not
-  break row construction (fall back to `None`).
-- Add an expression index:
-  `db.Index('ix_outflow_subject_plain_lower', db.func.lower(subject_plain))`.
+- Add a sibling `subject_plain.lower()` column, `subject_lower` — the
+  matched-against form (the canonical `subject_plain` is what's returned).
+- Populate both in `__init__`: when `opposition` or `support` is non-`None`, set
+  `subject_plain = decode_subject(opposition or support)` and
+  `subject_lower = subject_plain.lower()`; otherwise `None` (address / rescind
+  outflows carry no searchable subject). Decode defensively — subjects are
+  validated upstream, but a decode failure must not break row construction (fall
+  back to `None`).
+- Add a **plain** index `db.Index('ix_outflow_subject_lower', 'subject_lower')`.
+  (Two columns + a plain index rather than one column + a `lower()` **expression
+  index**: SQLite reflects expression indexes imperfectly, so `gumptionchain db
+  check` reports a phantom diff; a stored lowercased column sidesteps that and
+  gives Unicode-correct folding via Python `.lower()`.)
 
 **Migration (greenfield):** fold the column + index into the **baseline**
 migration `63d32cd7621a_initial_schema.py` rather than stacking a new revision —
@@ -95,7 +101,8 @@ A leaderboard-shaped query, filtered by the plaintext prefix:
 
 - Same union shape as `subject_leaderboard`: unspent opposition leg + support
   leg (`_unspent_clause`), grouped by subject, `sum` per kind, `total`.
-- Add `WHERE lower(subject_plain) LIKE lower(:query) || '%'` on each leg.
+- Add `WHERE subject_lower LIKE :query_lower || '%'` (LIKE metacharacters in the
+  query escaped) on each leg.
 - Order by `total` desc (tiebreak by subject), `LIMIT :limit`.
 - Returns rows of `(subject_plain canonical, opposition_grains, support_grains,
   total_grains)` — **grains** (internal units).
@@ -186,7 +193,7 @@ browser typeahead (debounced)
   → GET /api/node/subject/search?q=tab&limit=8        (proxy, base or consumer app)
     → ApiClient.get_subject_search("tab", 8)          (signs gc-sig-v1, node host server-side)
       → GET /api/subjects/search?q=tab&limit=8         (node, authorize_reader)
-        → ChainDAO.search_subjects("tab", 8)           (SQL: lower(subject_plain) LIKE 'tab%')
+        → ChainDAO.search_subjects("tab", 8)           (SQL: subject_lower LIKE 'tab%')
         ← [{subject, opposition_grains, support_grains, total}]
       ← {subjects:[{subject, opposition, support}], as_of_block}   (grains)
     ← grains→GRIT via _grit()
@@ -222,8 +229,8 @@ On merge, report to the gumptactoe session (in the PR + a summary):
 2. **Match semantics shipped:** prefix, case-insensitive, index-accelerated;
    ranked by total stake desc; default limit 8 (clamped).
 3. **Index added:** `OutflowDAO.subject_plain` (decoded canonical) +
-   `ix_outflow_subject_plain_lower`; folded into baseline; no backfill
-   (greenfield).
+   `subject_lower` (indexed `ix_outflow_subject_lower`); folded into baseline;
+   no backfill (greenfield).
 4. The **merge commit SHA** to pin in gumptactoe's `[tool.uv.sources]`.
 5. Any deviations.
 
