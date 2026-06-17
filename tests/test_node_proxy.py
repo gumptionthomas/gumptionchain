@@ -131,6 +131,16 @@ def test_subject_search_maps_node_down_to_502():
     assert resp.status_code == 502
 
 
+def test_subject_search_blank_query_relays_empty():
+    # A blank q is forwarded as-is; the node returns no subjects and the
+    # proxy passes the empty list straight through (never dumps the set).
+    client = FakeClient(search=FakeResponse(200, {'subjects': []}))
+    resp = _app(client).get('/api/node/subject/search?q=')
+    assert resp.status_code == 200
+    assert resp.get_json() == {'subjects': []}
+    assert client.calls[0][1] == ('', '8')
+
+
 def test_subject_balances_rejects_bad_subject():
     client = FakeClient()
     resp = _app(client).get('/api/node/subject/balances?subject=')
