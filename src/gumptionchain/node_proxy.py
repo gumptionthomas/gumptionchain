@@ -137,6 +137,22 @@ def node_proxy_blueprint(
             }
         )
 
+    @bp.get('/subject/search')
+    def subject_search() -> Response:
+        q = request.args.get('q', '')
+        limit = request.args.get('limit', '8')
+        r = _ok(_call(make_client().get_subject_search, q, limit))
+        body = r.json()
+        subjects = [
+            {
+                'subject': row['subject'],
+                'support': _grit(int(row['support'])),
+                'opposition': _grit(int(row['opposition'])),
+            }
+            for row in body.get('subjects', [])
+        ]
+        return jsonify({'subjects': subjects})
+
     def _build(method_name: str) -> Response:
         data = request.get_json(silent=True) or {}
         public_key = data.get('public_key')

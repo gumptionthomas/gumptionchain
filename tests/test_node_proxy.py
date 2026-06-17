@@ -40,6 +40,9 @@ class FakeClient:
     def get_opposition_balance(self, subject, *, raise_for_status=True):
         return self._resp('opposition', subject)
 
+    def get_subject_search(self, query, limit, *, raise_for_status=True):
+        return self._resp('search', query, limit)
+
     def get_support_transaction(
         self, pk, amount, subject, *, raise_for_status=True
     ):
@@ -88,6 +91,44 @@ def test_subject_balances_normalizes_and_converts():
         'support': {'grit': 5.0, 'grains': 500},
         'opposition': {'grit': 3.0, 'grains': 300},
     }
+
+
+def test_subject_search_converts_grains_to_grit():
+    client = FakeClient(
+        search=FakeResponse(
+            200,
+            {
+                'subjects': [
+                    {'subject': 'Tabs', 'opposition': 300, 'support': 150},
+                    {'subject': 'Tango', 'opposition': 0, 'support': 50},
+                ],
+                'as_of_block': 'b1',
+            },
+        )
+    )
+    resp = _app(client).get('/api/node/subject/search?q=ta&limit=8')
+    assert resp.status_code == 200
+    assert resp.get_json() == {
+        'subjects': [
+            {
+                'subject': 'Tabs',
+                'support': {'grit': 1.5, 'grains': 150},
+                'opposition': {'grit': 3.0, 'grains': 300},
+            },
+            {
+                'subject': 'Tango',
+                'support': {'grit': 0.5, 'grains': 50},
+                'opposition': {'grit': 0.0, 'grains': 0},
+            },
+        ]
+    }
+    assert client.calls[0][1] == ('ta', '8')
+
+
+def test_subject_search_maps_node_down_to_502():
+    client = FakeClient(search=httpx.RequestError('boom'))
+    resp = _app(client).get('/api/node/subject/search?q=ta')
+    assert resp.status_code == 502
 
 
 def test_subject_balances_rejects_bad_subject():
