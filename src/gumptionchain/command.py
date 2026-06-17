@@ -1116,3 +1116,61 @@ def support_balance(
         )
     except Exception as e:
         console.print(f'Support balance failed: {e}', style='error')
+
+
+@subject_cli.command('search')
+@click.argument('query')
+@click.option(
+    '-h',
+    '--host',
+    default=None,
+    help='The API host to use (default from app config).',
+)
+@click.option(
+    '-w',
+    '--signing_key',
+    type=click.Path(exists=True),
+    default=None,
+    help='SigningKey file to use for API auth.',
+)
+@click.option(
+    '-n',
+    '--limit',
+    default=8,
+    show_default=True,
+    help='Maximum number of results (the node clamps to 1-50).',
+)
+@with_appcontext
+def subject_search(
+    query: str, host: str | None, signing_key: str | None, limit: int
+) -> None:
+    """Search subjects on the chain by case-insensitive prefix, ranked by
+       total GRIT at stake.
+
+    \b
+    QUERY is the raw (unencoded) subject prefix, e.g. "pine".
+    """
+    try:
+        client = host_api_client(host=host, signing_key_file=signing_key)
+        r = client.get_subject_search(query, limit)
+        subjects = r.json().get('subjects', [])
+        if not subjects:
+            console.print(f'No subjects matching {query!r}')
+            return
+        table = Table(title=f'Subjects matching {query!r}')
+        table.add_column('Subject')
+        table.add_column('Support', justify='right')
+        table.add_column('Opposition', justify='right')
+        for row in subjects:
+            table.add_row(
+                row['subject'],
+                f'{human_grains(row["support"])} GRIT',
+                f'{human_grains(row["opposition"])} GRIT',
+            )
+        console.print(table)
+    except httpx.HTTPStatusError as e:
+        console.print(
+            f'Subject search failed: {http_error_message(e)}', style='error'
+        )
+    except Exception as e:
+        console.print(f'Subject search failed: {e}', style='error')

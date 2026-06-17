@@ -4,12 +4,14 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import patch
 
+from gumptionchain.api_client import ApiClient
 from gumptionchain.application import create_clients
 from gumptionchain.block import Block
 from gumptionchain.chain import GRAIN_PER_GRIT, REWARD
 from gumptionchain.database import db
 from gumptionchain.miller import Miller
 from gumptionchain.node import Node
+from gumptionchain.payload import encode_subject
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.util import now
 
@@ -288,6 +290,33 @@ def test_empty_chain(app, runner, requests_proxy, subject_raw, signing_key):
         )
         result = run_txn_opposition(runner, subject_raw, txn_signing_key, txnwf)
         assert 'Opposition failed: EmptyChainError' in result.output
+
+
+def test_subject_search(
+    app, mill_block, runner, requests_proxy, host, signing_key
+):
+    with app.app_context():
+        m, _ = mill_block(signing_key)
+        sub = encode_subject('pineapple on pizza')
+        txn = m.longest_chain.create_support(signing_key, 100, sub)
+        txn.sign()
+        ApiClient(host, signing_key).post_transaction(txn)
+        mill_block(signing_key)
+
+        result = runner.invoke(args=['subject', 'search', 'pine'])
+        assert result.exit_code == 0
+        assert 'pineapple' in result.output
+        assert 'GRIT' in result.output
+
+
+def test_subject_search_no_matches(
+    app, mill_block, runner, requests_proxy, signing_key
+):
+    with app.app_context():
+        mill_block(signing_key)
+        result = runner.invoke(args=['subject', 'search', 'zzznomatch'])
+        assert result.exit_code == 0
+        assert 'No subjects matching' in result.output
 
 
 def run_txn_rescind(
