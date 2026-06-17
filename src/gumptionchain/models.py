@@ -37,6 +37,18 @@ def rollback_session() -> None:
     db.session.rollback()
 
 
+_SEARCH_LIMIT_DEFAULT = 8
+_SEARCH_LIMIT_MAX = 50
+
+
+def _search_like_pattern(query: str) -> str:
+    """Left-anchored LIKE pattern with metacharacters escaped (escape '\\')."""
+    escaped = (
+        query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    )
+    return f'{escaped}%'
+
+
 block_transactions = db.Table(
     'block_transaction',
     db.Column(
@@ -912,6 +924,48 @@ class ChainDAO(Base):
             stmt = stmt.limit(limit)
             return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]
         return stmt  # type: ignore[no-any-return]
+
+    def search_subjects(
+        self, query: str, limit: int = _SEARCH_LIMIT_DEFAULT
+    ) -> Select[Any]:
+        q = (query or '').strip()
+        bounded = max(1, min(int(limit), _SEARCH_LIMIT_MAX))
+
+        def _leg(stake_col: Any, kind: StakeKind) -> Select[Any]:
+            stmt = self.outflows.where(stake_col.is_not(None))
+            stmt = stmt.where(self._unspent_clause())
+            if q:
+                stmt = stmt.where(
+                    OutflowDAO.subject_lower.like(
+                        _search_like_pattern(q.lower()), escape='\\'
+                    )
+                )
+            else:
+                stmt = stmt.where(false())
+            stmt = stmt.with_only_columns(
+                OutflowDAO.subject_plain.label('subject'),
+                OutflowDAO.amount.label('amount'),
+                db.literal(kind).label('kind'),
+            )
+            return stmt.order_by(None)
+
+        opp = _leg(OutflowDAO.opposition, 'opposition')
+        sup = _leg(OutflowDAO.support, 'support')
+        union = opp.union_all(sup).subquery()
+        stmt = db.select(
+            union.c.subject,
+            db.func.sum(
+                db.case((union.c.kind == 'opposition', union.c.amount), else_=0)
+            ).label('opposition'),
+            db.func.sum(
+                db.case((union.c.kind == 'support', union.c.amount), else_=0)
+            ).label('support'),
+            db.func.sum(union.c.amount).label('total'),
+        )
+        stmt = stmt.group_by(union.c.subject)
+        stmt = stmt.order_by(db.desc('total'), union.c.subject)
+        stmt = stmt.limit(bounded)
+        return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]
 
     def _is_longest(self) -> bool:
         """True iff this ChainDAO row is currently the longest chain.
