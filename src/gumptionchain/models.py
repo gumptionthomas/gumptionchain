@@ -155,9 +155,10 @@ class OutflowDAO(Base):
             return None
         try:
             return decode_subject(encoded)
-        except Exception:
-            # Subjects are validated upstream; a decode failure must never
-            # break row construction. Leave the searchable columns null.
+        except (TypeError, ValueError):
+            # Subjects are validated upstream; a decode failure (bad padding
+            # → TypeError; bad base64/UTF-8 → ValueError subclasses) must
+            # never break row construction. Leave the searchable columns null.
             return None
 
     def __init__(

@@ -10,6 +10,14 @@ def test_outflow_populates_plaintext_columns_for_a_stake(app):
         assert row.subject_lower == 'tabs > spaces'
 
 
+def test_outflow_populates_plaintext_columns_for_opposition(app):
+    with app.app_context():
+        enc = encode_subject('Loud Chewing')
+        row = OutflowDAO('txid_opp', 0, 100, opposition=enc)
+        assert row.subject_plain == 'Loud Chewing'
+        assert row.subject_lower == 'loud chewing'
+
+
 def test_outflow_plaintext_columns_none_for_non_stake(app):
     with app.app_context():
         row = OutflowDAO('txid2', 0, 100, address='GCwhoeverGC')
