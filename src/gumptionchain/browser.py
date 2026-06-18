@@ -21,6 +21,7 @@ from gumptionchain.models import (
     BlockDAO,
     ChainDAO,
     PendingTxnDAO,
+    SubmissionDAO,
     TransactionDAO,
 )
 from gumptionchain.node import Node
@@ -177,6 +178,20 @@ def subjects_view() -> Any:
         abort(500)
     return render_template(
         'subjects.html', title='Subjects', subjects_page=subjects_page
+    )
+
+
+@blueprint.route('/stats')
+def stats_view() -> Any:
+    try:
+        stats_page = paginate_rows(SubmissionDAO.transactor_leaderboard())
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'stats.html', title='Submission stats', stats_page=stats_page
     )
 
 
