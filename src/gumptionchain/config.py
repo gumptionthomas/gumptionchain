@@ -38,6 +38,7 @@ class EnvAppSettings(EnvironSettings):
     FORK_PRUNE_DEPTH: int = field(default=100)
     SYNC_BATCH_SIZE: int = field(default=256)
     MAX_PENDING_TXNS: int = field(default=10000)
+    MAX_PENDING_PER_TRANSACTOR: int = field(default=100)
     API_ASYNC_PROCESSING: bool = field(default=False)
     DEFAULT_COMMAND_HOST: str | None = field(default=None)
     SIGNING_KEY_DIR: str | None = field(default=None)
