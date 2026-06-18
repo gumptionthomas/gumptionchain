@@ -53,6 +53,11 @@ class FakeClient:
     ):
         return self._resp('build_oppose', pk, amount, subject)
 
+    def get_transfer_transaction(
+        self, pk, amount, address, *, raise_for_status=True
+    ):
+        return self._resp('build_transfer', pk, amount, address)
+
     def get(self, path, *, raise_for_status=True):
         return self._resp('status', path)
 
@@ -160,6 +165,30 @@ def test_build_support_converts_grit_and_passes_raw_subject():
     name, args, _ = client.calls[0]
     assert name == 'build_support'
     assert args == ('PUB', 700, 'goblins')
+
+
+def test_build_transfer_converts_grit_and_passes_address():
+    addr = 'GCB9JajrPayCVUqRU7RrDAVfZ1QPj135moCyrKkNwMwEtRGC'
+    unsigned = {'txid': 't2', 'outflows': [{'amount': 2000, 'address': addr}]}
+    client = FakeClient(build_transfer=FakeResponse(200, unsigned))
+    resp = _app(client).post(
+        '/api/node/txn/transfer',
+        json={'public_key': 'PUB', 'amount_grit': 20, 'to_address': addr},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json() == unsigned
+    name, args, _ = client.calls[0]
+    assert name == 'build_transfer'
+    assert args == ('PUB', 2000, addr)
+
+
+def test_build_transfer_rejects_bad_address():
+    client = FakeClient()
+    resp = _app(client).post(
+        '/api/node/txn/transfer',
+        json={'public_key': 'P', 'amount_grit': 20, 'to_address': 'nope'},
+    )
+    assert resp.status_code == 400
 
 
 def test_build_rejects_non_positive_and_sub_grain_amounts():
