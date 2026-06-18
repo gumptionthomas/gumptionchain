@@ -1443,6 +1443,51 @@ class PendingIOflowDAO(Base):
         db.session.commit()
 
 
+class SubmissionDAO(Base):
+    __tablename__ = 'submission'
+
+    id: Mapped[int] = mapped_column(
+        Integer, autoincrement=True, primary_key=True
+    )
+    txid: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    transactor_address: Mapped[str] = mapped_column(String(100), index=True)
+    submitted_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, index=True, default=datetime.datetime.utcnow
+    )
+
+    @classmethod
+    def record(cls, txid: str, transactor_address: str) -> None:
+        # First-submitter-wins: the unique txid is the dedupe key.
+        if (
+            db.session.scalar(db.select(cls.id).where(cls.txid == txid))
+            is not None
+        ):
+            return
+        db.session.add(cls(txid=txid, transactor_address=transactor_address))
+        db.session.commit()
+
+    @classmethod
+    def pending_count(cls, transactor_address: str) -> int:
+        stmt = (
+            db.select(db.func.count())
+            .select_from(cls)
+            .join(PendingTxnDAO, cls.txid == PendingTxnDAO.txid)
+            .where(cls.transactor_address == transactor_address)
+        )
+        return db.session.scalar(stmt) or 0
+
+    @classmethod
+    def transactor_leaderboard(cls) -> Select[Any]:
+        stmt = db.select(
+            cls.transactor_address.label('address'),
+            db.func.count().label('count'),
+            db.func.max(cls.submitted_at).label('last_submit_at'),
+        )
+        stmt = stmt.group_by(cls.transactor_address)
+        stmt = stmt.order_by(db.desc('count'), cls.transactor_address)
+        return stmt  # type: ignore[no-any-return]
+
+
 class ChainFill(Base):
     __tablename__ = 'chain_fill'
 
