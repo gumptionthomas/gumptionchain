@@ -25,6 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gumptionchain.database import Base, db
 from gumptionchain.payload import StakeKind, decode_subject
+from gumptionchain.util import now
 
 # Chain-factory returns below carry `# type: ignore[no-any-return]` because
 # Flask-SQLAlchemy's `db.select` / `db.aliased` / `db.desc` facade methods
@@ -1453,7 +1454,7 @@ class SubmissionDAO(Base):
     txid: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     transactor_address: Mapped[str] = mapped_column(String(100), index=True)
     submitted_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, index=True, default=datetime.datetime.utcnow
+        DateTime, index=True, default=now
     )
 
     @classmethod

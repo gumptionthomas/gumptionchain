@@ -64,7 +64,8 @@ New `SubmissionDAO` (`models.py`) → table `submission`:
 
 | column | type | notes |
 |---|---|---|
-| `txid` | `String(100)`, **primary key** | first-submitter-wins via insert-or-ignore |
+| `id` | `Integer`, autoincrement **primary key** | surrogate PK (matches the `transaction`/`pending_txn` table pattern) |
+| `txid` | `String(100)`, **unique**, indexed | first-submitter-wins dedupe key (insert-or-ignore on the unique constraint) |
 | `transactor_address` | `String(100)`, indexed | the authenticated `_address` that admitted it |
 | `submitted_at` | `DateTime`, indexed | enables future `?since=` windowing |
 

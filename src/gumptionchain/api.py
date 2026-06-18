@@ -56,7 +56,13 @@ from gumptionchain.schema import (
 from gumptionchain.signals import http_post as http_post_signal
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.tasks import post_process
-from gumptionchain.util import ciso_2_dt, host_address, now, now_iso
+from gumptionchain.util import (
+    ciso_2_dt,
+    dt_2_iso,
+    host_address,
+    now,
+    now_iso,
+)
 
 blueprint = Blueprint('api', __name__)
 
@@ -869,7 +875,7 @@ class TransactorStatsView(MethodView):
                     # access would return the method, not the value.
                     'count': r._mapping['count'],
                     'last_submit_at': (
-                        r.last_submit_at.isoformat()
+                        dt_2_iso(r.last_submit_at)
                         if r.last_submit_at is not None
                         else None
                     ),
