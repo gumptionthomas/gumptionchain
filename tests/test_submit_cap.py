@@ -68,3 +68,26 @@ def test_miller_is_exempt_from_cap(
         # Both admitted past cap=1 → MILLER is exempt from the cap.
         assert r1.status_code in ADMITTED
         assert r2.status_code in ADMITTED
+
+
+def test_transactor_stats_endpoint(
+    app,
+    host,
+    mill_block,
+    requests_proxy,
+    transactor_signing_key,
+    reader_signing_key,
+    signing_key,
+):
+    with app.app_context():
+        app.config['MAX_PENDING_PER_TRANSACTOR'] = 10
+        m, _ = mill_block(transactor_signing_key)
+        _post_transfer(
+            host, m.longest_chain, transactor_signing_key, signing_key
+        )
+
+    body = ApiClient(host, reader_signing_key).get_transactor_stats().json()
+    addrs = {t['address']: t for t in body['transactors']}
+    assert transactor_signing_key.address in addrs
+    assert addrs[transactor_signing_key.address]['count'] == 1
+    assert addrs[transactor_signing_key.address]['last_submit_at'] is not None

@@ -853,3 +853,37 @@ blueprint.add_url_rule(
     ),
     methods=['GET'],
 )
+
+
+class TransactorStatsView(MethodView):
+    def get(self, **kwargs: Any) -> Response:
+        try:
+            rows = db.session.execute(
+                SubmissionDAO.transactor_leaderboard()
+            ).all()
+            transactors = [
+                {
+                    'address': r.address,
+                    'count': r._mapping['count'],
+                    'last_submit_at': (
+                        r.last_submit_at.isoformat()
+                        if r.last_submit_at is not None
+                        else None
+                    ),
+                }
+                for r in rows
+            ]
+            return make_json_response({'transactors': transactors})
+        except GCError as err:
+            return make_error_response(err)
+        except Exception as e:
+            exception_response(e)
+
+
+blueprint.add_url_rule(
+    '/stats/transactors',
+    view_func=authorize_reader(
+        TransactorStatsView.as_view('transactor_stats_reader')
+    ),
+    methods=['GET'],
+)
