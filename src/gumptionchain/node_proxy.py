@@ -11,6 +11,7 @@ from flask import Blueprint, Request, Response, jsonify, request
 from gumptionchain.api_client import ApiClient
 from gumptionchain.chain import GRAIN_PER_GRIT
 from gumptionchain.payload import encode_subject, validate_raw_subject
+from gumptionchain.schema import validate_address_format
 
 
 class _ProxyError(Exception):
@@ -169,6 +170,32 @@ def node_proxy_blueprint(
     @bp.post('/txn/oppose')
     def txn_oppose() -> Response:
         return _build('get_opposition_transaction')
+
+    @bp.post('/txn/transfer')
+    def txn_transfer() -> Response:
+        # Build an unsigned player->address GRIT transfer. Same shape as the
+        # support/oppose build, but the destination is an address (validated
+        # here for a clean 400; the node validates it as AddressType too).
+        data = request.get_json(silent=True) or {}
+        public_key = data.get('public_key')
+        if not isinstance(public_key, str) or not public_key:
+            raise _ProxyError(400, 'public_key required')
+        to_address = data.get('to_address')
+        if not isinstance(to_address, str) or not validate_address_format(
+            to_address
+        ):
+            raise _ProxyError(400, 'invalid to_address')
+        grains = _grit_to_grains(data.get('amount_grit'))
+        return jsonify(
+            _ok(
+                _call(
+                    make_client().get_transfer_transaction,
+                    public_key,
+                    grains,
+                    to_address,
+                )
+            ).json()
+        )
 
     @bp.post('/txn/submit')
     def txn_submit() -> Response:
