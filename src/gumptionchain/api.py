@@ -864,6 +864,9 @@ class TransactorStatsView(MethodView):
             transactors = [
                 {
                     'address': r.address,
+                    # _mapping, not r.count: the leaderboard labels the
+                    # aggregate 'count', which shadows Row.count() — attribute
+                    # access would return the method, not the value.
                     'count': r._mapping['count'],
                     'last_submit_at': (
                         r.last_submit_at.isoformat()
