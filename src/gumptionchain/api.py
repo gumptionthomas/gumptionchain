@@ -39,7 +39,7 @@ from gumptionchain.exceptions import (
     MempoolFullError,
     MissingBlockError,
 )
-from gumptionchain.models import BlockDAO, ChainDAO
+from gumptionchain.models import BlockDAO, ChainDAO, SubmissionDAO
 from gumptionchain.node import Node
 from gumptionchain.payload import (
     StakeKind,
@@ -429,13 +429,25 @@ class TxnView(MethodView):
             if not process:
                 process = not current_app.config.get('API_ASYNC_PROCESSING')
             node, _, _ = node_lc_dao()
+            address = kwargs['_address']
+            role = kwargs['_role']
+            cap = current_app.config['MAX_PENDING_PER_TRANSACTOR']
+            if (
+                role == Role.TRANSACTOR
+                and SubmissionDAO.pending_count(address) >= cap
+            ):
+                return make_json_response(
+                    {'error': 'transactor pending quota exceeded'}, 429
+                )
             vhosts = visited_hosts()
             received = now_iso()
             txn = node.receive_transaction(
                 txid, request.data, visited_hosts=vhosts, process=process
             )
-            if process is False and txn is not None:
-                queue_txn_post_process(txn, vhosts)
+            if txn is not None:
+                SubmissionDAO.record(txid, address)
+                if process is False:
+                    queue_txn_post_process(txn, vhosts)
         except MempoolFullError:
             return make_json_response({'error': 'mempool full'}, 503)
         except GCError as err:
