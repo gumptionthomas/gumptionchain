@@ -623,6 +623,29 @@ class Chain:
         t.seal()
         return t
 
+    def create_split(
+        self, signing_key: SigningKey, denomination: int, count: int
+    ) -> Transaction:
+        address = signing_key.address
+        total = denomination * count
+        t = Transaction()
+        balance = 0
+        unspent = self.unspent_outflows(
+            address, limit=total, filter_pending=True
+        )
+        for txid, index, outflow in unspent:
+            balance += outflow.amount or 0
+            t.add_inflow(Inflow(outflow_txid=txid, outflow_idx=index))
+        if balance < total:
+            raise self._funds_error(address, total)
+        for _ in range(count):
+            t.add_outflow(Outflow(amount=denomination, address=address))
+        if balance - total:
+            t.add_outflow(Outflow(amount=balance - total, address=address))
+        t.set_signing_key(signing_key)
+        t.seal()
+        return t
+
     def create_opposition(
         self,
         signing_key: SigningKey,
