@@ -39,7 +39,7 @@ from gumptionchain.exceptions import (
     MempoolFullError,
     MissingBlockError,
 )
-from gumptionchain.models import BlockDAO, ChainDAO
+from gumptionchain.models import BlockDAO, ChainDAO, SubmissionDAO
 from gumptionchain.node import Node
 from gumptionchain.payload import (
     StakeKind,
@@ -56,7 +56,13 @@ from gumptionchain.schema import (
 from gumptionchain.signals import http_post as http_post_signal
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.tasks import post_process
-from gumptionchain.util import ciso_2_dt, host_address, now, now_iso
+from gumptionchain.util import (
+    ciso_2_dt,
+    dt_2_iso,
+    host_address,
+    now,
+    now_iso,
+)
 
 blueprint = Blueprint('api', __name__)
 
@@ -429,13 +435,30 @@ class TxnView(MethodView):
             if not process:
                 process = not current_app.config.get('API_ASYNC_PROCESSING')
             node, _, _ = node_lc_dao()
+            address = kwargs['_address']
+            role = kwargs['_role']
+            cap = current_app.config['MAX_PENDING_PER_TRANSACTOR']
+            # Anti-spam control for open transactors only: MILLER/ADMIN
+            # (trusted infra + peer gossip) are exempt. It's a SOFT cap —
+            # two concurrent submits at count == cap-1 can both pass this
+            # check and admit, overshooting by one. Acceptable: this bounds
+            # load, not funds (balance/double-spend validation still hold).
+            if (
+                role == Role.TRANSACTOR
+                and SubmissionDAO.pending_count(address) >= cap
+            ):
+                return make_json_response(
+                    {'error': 'transactor pending quota exceeded'}, 429
+                )
             vhosts = visited_hosts()
             received = now_iso()
             txn = node.receive_transaction(
                 txid, request.data, visited_hosts=vhosts, process=process
             )
-            if process is False and txn is not None:
-                queue_txn_post_process(txn, vhosts)
+            if txn is not None:
+                SubmissionDAO.record(txid, address)
+                if process is False:
+                    queue_txn_post_process(txn, vhosts)
         except MempoolFullError:
             return make_json_response({'error': 'mempool full'}, 503)
         except GCError as err:
@@ -833,6 +856,43 @@ blueprint.add_url_rule(
     '/subjects/search',
     view_func=authorize_reader(
         SubjectSearchView.as_view('subjects_search_reader')
+    ),
+    methods=['GET'],
+)
+
+
+class TransactorStatsView(MethodView):
+    def get(self, **kwargs: Any) -> Response:
+        try:
+            rows = db.session.execute(
+                SubmissionDAO.transactor_leaderboard()
+            ).all()
+            transactors = [
+                {
+                    'address': r.address,
+                    # _mapping, not r.count: the leaderboard labels the
+                    # aggregate 'count', which shadows Row.count() — attribute
+                    # access would return the method, not the value.
+                    'count': r._mapping['count'],
+                    'last_submit_at': (
+                        dt_2_iso(r.last_submit_at)
+                        if r.last_submit_at is not None
+                        else None
+                    ),
+                }
+                for r in rows
+            ]
+            return make_json_response({'transactors': transactors})
+        except GCError as err:
+            return make_error_response(err)
+        except Exception as e:
+            exception_response(e)
+
+
+blueprint.add_url_rule(
+    '/stats/transactors',
+    view_func=authorize_reader(
+        TransactorStatsView.as_view('transactor_stats_reader')
     ),
     methods=['GET'],
 )

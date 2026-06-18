@@ -347,3 +347,14 @@ class ApiClient:
             timeout=timeout,
             raise_for_status=raise_for_status,
         )
+
+    def get_transactor_stats(
+        self,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> httpx.Response:
+        return self.get(
+            '/api/stats/transactors',
+            timeout=timeout,
+            raise_for_status=raise_for_status,
+        )

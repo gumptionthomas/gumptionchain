@@ -16,3 +16,7 @@ def test_flask_config(config_app):
     # `SECRET_KEY` should reflect whatever `Flask.config.from_prefixed_env`
     # loaded from `FLASK_SECRET_KEY` (set in `tests/.test.env`).
     assert config_app.config.get('SECRET_KEY') == os.environ['FLASK_SECRET_KEY']
+
+
+def test_max_pending_per_transactor_default(app):
+    assert app.config['MAX_PENDING_PER_TRANSACTOR'] == 100
