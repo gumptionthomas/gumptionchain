@@ -432,6 +432,11 @@ class TxnView(MethodView):
             address = kwargs['_address']
             role = kwargs['_role']
             cap = current_app.config['MAX_PENDING_PER_TRANSACTOR']
+            # Anti-spam control for open transactors only: MILLER/ADMIN
+            # (trusted infra + peer gossip) are exempt. It's a SOFT cap —
+            # two concurrent submits at count == cap-1 can both pass this
+            # check and admit, overshooting by one. Acceptable: this bounds
+            # load, not funds (balance/double-spend validation still hold).
             if (
                 role == Role.TRANSACTOR
                 and SubmissionDAO.pending_count(address) >= cap
