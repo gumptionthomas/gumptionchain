@@ -137,10 +137,13 @@ POST /api/node/txn/split
   existing `/api/node/txn/submit`. Same `_ok`/`_call` error mapping,
   CSRF-exempt, rate-limit hook as the other proxy routes.
 
-**CLI `gc txn split COUNT DENOMINATION_GRIT`** in `command.py`, mirroring
-`txn transfer`: `host_api_client(...).get_split_transaction(...)` → sign →
-post_transaction → report the txid. (`COUNT` and `DENOMINATION_GRIT` as
-arguments; `-h/--host`, `--txn-signing_key` options like the siblings.)
+**CLI `gc txn split FROM_ADDRESS COUNT DENOMINATION_GRIT`** in `command.py`,
+mirroring `txn transfer`: `address_signing_key(FROM_ADDRESS, ...)` →
+`host_api_client(...).get_split_transaction(...)` → sign → post_transaction →
+report the txid. `FROM_ADDRESS` (the key whose balance is sharded) leads —
+exactly as `txn transfer` takes its source address, and needed to locate the
+signing key; `-t/--txn-signing_key`, `-h/--host`, `-w/--signing_key`,
+`-y/--yes` options like the siblings.
 
 ## Data flow
 
