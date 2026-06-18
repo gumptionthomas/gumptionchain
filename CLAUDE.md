@@ -166,16 +166,36 @@ When `GC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 - **Validate Dockerfile changes locally** with `docker build --target builder -t cc-test .` (or a full build for later stages) before pushing. CI workflows here don't run the Docker build — syntax errors will silently pass and break the deploy. Specific gotcha: in Dockerfiles, `#` only starts a comment at the *beginning* of a line; trailing `# whatever` on a `COPY`/`RUN` line is parsed as additional arguments.
 - **Avoid ad-hoc Node/npm tooling.** The npm ecosystem is under sustained supply-chain attack (typosquats, post-install hooks, compromised maintainer tokens). Prefer Python/uvx or plain text alternatives; if a Node dep is unavoidable, surface it explicitly so the dependency surface is reviewable.
 
-## Open transacting & anti-spam (EGU)
+## Permissioned submit & anti-spam (EGU)
 
-`TRANSACTOR_ADDRESSES` accepts the `"*"` match-all sentinel (like `READER`), so
-any authenticated signing_key may submit transactions — opt in with
-`GC_TRANSACTOR_ADDRESSES='["*"]'`. This exposes *load, not theft*: balance /
-ownership / double-spend validation still hold, and `MILLER`/`ADMIN` stay
-exact-allowlist. Operators running with the wildcard should:
-- keep the `MAX_PENDING_TXNS` cap (a full pool returns HTTP 503 — graceful), and
-- put a **per-IP rate limit at the reverse proxy** in front of the node.
+Transaction submission is **permissioned**: set `GC_TRANSACTOR_ADDRESSES` to an
+**exact allowlist** of relay addresses (the hub, each game's house key). Only
+those relays may submit — the proxy-as-transactor pattern means a consumer app
+already submits as its house key via `ApiClient(node, house_key).post`, so it's
+satisfied by listing that address. `READER_ADDRESSES` may still use the `"*"`
+match-all sentinel (open reads, gated writes); `MILLER`/`ADMIN` stay exact. The
+`"*"` wildcard is honored for `TRANSACTOR` too, but using it (open submission)
+is **no longer the recommended posture** — it reopens the spam frontier this
+closes. Gating exposes *load, not theft* regardless: balance / ownership /
+double-spend validation always hold.
 
-A heavier defense — a hashcash-style **submit-PoW** verified before
-signature/validation work — is specced (issue #151) as the escalation if real
-flooding appears; it is intentionally **not** built yet.
+Two node-side controls build on the permissioning:
+
+- **Per-transactor in-flight cap** — `GC_MAX_PENDING_PER_TRANSACTOR` (default
+  100) bounds how many *unconfirmed* txns one relay may hold in the mempool.
+  Over-cap submits get HTTP **429** (`transactor pending quota exceeded`),
+  distinct from the global `MAX_PENDING_TXNS` **503**. The cap applies to
+  `TRANSACTOR`-role submitters only; `MILLER`/`ADMIN` (infra + peer gossip) are
+  exempt. It's a *soft* cap (concurrent admits may overshoot by one — acceptable
+  load defense). Counted via the `submission` table joined against the pending
+  pool, so it self-clears as txns confirm/expire.
+- **Per-app submission accounting** — each newly-admitted txn is attributed to
+  its submitter in the node-local `submission` table (`SubmissionDAO`,
+  first-submitter-wins; **not** consensus data). `GET /api/stats/transactors`
+  (READER) and the `/stats` explorer page surface per-relay submission counts.
+
+The cap runs **after** signature verification (`authorize` verifies the RSA sig
+before the role/quota check), so it bounds the *mempool*, not request CPU. Keep
+a **per-IP rate limit at the reverse proxy**, and the hashcash-style
+**submit-PoW** verified before signature work (issue #151) remains the separate,
+still-**unbuilt** escalation for CPU/DoS flooding.
