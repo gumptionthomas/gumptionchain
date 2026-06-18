@@ -20,6 +20,7 @@ from sqlalchemy import (
     or_,
     select,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from gumptionchain.database import Base, db
@@ -1463,8 +1464,17 @@ class SubmissionDAO(Base):
             is not None
         ):
             return
-        db.session.add(cls(txid=txid, transactor_address=transactor_address))
-        db.session.commit()
+        try:
+            db.session.add(
+                cls(txid=txid, transactor_address=transactor_address)
+            )
+            db.session.commit()
+        except IntegrityError:
+            # A concurrent submit of the same txid won the unique-txid race
+            # between the existence check above and this commit. First-
+            # submitter-wins still holds; roll back the poisoned session so
+            # the request continues cleanly.
+            rollback_session()
 
     @classmethod
     def pending_count(cls, transactor_address: str) -> int:

@@ -1,4 +1,5 @@
 import datetime
+from unittest.mock import patch
 
 from gumptionchain.database import db
 from gumptionchain.models import PendingTxnDAO, SubmissionDAO
@@ -20,6 +21,20 @@ def test_record_is_first_submitter_wins(app):
         assert len(rows) == 1
         assert rows[0].txid == 'txA'
         assert rows[0].transactor_address == 'GCappOneGC'
+
+
+def test_record_swallows_integrity_error_on_race(app):
+    # Simulate the concurrent same-txid race: a row already exists, but the
+    # existence check misses (patched to None), so record proceeds to insert
+    # a duplicate txid → IntegrityError, which must be swallowed (first-
+    # submitter-wins), not raised, leaving the session usable.
+    with app.app_context():
+        SubmissionDAO.record('txZ', 'GCfirstGC')
+        with patch.object(db.session, 'scalar', return_value=None):
+            SubmissionDAO.record('txZ', 'GCsecondGC')  # must not raise
+        rows = db.session.execute(db.select(SubmissionDAO)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].transactor_address == 'GCfirstGC'
 
 
 def test_pending_count_only_counts_still_pending(app):
