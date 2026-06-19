@@ -5,8 +5,7 @@ signing_key for [GumptionChain](../../README.md): RSA-2048 key management,
 `gc-sig-v1` authenticated API requests, passkey-anchored at-rest storage,
 self-custody backup/recovery, and generic `gc-msg-v1` message signing.
 
-Built across EGU #2.1–#2.5 (see `docs/superpowers/specs/`). The Python node
-verifies every signature this produces byte-for-byte.
+The Python node verifies every signature this produces byte-for-byte.
 
 ## Requirements
 

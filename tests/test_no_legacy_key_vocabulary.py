@@ -6,9 +6,9 @@ and fails if the forbidden token reappears (case-insensitive) in any file
 path or file body.
 
 The forbidden token is assembled at runtime so this gate file does not
-contain the literal it forbids (and therefore never flags itself). Dated
-historical records under ``docs/superpowers/`` are intentionally excluded:
-rewriting them would be falsification, not cleanup.
+contain the literal it forbids (and therefore never flags itself). The
+local-only design archive under ``docs/superpowers/`` (gitignored, not part
+of the public tree) is not scanned.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 SCAN_DIRS = ('src', 'clients', 'tests', 'deploy', 'scripts')
 SCAN_FILES = ('README.md', 'CLAUDE.md')
 
-# docs/*.md at the top level only — docs/superpowers/ is preserved history.
+# docs/*.md at the top level only (docs/superpowers/ is gitignored/local).
 DOC_DIR = _ROOT / 'docs'
 
 SKIP_SUFFIXES = (

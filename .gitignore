@@ -151,3 +151,11 @@ _build/
 
 # Visual-companion brainstorm artifacts
 .superpowers/
+
+# Internal / planning docs — kept local, never published to the public repo.
+# (Removed from tracking pre-1.0; recoverable from history. Future design
+# specs/plans written under docs/superpowers/ stay local + untracked.)
+docs/superpowers/
+docs/key-onboarding-for-egu-apps.md
+docs/social-binding-envelope.md
+docs/pi-appliance-runbook.md

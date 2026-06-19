@@ -1,8 +1,7 @@
 """Demonstration and regression tests for the verification pipeline audit.
 
-Each finding in
-docs/superpowers/audits/2026-05-29-verification-pipeline-audit.md
-has a corresponding test here, in one of two states:
+Each finding from the verification-pipeline audit has a corresponding test
+here, in one of two states:
 
 - **Open findings** carry `@pytest.mark.xfail(strict=True)`: the xfail
   demonstrates the gap still exists; strict=True means that if the test

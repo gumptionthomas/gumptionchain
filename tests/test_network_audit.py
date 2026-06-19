@@ -4,7 +4,7 @@ Each test below demonstrates one audit finding and is marked
 ``@pytest.mark.xfail(strict=True)`` -- strict mode means the test MUST fail
 today (the gap is real) and forces the marker's removal when the finding is
 remediated (the xfail would otherwise "unexpectedly pass" and error the
-suite). See docs/superpowers/audits/2026-06-01-network-p2p-audit.md.
+suite). (Per the P2P / networking threat-model audit.)
 
 Availability findings use a *bounded-observation* convention: drive the
 uncapped behavior only up to a small, safe bound and assert the missing cap

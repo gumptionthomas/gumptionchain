@@ -5,8 +5,7 @@ behavior. While a finding is open it carries
 ``@pytest.mark.xfail(strict=True)``; once remediated the marker is dropped
 and it becomes a passing regression (tests below may be a mix). Tests drive
 routes via the Flask test client and assert on response headers/body; no
-test makes a real external network request. See
-docs/superpowers/audits/2026-06-02-web-audit.md.
+test makes a real external network request. (Per the web-surface audit.)
 
 The `app`, `test_client` fixtures come from tests/conftest.py; route
 invocation mirrors tests/test_browser.py.

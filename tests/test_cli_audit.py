@@ -5,7 +5,7 @@ behavior. While a finding is open it carries
 ``@pytest.mark.xfail(strict=True)``; once remediated the marker is dropped
 and it becomes a passing regression (tests below may be a mix). All file I/O
 is confined to ``tmp_path``; no test exhausts real memory/disk or writes
-outside it. See docs/superpowers/audits/2026-06-02-cli-audit.md.
+outside it. (Per the CLI / operator-surface security audit.)
 
 The `app` and `runner` fixtures come from tests/conftest.py; CLI invocation
 mirrors tests/test_command.py.

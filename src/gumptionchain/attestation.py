@@ -113,9 +113,7 @@ def parse_stake_attestation(proof: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# SigningKey ↔ social-platform binding envelope (#251)
-# Spec: docs/superpowers/specs/
-#   2026-06-10-egu-251-social-binding-envelope-design.md
+# SigningKey ↔ social-platform binding envelope.
 # Verification of proof_url content and storage of the binding record are
 # the hub's responsibility (gumption-hub), not this base layer.
 # ---------------------------------------------------------------------------
