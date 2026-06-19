@@ -107,7 +107,7 @@ const result = await verifyMessage(fromArmored(armored));
 | `SigningKey` | keygen, key import/export, address, sign, verify-only via `fromPublicKeyB64` |
 | `canonical`, `signHeaders` | `gc-sig-v1` request signing |
 | `enroll`, `unlock`, `hasSigningKey`, `clear` | passkey-anchored storage orchestration |
-| `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters |
+| `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters; the passkey adapter also exposes `discover({ mediation })` / `isConditionalAvailable()` |
 | `exportEncrypted`, `importEncrypted`, `exportPlain`, `importPlain` | backup/recovery |
 | `signMessage`, `verifyMessage`, `toArmored`, `fromArmored` | `gc-msg-v1` message signing |
 | `UnsupportedError`, `NoSigningKeyError`, `BadBackupError`, `BadPassphraseError`, `BadProofError` | typed errors |
@@ -115,9 +115,24 @@ const result = await verifyMessage(fromArmored(armored));
 
 Anything not listed is internal/unstable.
 
+### Cross-origin passkey discovery
+
+`makeWebauthnPasskey({ rpId }).discover({ mediation })` finds an **existing**
+discoverable passkey for `rpId` on a fresh origin (no prior local state) and
+returns `{ credentialId, prfOutput }`, or `null` if none is found or the user
+dismisses. `mediation: 'optional'` (default) is a modal prompt; `'conditional'`
+is passkey autofill — for which the **consumer** supplies the
+`<input autocomplete="webauthn">` (the SDK stays DOM-free). Feature-detect with
+`isConditionalAvailable()`. `makeOnboarding(...)` exposes the same `discover()`.
+
+This is the base primitive for hub-brokered "Sign in with Gumption" recognition.
+**It yields recognition + unlock authority (the PRF), not the key bytes** — the
+encrypted key blob is origin-scoped and not re-derivable from the PRF, so the
+material itself still comes from the hub-served store or a user backup.
+
 ## Versioning
 
-`version` is the **package** semver (currently `0.1.0`, pre-launch — the
+`version` is the **package** semver (pre-1.0, pre-launch — the
 embedder API is not yet frozen). It is **independent** of the wire scheme ids
 `gc-sig-v1` and `gc-msg-v1`, which are protocol identifiers bound into
 signatures and change only on a protocol revision.
