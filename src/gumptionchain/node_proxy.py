@@ -197,6 +197,29 @@ def node_proxy_blueprint(
             ).json()
         )
 
+    @bp.post('/txn/split')
+    def txn_split() -> Response:
+        # Build an unsigned self-split: mint `count` chips of denomination_grit
+        # each (back to the signer's own address). Client signs + submits.
+        data = request.get_json(silent=True) or {}
+        public_key = data.get('public_key')
+        if not isinstance(public_key, str) or not public_key:
+            raise _ProxyError(400, 'public_key required')
+        denomination = _grit_to_grains(data.get('denomination_grit'))
+        count = data.get('count')
+        if not isinstance(count, int) or count < 1:
+            raise _ProxyError(400, 'count must be a positive integer')
+        return jsonify(
+            _ok(
+                _call(
+                    make_client().get_split_transaction,
+                    public_key,
+                    denomination,
+                    count,
+                )
+            ).json()
+        )
+
     @bp.post('/txn/submit')
     def txn_submit() -> Response:
         data = request.get_json(silent=True) or {}
