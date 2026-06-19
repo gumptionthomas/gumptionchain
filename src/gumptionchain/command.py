@@ -741,6 +741,83 @@ def create_transfer(
         console.print(f'Transfer failed: {e}', style='error')
 
 
+@txn_cli.command('split')
+@click.argument('from_address')
+@click.argument('count', type=click.INT)
+@click.argument('denomination_grit', type=click.FLOAT)
+@click.option(
+    '-t',
+    '--txn-signing_key',
+    type=click.Path(exists=True),
+    default=None,
+    help='SigningKey file to use for transaction source.',
+)
+@click.option(
+    '-h',
+    '--host',
+    default=None,
+    help='The API host to use (default from app config).',
+)
+@click.option(
+    '-w',
+    '--signing_key',
+    type=click.Path(exists=True),
+    default=None,
+    help='SigningKey file to use for API auth.',
+)
+@click.option(
+    '-y',
+    '--yes',
+    is_flag=True,
+    default=False,
+    help='Assume "yes" as answer to all prompts and run non-interactively.',
+)
+@with_appcontext
+def create_split(
+    from_address: str,
+    count: int,
+    denomination_grit: float,
+    txn_signing_key: str | None,
+    host: str | None,
+    signing_key: str | None,
+    yes: bool,  # noqa: FBT001
+) -> None:
+    """Split balance into COUNT same-address chips of DENOMINATION_GRIT each.
+
+    \b
+    FROM_ADDRESS is the key whose balance is sharded.
+    COUNT is how many chips to mint (1-49).
+    DENOMINATION_GRIT is each chip's size in GRIT.
+    """
+    try:
+        txn_signing_key_obj = address_signing_key(
+            from_address, signing_key_file=txn_signing_key
+        )
+        client = host_api_client(host=host, signing_key_file=signing_key)
+        r = client.get_split_transaction(
+            txn_signing_key_obj.public_key_b64,
+            grit_to_grains(denomination_grit),
+            count,
+        )
+        txn = Transaction.from_json(r.text)
+        if not (confirm := yes):
+            console.print(f'Split transaction created: {txn.txid}')
+            confirm = Confirm.ask(
+                'Do you want to sign and post the transaction?'
+            )
+        if confirm:
+            txn.set_signing_key(txn_signing_key_obj)
+            txn.sign()
+            client.post_transaction(txn)
+            console.print('Split created.', style='success')
+        else:
+            console.print('Split aborted.', style='error')
+    except httpx.HTTPStatusError as e:
+        console.print(f'Split failed: {http_error_message(e)}', style='error')
+    except Exception as e:
+        console.print(f'Split failed: {e}', style='error')
+
+
 @txn_cli.command('opposition')
 @click.argument('address')
 @click.argument('amount', type=click.FLOAT)

@@ -576,3 +576,26 @@ def test_mill(app, runner, signing_key):
         )
         assert 'Block │ 2' in result.output
         assert 'Block │ 3' in result.output
+
+
+def test_txn_split(app, mill_block, runner, requests_proxy, signing_key):
+    with app.app_context():
+        from_signing_key = SigningKey()
+        fwf = from_signing_key.to_file(
+            signing_keydir=app.config.get('SIGNING_KEY_DIR')
+        )
+        m, _ = mill_block(from_signing_key)
+        result = runner.invoke(
+            args=[
+                'txn',
+                'split',
+                from_signing_key.address,
+                '3',
+                '1',
+                '--txn-signing_key',
+                fwf,
+                '-y',
+            ],
+        )
+        assert 'Split created.' in result.output
+        assert len(m.pending_txns) == 1
