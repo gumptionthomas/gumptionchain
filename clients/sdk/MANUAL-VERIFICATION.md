@@ -14,7 +14,7 @@ Real behavior is verified by hand using `passkey-signing-key-demo.html`:
    `http://localhost`. From the repo root:
 
    ```bash
-   python -m http.server --directory clients/signing-key 8000
+   python -m http.server --directory clients/sdk 8000
    ```
 
    then open <http://localhost:8000/passkey-signing-key-demo.html>. (Opening the file

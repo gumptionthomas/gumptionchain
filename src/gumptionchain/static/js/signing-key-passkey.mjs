@@ -2,7 +2,7 @@
 // (signing-key-glue.mjs) and /transact (transact-glue.mjs) gate passkey unlock on a
 // secure context where WebAuthn-PRF is actually supported, so the gating lives
 // in one place rather than being duplicated per page.
-import { makeWebauthnPasskey } from '../signing-key/gc-passkey-webauthn.mjs';
+import { makeWebauthnPasskey } from '../sdk/gc-passkey-webauthn.mjs';
 
 // Build a passkey adapter for THIS origin, but only on a secure context where
 // PRF is actually supported. Returns null (not a half-working adapter) when

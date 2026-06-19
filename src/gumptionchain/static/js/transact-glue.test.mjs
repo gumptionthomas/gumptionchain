@@ -12,8 +12,8 @@ import {
   whichKeyPanel,
   unlockSaved,
 } from './transact-glue.mjs';
-import { SigningKey } from '../signing-key/gc-signing-key.mjs';
-import { parseStakeAttestation } from '../signing-key/gc-attestation.mjs';
+import { SigningKey } from '../sdk/gc-signing-key.mjs';
+import { parseStakeAttestation } from '../sdk/gc-attestation.mjs';
 import { makeSession } from './signing-key-session.mjs';
 
 // --- buildQuery: one query string, used for BOTH the fetch URL and the
@@ -165,7 +165,7 @@ const posts = (calls) => calls.filter((c) => (c.opts.method ?? 'GET') === 'POST'
 // Minimal unsigned txn whose self-reported txid actually matches its fields,
 // so signUnsignedTxn's honesty check passes. We compute it the same way the
 // module does (via the shared gc-transaction txid()).
-import { txid as computeTxid } from '../signing-key/gc-transaction.mjs';
+import { txid as computeTxid } from '../sdk/gc-transaction.mjs';
 
 function unsignedTransfer() {
   return {

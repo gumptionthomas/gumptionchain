@@ -1,4 +1,4 @@
-// GumptionChain browser signing_key — public API barrel.
+// GumptionChain browser SDK — public API barrel.
 // Import the supported surface from here. Anything not re-exported below
 // (e.g. gc-crypto low-level helpers, gc-envelope seal/open, messageCanonical)
 // is internal and may change without notice.

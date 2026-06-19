@@ -1,8 +1,8 @@
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-SIGNING_KEY_DIR = _ROOT / 'src/gumptionchain/static/signing-key'
-SOURCE_DIR = _ROOT / 'clients/signing-key'
+SIGNING_KEY_DIR = _ROOT / 'src/gumptionchain/static/sdk'
+SOURCE_DIR = _ROOT / 'clients/sdk'
 REQUIRED = [
     'gc-attestation.mjs',
     'gc-message.mjs',
@@ -34,16 +34,15 @@ def _runtime_modules(directory: Path) -> list[Path]:
 
 
 def test_vendored_modules_match_source():
-    # The served copies are vendored from clients/signing-key via
-    # scripts/sync_signing_key.py. Guard against an unsynced source edit:
+    # The served copies are vendored from clients/sdk via
+    # scripts/sync_sdk.py. Guard against an unsynced source edit:
     # a stale served copy of parity-critical crypto (gc-transaction.mjs) would
-    # silently produce wrong txids. Mirrors sync_signing_key's copy rule.
+    # silently produce wrong txids. Mirrors sync_sdk's copy rule.
     for src in _runtime_modules(SOURCE_DIR):
         vendored = SIGNING_KEY_DIR / src.name
         assert vendored.is_file(), (
-            f'{src.name} not vendored — run scripts/sync_signing_key.py'
+            f'{src.name} not vendored — run scripts/sync_sdk.py'
         )
         assert vendored.read_bytes() == src.read_bytes(), (
-            f'{src.name} drifted from clients/signing-key — run '
-            f'scripts/sync_signing_key.py'
+            f'{src.name} drifted from clients/sdk — run scripts/sync_sdk.py'
         )

@@ -5,7 +5,7 @@
 import {
   BadAttestationError,
   verifyStake,
-} from '../signing-key/gc-attestation.mjs';
+} from '../sdk/gc-attestation.mjs';
 
 // Re-exported so a page (base or an extension skin) can tell a user-input
 // error (bad/invalid attestation) apart from a system error (e.g. provenance

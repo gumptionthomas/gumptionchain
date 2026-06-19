@@ -84,8 +84,8 @@ subjects lists import it via `{% from "_pagination.html" import render_paginatio
 
 Reference base-bundled assets via `url_for('browser.static', filename=...)`
 (served from `/static/gumptionchain`), which resolves standalone or embedded.
-SigningKey ESM is vendored into `static/signing-key/` from `clients/signing-key/` via
-`scripts/sync_signing_key.py`.
+SigningKey ESM is vendored into `static/sdk/` from `clients/sdk/` via
+`scripts/sync_sdk.py`.
 
 ## CSP considerations
 

@@ -36,7 +36,7 @@ VECTOR_SIGNING_KEY_B58 = (
 VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'signing-key'
+    / 'sdk'
     / 'testdata'
     / 'gc-sig-vectors.json'
 )

@@ -10,7 +10,7 @@ from gumptionchain.signing_key import SigningKey
 VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'signing-key'
+    / 'sdk'
     / 'testdata'
     / 'gc-msg-vectors.json'
 )

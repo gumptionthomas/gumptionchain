@@ -3,7 +3,7 @@
 These vectors lock the JS `gc-transaction.mjs` reconstruction of a
 transaction's canonical `data_csv`, `txid`, and `signing_data` to the
 Python implementation byte-for-byte. The JS parity test
-(`clients/signing-key/gc-transaction.test.mjs`) loads the JSON this writes.
+(`clients/sdk/gc-transaction.test.mjs`) loads the JSON this writes.
 
 Run: `uv run python tests/fixtures/gen_txn_fixtures.py`
 

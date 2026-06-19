@@ -10,10 +10,7 @@ from gumptionchain.signing import _canonical
 from gumptionchain.signing_key import SigningKey
 
 CLI = (
-    Path(__file__).resolve().parent.parent
-    / 'clients'
-    / 'signing-key'
-    / 'sign-cli.mjs'
+    Path(__file__).resolve().parent.parent / 'clients' / 'sdk' / 'sign-cli.mjs'
 )
 
 
