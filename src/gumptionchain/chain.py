@@ -626,10 +626,14 @@ class Chain:
     def create_split(
         self, signing_key: SigningKey, denomination: int, count: int
     ) -> Transaction:
+        # Assumes validated inputs: count in 1..MAX_FLOWS-1 (so count chips +
+        # one change stay within the 50-outflow cap) and denomination >= 1.
+        # The build endpoint enforces this; a direct caller passing count > 49
+        # would build an over-cap txn that fails at seal/validation.
         address = signing_key.address
         total = denomination * count
-        t = Transaction()
         balance = 0
+        t = Transaction()
         unspent = self.unspent_outflows(
             address, limit=total, filter_pending=True
         )

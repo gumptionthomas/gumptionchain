@@ -11,6 +11,7 @@ def test_create_split_mints_chips_plus_change(app, mill_block, signing_key):
     with app.app_context():
         m, _ = mill_block(signing_key)
         lc = m.longest_chain
+        bal = lc.balance(signing_key.address)
         txn = lc.create_split(signing_key, denomination=100, count=3)
         chips = [o for o in txn.outflows if o.amount == 100]
         change = [o for o in txn.outflows if o.amount != 100]
@@ -18,6 +19,8 @@ def test_create_split_mints_chips_plus_change(app, mill_block, signing_key):
         assert all(o.address == signing_key.address for o in txn.outflows)
         assert len(change) == 1  # leftover reward as one change UTXO
         assert len(txn.outflows) <= 50
+        # value conservation: chips + change == the whole spent balance
+        assert sum(o.amount for o in txn.outflows) == bal
 
 
 def test_create_split_exact_has_no_change(app, mill_block, signing_key):
