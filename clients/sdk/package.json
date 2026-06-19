@@ -1,6 +1,6 @@
 {
   "name": "@gumptionchain/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "GumptionChain browser SDK — gc-sig-v1 signing, passkey storage, backup, message signing.",
   "type": "module",
   "exports": {
