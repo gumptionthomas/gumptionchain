@@ -5,13 +5,13 @@ build-backend = "uv_build"
 # PROJECT
 [project]
 name = "gumptionchain"
-version = "1.4.1"
+version = "1.0.0"
 description = "A Blockchain of Accountability, Forgiveness, and Support"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
-  { name = "Thomas Bohmbach Jr", email = "tom@gumption.com" }
+  { name = "Thomas Bohmbach Jr", email = "thomas@gumption.com" }
 ]
 keywords = [
   "blockchain",
