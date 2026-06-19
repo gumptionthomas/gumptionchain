@@ -107,7 +107,7 @@ const result = await verifyMessage(fromArmored(armored));
 | `SigningKey` | keygen, key import/export, address, sign, verify-only via `fromPublicKeyB64` |
 | `canonical`, `signHeaders` | `gc-sig-v1` request signing |
 | `enroll`, `unlock`, `hasSigningKey`, `clear` | passkey-anchored storage orchestration |
-| `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters; the passkey adapter also exposes `discover({ mediation })` / `isConditionalAvailable()` |
+| `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters; the passkey adapter also exposes `discover({ mediation, signal })` / `isConditionalAvailable()` |
 | `exportEncrypted`, `importEncrypted`, `exportPlain`, `importPlain` | backup/recovery |
 | `signMessage`, `verifyMessage`, `toArmored`, `fromArmored` | `gc-msg-v1` message signing |
 | `UnsupportedError`, `NoSigningKeyError`, `BadBackupError`, `BadPassphraseError`, `BadProofError` | typed errors |
@@ -123,7 +123,10 @@ returns `{ credentialId, prfOutput }`, or `null` if none is found or the user
 dismisses. `mediation: 'optional'` (default) is a modal prompt; `'conditional'`
 is passkey autofill — for which the **consumer** supplies the
 `<input autocomplete="webauthn">` (the SDK stays DOM-free). Feature-detect with
-`isConditionalAvailable()`. For conditional mediation in a single-page app, pass a `signal` from an `AbortController` and abort it on route changes to cancel the autofill session. `makeOnboarding(...)` exposes the same `discover()`.
+`isConditionalAvailable()`. For conditional mediation in a single-page app, pass a `signal` from an `AbortController` and abort it on route changes to cancel the autofill session. `makeOnboarding(...)` exposes the same `discover()`
+when it is configured with a passkey adapter (`rpId` + `rpName`, or an injected
+`passkey`); otherwise it returns `null`. Note `discover()` itself only needs
+`rpId` — `rpName` is required for enrollment, not discovery.
 
 This is the base primitive for hub-brokered "Sign in with Gumption" recognition.
 **It yields recognition + unlock authority (the PRF), not the key bytes** — the
