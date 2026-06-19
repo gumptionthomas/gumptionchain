@@ -5,7 +5,7 @@ import { makeIdbStore } from './gc-store-idb.mjs';
 
 test('webauthn passkey adapter exposes the passkey interface', async () => {
   const pk = makeWebauthnPasskey({ rpId: 'example.com', rpName: 'Demo' });
-  for (const m of ['isSupported', 'enroll', 'unlock']) {
+  for (const m of ['isSupported', 'enroll', 'unlock', 'discover', 'isConditionalAvailable']) {
     assert.equal(typeof pk[m], 'function');
   }
   // In Node (no window) isSupported() must resolve false, not throw.
@@ -122,6 +122,44 @@ test('isConditionalAvailable() reflects platform support and never throws', asyn
     assert.equal(await pk.isConditionalAvailable(), false);
   });
   const restore = setGlobal('window', undefined);
+  try {
+    const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
+    assert.equal(await pk.isConditionalAvailable(), false);
+  } finally {
+    restore();
+  }
+});
+
+test('discover() returns null when navigator.credentials.get is missing', async () => {
+  const restore = setGlobal('navigator', { credentials: {} });
+  try {
+    const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
+    assert.equal(await pk.discover(), null);
+  } finally {
+    restore();
+  }
+});
+
+test('discover() returns null on SecurityError (insecure context)', async () => {
+  await withFakeWebauthn({
+    getImpl: async () => { const e = new Error('insecure'); e.name = 'SecurityError'; throw e; },
+  }, async () => {
+    const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
+    assert.equal(await pk.discover(), null);
+  });
+});
+
+test('discover() omits signal when it is null or undefined', async () => {
+  await withFakeWebauthn({ getImpl: async () => fakeAssertion() }, async (calls) => {
+    const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
+    await pk.discover({ signal: null });
+    assert.ok(!('signal' in calls[0]));
+  });
+});
+
+test('isConditionalAvailable() is false when isConditionalMediationAvailable is absent', async () => {
+  const PKC = function () {};
+  const restore = setGlobal('window', { PublicKeyCredential: PKC });
   try {
     const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
     assert.equal(await pk.isConditionalAvailable(), false);

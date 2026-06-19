@@ -43,14 +43,16 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
   }
 
   async function discover({ mediation = 'optional', signal } = {}) {
-    if (typeof navigator === 'undefined' || !navigator.credentials) {
+    if (typeof navigator === 'undefined'
+        || !navigator.credentials
+        || typeof navigator.credentials.get !== 'function') {
       return null;
     }
     let assertion;
     try {
       assertion = await navigator.credentials.get({
         mediation,
-        ...(signal !== undefined && { signal }),
+        ...(signal != null && { signal }),
         publicKey: {
           rpId,
           challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -61,7 +63,9 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
       });
     } catch (e) {
       // Dismissal / abort are normal "no passkey selected" outcomes, not errors.
-      if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) {
+      if (e && (e.name === 'NotAllowedError'
+          || e.name === 'AbortError'
+          || e.name === 'SecurityError')) {
         return null;
       }
       throw e;
