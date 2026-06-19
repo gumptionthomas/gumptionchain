@@ -54,10 +54,11 @@ gumptionchain = "gumptionchain:cli"
 gc = "gumptionchain:cli"
 
 [project.urls]
-Homepage = "https://gumption.com/chain"
-Documentation = "https://gumption.com/chain/docs"
+Homepage = "https://github.com/gumptionthomas/gumptionchain"
+Documentation = "https://github.com/gumptionthomas/gumptionchain/blob/main/docs/README.md"
 Source = "https://github.com/gumptionthomas/gumptionchain"
 Tracker = "https://github.com/gumptionthomas/gumptionchain/issues"
+Changelog = "https://github.com/gumptionthomas/gumptionchain/blob/main/CHANGELOG.md"
 
 # DEPENDENCY GROUPS (PEP 735)
 [dependency-groups]
