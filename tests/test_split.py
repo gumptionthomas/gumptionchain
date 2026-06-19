@@ -120,3 +120,16 @@ def test_split_endpoint_rejects_zero_denomination(
         raise_for_status=False,
     )
     assert r.status_code == 400
+
+
+def test_api_client_get_split_transaction(
+    app, host, mill_block, requests_proxy, transactor_signing_key
+):
+    with app.app_context():
+        mill_block(transactor_signing_key)
+    r = ApiClient(host, transactor_signing_key).get_split_transaction(
+        transactor_signing_key.public_key_b64, 100, 3
+    )
+    assert r.status_code == 200
+    chips = [o for o in r.json()['outflows'] if o.get('amount') == 100]
+    assert len(chips) == 3

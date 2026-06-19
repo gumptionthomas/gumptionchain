@@ -159,6 +159,25 @@ class ApiClient:
             raise_for_status=raise_for_status,
         )
 
+    def get_split_transaction(
+        self,
+        public_key: str,
+        denomination: int,
+        count: int,
+        timeout: int | float | None = None,
+        raise_for_status: bool = True,  # noqa: FBT001
+    ) -> httpx.Response:
+        return self.get(
+            '/api/transaction/split',
+            params={
+                'public_key': public_key,
+                'denomination': str(denomination),
+                'count': str(count),
+            },
+            timeout=timeout,
+            raise_for_status=raise_for_status,
+        )
+
     def get_opposition_transaction(
         self,
         public_key: str,
