@@ -207,7 +207,9 @@ def node_proxy_blueprint(
             raise _ProxyError(400, 'public_key required')
         denomination = _grit_to_grains(data.get('denomination_grit'))
         count = data.get('count')
-        if not isinstance(count, int) or count < 1:
+        # bool is an int subclass — reject it explicitly so a JSON `true`
+        # doesn't slip through as count == 1.
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             raise _ProxyError(400, 'count must be a positive integer')
         return jsonify(
             _ok(

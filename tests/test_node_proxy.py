@@ -219,6 +219,17 @@ def test_build_split_rejects_bad_amount():
     assert resp.status_code == 400
 
 
+def test_build_split_rejects_non_positive_or_bool_count():
+    client = FakeClient()
+    c = _app(client)
+    for bad in (0, -1, True):  # bool is an int subclass; must be rejected
+        resp = c.post(
+            '/api/node/txn/split',
+            json={'public_key': 'P', 'denomination_grit': 2, 'count': bad},
+        )
+        assert resp.status_code == 400, bad
+
+
 def test_build_rejects_non_positive_and_sub_grain_amounts():
     client = FakeClient()
     c = _app(client)
