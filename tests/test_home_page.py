@@ -64,7 +64,7 @@ def test_base_links_node_favicon(test_client):
     assert b'img/favicon-node.svg' in resp.data
 
 
-def test_home_shows_stats_and_recent_blocks(
+def test_home_shows_stats_and_chain_tip(
     app, host, mill_block, requests_proxy, subject, signing_key
 ):
     with app.app_context():
@@ -82,7 +82,7 @@ def test_home_shows_stats_and_recent_blocks(
         # links into the explorer
         assert b'/blocks' in body
         assert b'/subjects' in body
-        # the chain tip hash appears in the recent-blocks table
+        # the chain tip hash appears in the Chain tip pane
         assert tip.block_hash.encode() in body
 
 

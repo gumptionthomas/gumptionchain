@@ -11,6 +11,7 @@ from werkzeug.routing import BaseConverter, ValidationError
 
 from gumptionchain import __version__, api, browser, command
 from gumptionchain.api_client import ApiClient
+from gumptionchain.chain import GRAIN_PER_GRIT
 from gumptionchain.payload import decode_subject, validate_subject
 from gumptionchain.schema import validate_address_format, validate_base64
 from gumptionchain.signing_key import SigningKey
@@ -76,6 +77,11 @@ def init_app(
     @app.template_filter('human_subject')
     def human_subject(value: str | None) -> str | None:
         return decode_subject(value) if value is not None else None
+
+    @app.template_filter('grit')
+    def grit(grains: int | None) -> str:
+        # grains -> GRIT with a fixed 2 decimal places (1 GRIT = 100 grains).
+        return f'{(grains or 0) / GRAIN_PER_GRIT:.2f}'
 
     @app.after_request
     def set_security_headers(response: Response) -> Response:

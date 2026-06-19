@@ -2,10 +2,12 @@
   {%- if lc %}
   <div class="row my-3 g-3">
     <div class="col-6 col-md">
-      <div class="card h-100"><div class="card-body py-3">
-        <div class="text-uppercase small text-muted">Height</div>
-        <div class="fs-3 fw-bold">{{ lc.length }}</div>
-      </div></div>
+      <a href="{{ url_for('browser.chains_view') }}" class="text-reset text-decoration-none">
+        <div class="card h-100"><div class="card-body py-3">
+          <div class="text-uppercase small text-muted">Height</div>
+          <div class="fs-3 fw-bold">{{ lc.length }}</div>
+        </div></div>
+      </a>
     </div>
     <div class="col-6 col-md">
       <div class="card h-100"><div class="card-body py-3">
@@ -16,26 +18,33 @@
     <div class="col-6 col-md">
       <div class="card h-100"><div class="card-body py-3">
         <div class="text-uppercase small text-muted">Total staked</div>
-        <div class="fs-3 fw-bold">{{ total_staked }} <span class="small text-muted">grains</span></div>
+        <div class="fs-3 fw-bold">{{ total_staked | grit }} <span class="small text-muted">GRIT</span></div>
       </div></div>
     </div>
     <div class="col-6 col-md">
-      <div class="card h-100"><div class="card-body py-3">
-        <div class="text-uppercase small text-muted">Subjects</div>
-        <div class="fs-3 fw-bold">{{ subject_count }}</div>
-      </div></div>
+      <a href="{{ url_for('browser.subjects_view') }}" class="text-reset text-decoration-none">
+        <div class="card h-100"><div class="card-body py-3">
+          <div class="text-uppercase small text-muted">Subjects</div>
+          <div class="fs-3 fw-bold">{{ subject_count }}</div>
+        </div></div>
+      </a>
     </div>
     <div class="col-6 col-md">
-      <div class="card h-100"><div class="card-body py-3">
-        <div class="text-uppercase small text-muted">Pending</div>
-        <div class="fs-3 fw-bold">{{ pending_count }}</div>
-      </div></div>
+      <a href="{{ url_for('browser.mempool_view') }}" class="text-reset text-decoration-none">
+        <div class="card h-100"><div class="card-body py-3">
+          <div class="text-uppercase small text-muted">Pending</div>
+          <div class="fs-3 fw-bold">{{ pending_count }}</div>
+        </div></div>
+      </a>
     </div>
   </div>
 
   <div class="row my-3"><div class="col">
     <div class="card bg-light"><div class="card-body">
-      <div class="card-title h5">Chain tip</div>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="card-title h5 mb-0">Chain tip</div>
+        <a href="{{ url_for('browser.chains_view') }}">View chain &rarr;</a>
+      </div>
       <table class="table table-hover block" style="table-layout:fixed;">
         <tbody class="font-monospace">
           <tr>
@@ -50,33 +59,6 @@
             <th class="col-2"><i class="bi-clock"></i>&nbsp;Timestamp</th>
             <td>{{ lc.last_block.timestamp_dt | utc_datetime }}</td>
           </tr>
-        </tbody>
-      </table>
-    </div></div>
-  </div></div>
-
-  <div class="row my-3"><div class="col">
-    <div class="card bg-light"><div class="card-body">
-      <div class="d-flex justify-content-between align-items-center">
-        <div class="card-title h5 mb-0">Recent blocks</div>
-        <div>
-          <a href="{{ url_for('browser.blocks_view') }}">View all blocks</a>
-          &middot;
-          <a href="{{ url_for('browser.subjects_view') }}">Subjects</a>
-          &middot;
-          <a href="{{ url_for('browser.stats_view') }}">Submission stats</a>
-        </div>
-      </div>
-      <table class="table table-hover blocks mt-3">
-        <thead><tr><th>#</th><th>Hash</th><th>Timestamp</th></tr></thead>
-        <tbody class="font-monospace">
-        {%- for block in lc.recent_blocks(10) %}
-          <tr>
-            <td>{{ block.idx }}</td>
-            <td><a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.block_hash) }}">{{ block.block_hash }}</a></td>
-            <td>{{ block.timestamp_dt | utc_datetime }}</td>
-          </tr>
-        {%- endfor %}
         </tbody>
       </table>
     </div></div>
