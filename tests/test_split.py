@@ -66,3 +66,57 @@ def test_create_split_pending_funds(
         ApiClient(host, signing_key).post_transaction(xfer)
         with pytest.raises(PendingFundsError):
             lc.create_split(signing_key, denomination=bal, count=1)
+
+
+def test_split_endpoint_returns_unsigned_txn(
+    app, host, mill_block, requests_proxy, transactor_signing_key
+):
+    with app.app_context():
+        mill_block(transactor_signing_key)
+    client = ApiClient(host, transactor_signing_key)
+    r = client.get(
+        '/api/transaction/split',
+        params={
+            'public_key': transactor_signing_key.public_key_b64,
+            'denomination': '100',
+            'count': '3',
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    chips = [o for o in body['outflows'] if o.get('amount') == 100]
+    assert len(chips) == 3
+
+
+def test_split_endpoint_rejects_count_over_49(
+    app, host, mill_block, requests_proxy, transactor_signing_key
+):
+    with app.app_context():
+        mill_block(transactor_signing_key)
+    r = ApiClient(host, transactor_signing_key).get(
+        '/api/transaction/split',
+        params={
+            'public_key': transactor_signing_key.public_key_b64,
+            'denomination': '1',
+            'count': '50',
+        },
+        raise_for_status=False,
+    )
+    assert r.status_code == 400
+
+
+def test_split_endpoint_rejects_zero_denomination(
+    app, host, mill_block, requests_proxy, transactor_signing_key
+):
+    with app.app_context():
+        mill_block(transactor_signing_key)
+    r = ApiClient(host, transactor_signing_key).get(
+        '/api/transaction/split',
+        params={
+            'public_key': transactor_signing_key.public_key_b64,
+            'denomination': '0',
+            'count': '3',
+        },
+        raise_for_status=False,
+    )
+    assert r.status_code == 400

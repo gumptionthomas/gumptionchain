@@ -56,6 +56,7 @@ from gumptionchain.schema import (
 from gumptionchain.signals import http_post as http_post_signal
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.tasks import post_process
+from gumptionchain.transaction import MAX_FLOWS
 from gumptionchain.util import (
     ciso_2_dt,
     dt_2_iso,
@@ -561,6 +562,48 @@ blueprint.add_url_rule(
     '/transaction/transfer',
     view_func=authorize_transactor(
         TransferTxnView.as_view('txn_transfer_transactor')
+    ),
+    methods=['GET'],
+)
+
+
+class SplitTxnQueryModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    public_key: PublicKeyType
+    denomination: int = Field(ge=1)
+    count: int = Field(ge=1, le=MAX_FLOWS - 1)
+
+
+class SplitTxnView(MethodView):
+    def get(self, **kwargs: Any) -> Response:
+        try:
+            model = SplitTxnQueryModel.model_validate(
+                request.args.to_dict(flat=True)
+            )
+        except ValidationError as e:
+            return make_error_response(_pydantic_validation_error(e))
+        try:
+            args = model.model_dump(exclude_none=True)
+            signing_key = SigningKey(b64ks=args['public_key'])
+            _, lc, _ = node_lc_dao()
+            if lc is None:
+                raise EmptyChainError()
+            return make_json_response(
+                lc.create_split(
+                    signing_key, args['denomination'], args['count']
+                ).to_json()
+            )
+        except GCError as err:
+            return make_error_response(err)
+        except Exception as e:
+            exception_response(e)
+
+
+blueprint.add_url_rule(
+    '/transaction/split',
+    view_func=authorize_transactor(
+        SplitTxnView.as_view('txn_split_transactor')
     ),
     methods=['GET'],
 )
