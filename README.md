@@ -10,6 +10,21 @@ both a Flask web application (a browser explorer plus a JSON API) and a
 `gumptionchain` command-line tool. The network is **permissioned**: API access
 is gated by role (`READER` < `TRANSACTOR` < `MILLER` < `ADMIN`).
 
+## Identity & privacy: custody-private, ledger-public
+
+Identity on GumptionChain is a **self-custodial signing key** held by the user.
+Authentication is a per-request signature ([`gc-sig-v1`](docs/api-auth-protocol.md))
+— there are no passwords and no server-side session secret, and a node only ever
+sees public keys and signatures. So **custody is private**: the key never leaves
+the holder, and there is no central credential store to breach.
+
+The **ledger, however, is public**. Addresses, balances, and stakes are readable
+by anyone. Identities are therefore **pseudonymous and transparent, not
+anonymous** — and reusing one address across applications makes that activity
+correlatable, the same way a reused public key would. The guarantee is "nobody
+else holds your key and there is nothing to steal server-side," *not* "your
+activity is hidden."
+
 ## Documentation
 
 - **[HTTP API reference](docs/api-reference.md)** — endpoints, roles, payloads.
