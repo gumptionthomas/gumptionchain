@@ -42,6 +42,58 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
     return out;
   }
 
+  async function discover({ mediation = 'optional', signal } = {}) {
+    if (typeof navigator === 'undefined' || !navigator.credentials) {
+      return null;
+    }
+    let assertion;
+    try {
+      assertion = await navigator.credentials.get({
+        mediation,
+        ...(signal !== undefined && { signal }),
+        publicKey: {
+          rpId,
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          allowCredentials: [],
+          userVerification,
+          extensions: { prf: { eval: { first: PRF_SALT } } },
+        },
+      });
+    } catch (e) {
+      // Dismissal / abort are normal "no passkey selected" outcomes, not errors.
+      if (e && (e.name === 'NotAllowedError' || e.name === 'AbortError')) {
+        return null;
+      }
+      throw e;
+    }
+    if (!assertion) {
+      return null;
+    }
+    const out = prfFirst(assertion);
+    if (!out) {
+      throw new UnsupportedError('passkey PRF not available on assertion');
+    }
+    return {
+      credentialId: b64urlEncode(new Uint8Array(assertion.rawId)),
+      prfOutput: out,
+    };
+  }
+
+  async function isConditionalAvailable() {
+    try {
+      if (typeof window === 'undefined' ||
+          typeof window.PublicKeyCredential !== 'function') {
+        return false;
+      }
+      const fn = window.PublicKeyCredential.isConditionalMediationAvailable;
+      return typeof fn === 'function'
+        ? Boolean(await fn.call(window.PublicKeyCredential))
+        : false;
+    } catch {
+      return false;
+    }
+  }
+
   return {
     async isSupported() {
       return (
@@ -79,5 +131,8 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
     },
 
     unlock,
+
+    discover,
+    isConditionalAvailable,
   };
 }
