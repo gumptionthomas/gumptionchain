@@ -47,7 +47,7 @@ Real behavior is verified by hand using `passkey-signing-key-demo.html`:
 
 6. **Clear.** Click **Clear** and confirm the record is removed from IndexedDB.
 
-## Backup / recovery (#2.3)
+## Backup / recovery
 
 The backup crypto (`gc-backup.mjs` — PBKDF2-SHA256 → AES-GCM-256, plus the
 raw-string path) is fully covered by `node --test`. Only the browser glue in the
@@ -68,7 +68,7 @@ demo page (file download/upload, passphrase prompt, clipboard) is manual:
 6. Click **Show raw key**, copy it; reload; paste into the import textarea and
    click **Import raw key** — confirm the address matches.
 
-## Message signing (#2.4)
+## Message signing
 
 The `gc-msg-v1` crypto (`gc-message.mjs` — canonical, sign/verify, armored) is
 fully covered by `node --test` and by JS↔Python parity + golden-vector tests.
@@ -87,7 +87,7 @@ manual:
 5. Tamper a character inside the JSON `message` field and verify; confirm
    `valid: false, reason: bad-signature`.
 
-## Stake attestation (#176b)
+## Stake attestation
 
 Composes gc-msg-v1 signing with on-chain provenance. Verification fetches
 `GET /api/transaction/<txid>` from the node, so point the demo at a node where

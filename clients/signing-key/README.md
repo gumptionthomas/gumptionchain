@@ -135,8 +135,8 @@ IndexedDB) are covered by `MANUAL-VERIFICATION.md`.
 
 ## Extracting to its own repo / hosting
 
-The signing_key is packaged in place today. To move it to a dedicated repo or into
-the gumption.com hub (EGU #5):
+The signing_key is packaged in place today. To move it to a dedicated repo or
+embed it in a host web application:
 
 1. Copy `clients/signing-key/` to the new location. It is self-contained — the
    public surface has no imports outside this directory.

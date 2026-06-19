@@ -58,7 +58,8 @@ GENESIS_HASH = mill_hash_str('GENESIS')
 # too-hard floor would stall genesis. Re-derive with
 # scripts/benchmark_max_target.py if the baseline hardware changes.
 MAX_TARGET = '0' * 5 + 'F' * 59
-# EGU 1b: flat 5-GRIT non-halving reward, 5-min blocks, 24-block retarget.
+# Reward and timing: flat 5-GRIT non-halving reward, 5-min blocks,
+# 24-block retarget.
 REWARD = 5 * GRAIN_PER_GRIT
 TARGET_GOAL_SECONDS = 300
 TARGET_INTERVAL = 24

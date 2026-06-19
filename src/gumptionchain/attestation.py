@@ -237,7 +237,7 @@ def verify_stake(
     max_age: int | None = None,
     min_confirmations: int | None = None,
 ) -> dict[str, Any]:
-    # fetch_provenance(txid) MUST return the #176a provenance dict, or None for
+    # fetch_provenance(txid) MUST return the provenance dict, or None for
     # an unknown txn; mapping a 404 to None is the injected adapter's job.
     # Genuine transport errors propagate by design — they must NOT be
     # misreported as 'txn-not-found' (which would mark a real canonical stake

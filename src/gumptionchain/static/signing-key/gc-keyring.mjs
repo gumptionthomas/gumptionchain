@@ -34,8 +34,8 @@ import { sealWithKey, openWithKey, deriveAesKey } from './gc-envelope.mjs';
 import { deriveKey } from './gc-backup.mjs';
 import { SigningKey } from './gc-signing-key.mjs';
 
-// VERSION 2: the encrypted-key field name changed in the signing-key rename
-// (EGU #265). Bumping the record version makes any pre-rename record fail
+// VERSION 2: the encrypted-key field name changed in the signing-key rename.
+// Bumping the record version makes any pre-rename record fail
 // loudly on read rather than silently miss the renamed field.
 const VERSION = 2;
 const SALT_BYTES = 16;
