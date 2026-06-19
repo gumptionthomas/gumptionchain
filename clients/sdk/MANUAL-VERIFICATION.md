@@ -124,3 +124,18 @@ sets `READER_ADDRESSES=["*"]`).
   authenticator (a platform passkey in recent Chrome/Safari, a phone passkey
   via hybrid, or a hardware key with `hmac-secret`). Note the Bitwarden
   extension does **not** export PRF to external RPs.
+
+## Cross-origin discovery
+
+`discover()` is unit-tested with a faked `navigator`; verify the real WebAuthn
+path by hand:
+
+1. Enroll a passkey on the demo page (creates a discoverable credential).
+2. Reload (or open a second tab on the same `rpId`) and call
+   `makeWebauthnPasskey({ rpId }).discover()` from the console.
+3. Confirm it resolves to `{ credentialId, prfOutput }` after one ceremony, with
+   the same `credentialId` as enrollment.
+4. Call `discover()` and **cancel** the prompt — confirm it resolves to `null`
+   (not a throw).
+5. On a browser exposing `PublicKeyCredential.isConditionalMediationAvailable`,
+   confirm `isConditionalAvailable()` resolves `true`; on one without it, `false`.

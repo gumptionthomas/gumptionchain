@@ -24,6 +24,7 @@ function fakePasskey(fill = 7, credentialId = 'cred1') {
     isSupported: async () => true,
     enroll: async () => ({ credentialId, prfOutput: PRF }),
     unlock: async () => PRF,
+    discover: async () => ({ credentialId, prfOutput: PRF }),
   };
 }
 
@@ -190,4 +191,16 @@ test('signTransaction: throws when locked; signs a node-built unsigned txn when 
   assert.equal(typeof signed.signature, 'string');
   // The signature is real: it verifies over the canonical signing data.
   assert.equal(await k.verify(signingData(signed), signed.signature), true);
+});
+
+test('discover() delegates to the passkey adapter', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
+  const r = await onb.discover();
+  assert.equal(r.credentialId, 'cred1');
+  assert.ok(r.prfOutput instanceof Uint8Array);
+});
+
+test('discover() returns null when no passkey adapter is configured', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
+  assert.equal(await onb.discover(), null);
 });
