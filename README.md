@@ -104,18 +104,6 @@ $ gumptionchain run
 Open [http://localhost:5000](http://localhost:5000) in a browser to explore the
 local copy of the blockchain.
 
-#### Home Page (Current Chain)
-
-<img src="https://github.com/gumptionthomas/gumptionchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-chain.png?raw=true" width="500">
-
-#### Block Page
-
-<img src="https://github.com/gumptionthomas/gumptionchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-block.png?raw=true" width="500">
-
-#### Transaction Page
-
-<img src="https://github.com/gumptionthomas/gumptionchain/blob/7a4fab66dfe6026e56c79df3e147b1ecbdbb6158/readme-assets/browser-txn.png?raw=true" width="500">
-
 Running the application also exposes the JSON API that forms the communications
 layer of the blockchain — see the [API reference](docs/api-reference.md). For
 the other commands, see the [CLI reference](docs/cli-reference.md) or run
