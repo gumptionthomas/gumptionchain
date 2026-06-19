@@ -12,7 +12,7 @@ const TS = '1700002000';
 const TX = '1'.repeat(64);
 const CLAIM = { txid: TX, kind: 'opposition', subject: 'goblins', amount: 300 };
 
-// A provenance object shaped like #176a's GET /transaction/<txid> response.
+// A provenance object shaped like the GET /transaction/<txid> response.
 function provenanceFor(address, { status = 'canonical', confirmations = 3 } = {}) {
   return {
     txid: TX, address, status, confirmations,

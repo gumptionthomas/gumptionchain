@@ -206,7 +206,7 @@ function outflowMatches(outflows, claim) {
   );
 }
 
-// fetchProvenance(txid) MUST resolve to the #176a provenance object, or null
+// fetchProvenance(txid) MUST resolve to the provenance object, or null
 // for an unknown txn. The verifier performs no transport itself; mapping a
 // 404 to null is the injected adapter's job. Genuine transport errors (e.g. a
 // network failure) propagate by design — they must NOT be misreported as

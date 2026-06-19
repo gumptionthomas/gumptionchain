@@ -8,7 +8,7 @@ import { BadBackupError, BadPassphraseError } from './gc-errors.mjs';
 import { sealWithKey, openWithKey } from './gc-envelope.mjs';
 import { SigningKey } from './gc-signing-key.mjs';
 
-// VERSION 2: the signing-key rename (EGU #265) changed BACKUP_KIND. Bumping
+// VERSION 2: the signing-key rename changed BACKUP_KIND. Bumping
 // the format version makes any pre-rename backup fail loudly on import rather
 // than decode ambiguously against the new kind string.
 const BACKUP_VERSION = 2;
@@ -107,7 +107,7 @@ export async function importEncrypted(backup, passphrase) {
 }
 
 // Raw-string backup: the b58 private key itself. At-rest protection is the
-// user's password manager. Thin, documented wrappers over the #2.1 key seam so
+// user's password manager. Thin, documented wrappers over the key seam so
 // all backup surface lives in one module.
 export async function exportPlain(signing_key) {
   return signing_key.exportPrivateKeyB58();
