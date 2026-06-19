@@ -623,6 +623,37 @@ class Chain:
         t.seal()
         return t
 
+    def create_split(
+        self, signing_key: SigningKey, denomination: int, count: int
+    ) -> Transaction:
+        # Assumes validated inputs: denomination >= 1, and count low enough
+        # that count chips + at most one change output stay within MAX_FLOWS
+        # (50) outflows. The build endpoint caps count at MAX_FLOWS-1 (49),
+        # conservatively reserving a change slot. The domain method is
+        # unguarded: an over-large count is rejected by the transaction
+        # model's outflow max_length=MAX_FLOWS on validation/submission
+        # (e.g. Transaction.from_json), not here — seal() only computes the
+        # txid.
+        address = signing_key.address
+        total = denomination * count
+        balance = 0
+        t = Transaction()
+        unspent = self.unspent_outflows(
+            address, limit=total, filter_pending=True
+        )
+        for txid, index, outflow in unspent:
+            balance += outflow.amount or 0
+            t.add_inflow(Inflow(outflow_txid=txid, outflow_idx=index))
+        if balance < total:
+            raise self._funds_error(address, total)
+        for _ in range(count):
+            t.add_outflow(Outflow(amount=denomination, address=address))
+        if balance - total:
+            t.add_outflow(Outflow(amount=balance - total, address=address))
+        t.set_signing_key(signing_key)
+        t.seal()
+        return t
+
     def create_opposition(
         self,
         signing_key: SigningKey,

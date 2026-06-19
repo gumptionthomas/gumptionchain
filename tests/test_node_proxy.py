@@ -58,6 +58,11 @@ class FakeClient:
     ):
         return self._resp('build_transfer', pk, amount, address)
 
+    def get_split_transaction(
+        self, pk, denomination, count, *, raise_for_status=True
+    ):
+        return self._resp('build_split', pk, denomination, count)
+
     def get(self, path, *, raise_for_status=True):
         return self._resp('status', path)
 
@@ -189,6 +194,42 @@ def test_build_transfer_rejects_bad_address():
         json={'public_key': 'P', 'amount_grit': 20, 'to_address': 'nope'},
     )
     assert resp.status_code == 400
+
+
+def test_build_split_converts_grit_and_passes_count():
+    unsigned = {'txid': 's1', 'outflows': [{'amount': 200, 'address': 'GCxGC'}]}
+    client = FakeClient(build_split=FakeResponse(200, unsigned))
+    resp = _app(client).post(
+        '/api/node/txn/split',
+        json={'public_key': 'PUB', 'denomination_grit': 2, 'count': 30},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json() == unsigned
+    name, args, _ = client.calls[0]
+    assert name == 'build_split'
+    assert args == ('PUB', 200, 30)  # 2 GRIT -> 200 grains; count passthrough
+
+
+def test_build_split_rejects_bad_amount():
+    client = FakeClient()
+    resp = _app(client).post(
+        '/api/node/txn/split',
+        json={'public_key': 'P', 'denomination_grit': 0, 'count': 5},
+    )
+    assert resp.status_code == 400
+    # the error names the split field, not the transfer 'amount_grit'
+    assert 'denomination_grit' in resp.get_json()['error']
+
+
+def test_build_split_rejects_non_positive_or_bool_count():
+    client = FakeClient()
+    c = _app(client)
+    for bad in (0, -1, True):  # bool is an int subclass; must be rejected
+        resp = c.post(
+            '/api/node/txn/split',
+            json={'public_key': 'P', 'denomination_grit': 2, 'count': bad},
+        )
+        assert resp.status_code == 400, bad
 
 
 def test_build_rejects_non_positive_and_sub_grain_amounts():
