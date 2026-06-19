@@ -217,6 +217,8 @@ def test_build_split_rejects_bad_amount():
         json={'public_key': 'P', 'denomination_grit': 0, 'count': 5},
     )
     assert resp.status_code == 400
+    # the error names the split field, not the transfer 'amount_grit'
+    assert 'denomination_grit' in resp.get_json()['error']
 
 
 def test_build_split_rejects_non_positive_or_bool_count():

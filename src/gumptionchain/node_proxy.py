@@ -61,16 +61,16 @@ def _require_subject(subject: object) -> str:
     return subject
 
 
-def _grit_to_grains(value: object) -> int:
+def _grit_to_grains(value: object, field: str = 'amount_grit') -> int:
     try:
         grit = Decimal(str(value))
     except (InvalidOperation, ValueError):
-        raise _ProxyError(400, 'amount_grit must be a number') from None
+        raise _ProxyError(400, f'{field} must be a number') from None
     if grit <= 0:
-        raise _ProxyError(400, 'amount_grit must be positive')
+        raise _ProxyError(400, f'{field} must be positive')
     grains = grit * GRAIN_PER_GRIT
     if grains != grains.to_integral_value():
-        raise _ProxyError(400, 'amount_grit precision exceeds 0.01 GRIT')
+        raise _ProxyError(400, f'{field} precision exceeds 0.01 GRIT')
     return int(grains)
 
 
@@ -205,7 +205,9 @@ def node_proxy_blueprint(
         public_key = data.get('public_key')
         if not isinstance(public_key, str) or not public_key:
             raise _ProxyError(400, 'public_key required')
-        denomination = _grit_to_grains(data.get('denomination_grit'))
+        denomination = _grit_to_grains(
+            data.get('denomination_grit'), field='denomination_grit'
+        )
         count = data.get('count')
         # bool is an int subclass — reject it explicitly so a JSON `true`
         # doesn't slip through as count == 1.
