@@ -49,9 +49,8 @@ target_ref() {
 }
 
 # Rollback re-runs `db upgrade` (no downgrade); safe only under the release
-# rule that migrations never break the previous tag's code — see
-# docs/superpowers/specs/2026-06-10-egu-254-pi-miller-distribution-design.md
-# "Release discipline".
+# rule that migrations never break the previous tag's code (the project's
+# release-discipline policy).
 apply() {
   run_gc git checkout --quiet "$1"
   run_gc "$UV" sync --frozen

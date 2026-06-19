@@ -5,8 +5,7 @@ consensus validation — we only care about the walk + insert pattern)
 and times the rebuild. Sweeps over multiple N values to characterize
 how the iterative walk scales.
 
-Used to decide whether Phase 6.7 (batched-fetch) is worth implementing.
-See docs/superpowers/ROADMAP.md "Phase 6.7" for context.
+Used to decide whether a batched-fetch rebuild is worth implementing.
 
 Usage:
     uv run python bench/rebuild_walk_bench.py

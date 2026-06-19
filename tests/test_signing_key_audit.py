@@ -7,8 +7,7 @@ today (the gap is real) and forces the marker's removal at remediation (the
 xfail would otherwise "unexpectedly pass" and error the suite). Once a finding
 is remediated the marker is dropped and the test becomes a passing
 regression; tests below may therefore be a mix of strict-xfail (open) and
-plain regression (closed). See
-docs/superpowers/audits/2026-06-02-signing_key-crypto-audit.md.
+plain regression (closed). (Per the signing-key crypto security audit.)
 
 The audit found 0 exploitable findings (0 Critical / 0 High / 0 Medium); the
 two Low items below are non-exploitable defense-in-depth / hygiene residuals,
