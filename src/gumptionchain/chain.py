@@ -626,10 +626,14 @@ class Chain:
     def create_split(
         self, signing_key: SigningKey, denomination: int, count: int
     ) -> Transaction:
-        # Assumes validated inputs: count in 1..MAX_FLOWS-1 (so count chips +
-        # one change stay within the 50-outflow cap) and denomination >= 1.
-        # The build endpoint enforces this; a direct caller passing count > 49
-        # would build an over-cap txn that fails at seal/validation.
+        # Assumes validated inputs: denomination >= 1, and count low enough
+        # that count chips + at most one change output stay within MAX_FLOWS
+        # (50) outflows. The build endpoint caps count at MAX_FLOWS-1 (49),
+        # conservatively reserving a change slot. The domain method is
+        # unguarded: an over-large count is rejected by the transaction
+        # model's outflow max_length=MAX_FLOWS on validation/submission
+        # (e.g. Transaction.from_json), not here — seal() only computes the
+        # txid.
         address = signing_key.address
         total = denomination * count
         balance = 0
