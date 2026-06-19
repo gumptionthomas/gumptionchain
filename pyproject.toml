@@ -123,9 +123,6 @@ ignore = [
   "S110",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"bench/*_bench.py" = ["T201"]  # benchmark CLI entrypoints print to stdout
-
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "single"
 
