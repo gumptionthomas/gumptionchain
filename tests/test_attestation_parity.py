@@ -21,7 +21,7 @@ from gumptionchain.signing_key import SigningKey
 CLI = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'signing-key'
+    / 'sdk'
     / 'attestation-cli.mjs'
 )
 TS = '1700002000'

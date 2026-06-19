@@ -7,10 +7,10 @@
 // The pure helpers (whichControls / backupFilename / readTrustAck /
 // writeTrustAck / makePasskey) are exported and DOM-free so they can be
 // unit-tested with fakes. The DOM wiring is in init().
-import { SigningKey } from '../signing-key/gc-signing-key.mjs';
-import * as keyring from '../signing-key/gc-keyring.mjs';
-import { makeIdbStore } from '../signing-key/gc-store-idb.mjs';
-import { exportEncrypted, importEncrypted } from '../signing-key/gc-backup.mjs';
+import { SigningKey } from '../sdk/gc-signing-key.mjs';
+import * as keyring from '../sdk/gc-keyring.mjs';
+import { makeIdbStore } from '../sdk/gc-store-idb.mjs';
+import { exportEncrypted, importEncrypted } from '../sdk/gc-backup.mjs';
 import { session as defaultSession } from './signing-key-session.mjs';
 import { makePasskey } from './signing-key-passkey.mjs';
 

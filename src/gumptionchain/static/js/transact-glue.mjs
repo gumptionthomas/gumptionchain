@@ -13,16 +13,16 @@
 // The pure helpers (buildQuery / submitPath / responseMessage / buildUnsigned /
 // signAndSubmit / whichKeyPanel / unlockSaved) are exported and DOM-free so
 // they can be unit-tested with fakes. The DOM wiring is in init().
-import { SigningKey } from '../signing-key/gc-signing-key.mjs';
-import { signHeaders } from '../signing-key/gc-sig.mjs';
-import { base64encode } from '../signing-key/gc-crypto.mjs';
-import { signStakeAttestation } from '../signing-key/gc-attestation.mjs';
+import { SigningKey } from '../sdk/gc-signing-key.mjs';
+import { signHeaders } from '../sdk/gc-sig.mjs';
+import { base64encode } from '../sdk/gc-crypto.mjs';
+import { signStakeAttestation } from '../sdk/gc-attestation.mjs';
 import {
   signUnsignedTxn,
   txid as computeTxid,
-} from '../signing-key/gc-transaction.mjs';
-import * as keyring from '../signing-key/gc-keyring.mjs';
-import { makeIdbStore } from '../signing-key/gc-store-idb.mjs';
+} from '../sdk/gc-transaction.mjs';
+import * as keyring from '../sdk/gc-keyring.mjs';
+import { makeIdbStore } from '../sdk/gc-store-idb.mjs';
 import { session as defaultSession } from './signing-key-session.mjs';
 import { makePasskey } from './signing-key-passkey.mjs';
 import { readTrustAck, writeTrustAck } from './signing-key-glue.mjs';

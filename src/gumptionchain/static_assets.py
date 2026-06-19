@@ -9,7 +9,7 @@ def static_assets_blueprint(
     url_path: str = '/static/gumptionchain',
     name: str = 'gumptionchain_static',
 ) -> Blueprint:
-    """A static-only blueprint serving base's browser assets (the signing-key
+    """A static-only blueprint serving base's browser assets (the SDK
     ESM modules + JS glue) for consumers that embed the ``gumptionchain``
     package but do NOT register the full ``browser`` blueprint (chain explorer
     + DB).

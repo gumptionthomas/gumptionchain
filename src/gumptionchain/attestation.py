@@ -19,7 +19,7 @@ KINDS = frozenset({'opposition', 'support', 'rescind', 'transfer'})
 # (rather than only "non-empty string") means a malformed txid is rejected as a
 # bad attestation up front, instead of slipping through to a provenance fetch
 # that 404s and gets mis-reported as 'txn-not-found'. Kept in lockstep with the
-# JS validator's TXID_RE in clients/signing-key/gc-attestation.mjs.
+# JS validator's TXID_RE in clients/sdk/gc-attestation.mjs.
 _TXID_RE = re.compile(r'[0-9a-f]{64}')
 
 
@@ -120,7 +120,7 @@ def parse_stake_attestation(proof: Any) -> dict[str, Any]:
 
 # Platform identifier: lowercase alphanumeric + hyphen, 1-32 chars. Kept in
 # lockstep with the JS validator's PLATFORM_RE in
-# clients/signing-key/gc-attestation.mjs.
+# clients/sdk/gc-attestation.mjs.
 _PLATFORM_RE = re.compile(r'^[a-z0-9-]{1,32}$')
 _MAX_HANDLE_LEN = 256
 _MAX_PROOF_URL_LEN = 512

@@ -16,7 +16,7 @@ from gumptionchain.signing_key import SigningKey
 VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'signing-key'
+    / 'sdk'
     / 'testdata'
     / 'gc-attestation-vectors.json'
 )
@@ -85,7 +85,7 @@ def test_attestation_vectors_match() -> None:
 _BINDING_VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
-    / 'signing-key'
+    / 'sdk'
     / 'testdata'
     / 'gc-binding-vectors.json'
 )

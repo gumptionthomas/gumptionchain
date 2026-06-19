@@ -1,6 +1,6 @@
 """Python side of the JS<->Python transaction signing parity contract.
 
-`clients/signing-key/gc-transaction.test.mjs` asserts the JS reconstruction of
+`clients/sdk/gc-transaction.test.mjs` asserts the JS reconstruction of
 data_csv / txid / signing_data matches these same vectors. Here we prove the
 fixtures round-trip through the Python domain model — so the vectors the JS
 test trusts are genuinely the canonical Python output — and that a Python
