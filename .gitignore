@@ -149,6 +149,9 @@ _build/
 # zed
 .zed/
 
+# Claude Code (local settings + project skills, kept local)
+.claude/
+
 # Visual-companion brainstorm artifacts
 .superpowers/
 
