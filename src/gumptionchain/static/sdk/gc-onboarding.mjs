@@ -174,6 +174,13 @@ export function makeOnboarding({
     return signUnsignedTxn(unsigned, key);
   }
 
+  async function discover(opts) {
+    if (!pk || typeof pk.discover !== 'function') {
+      return null;
+    }
+    return pk.discover(opts);
+  }
+
   async function lock() {
     key = null;
     await notify();
@@ -186,7 +193,7 @@ export function makeOnboarding({
   }
 
   return {
-    status, onChange, create, unlock, restore, backup, addPasskey,
+    status, onChange, create, unlock, restore, backup, addPasskey, discover,
     signLogin, signTransaction, lock, forget,
   };
 }
