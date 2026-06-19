@@ -84,8 +84,7 @@ def explorer_home_context() -> dict[str, Any]:
     lc = longest_chain()
     # stake_stats runs the leaderboard union-anti-join once, yielding both
     # the distinct subject count and the total live stake; the template
-    # reads lc.length / lc.transaction_count / lc.recent_blocks(10)
-    # directly.
+    # reads lc.length / lc.transaction_count / lc.last_block directly.
     subject_count = total_staked = 0
     if lc is not None:
         subject_count, total_staked = lc.stake_stats()
