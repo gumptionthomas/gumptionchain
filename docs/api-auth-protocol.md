@@ -32,9 +32,9 @@ Every signed request must include all five of the following headers.
 |---|---|
 | `GC-Sig-Version` | `1` |
 | `GC-Address` | Caller's GC address (e.g. `GC…GC`) |
-| `GC-Public-Key` | Caller's RSA public key, base64-encoded DER SubjectPublicKeyInfo |
+| `GC-Public-Key` | Caller's public key (RSA-2048 or Ed25519), base64-encoded DER SubjectPublicKeyInfo — the algorithm OID identifies the key type |
 | `GC-Timestamp` | Unix time of the request, decimal seconds (e.g. `1748736000`) |
-| `GC-Signature` | Base64 RSASSA-PKCS1-v1_5 / SHA-384 signature over the canonical string |
+| `GC-Signature` | Base64 signature over the canonical string, in the key's native scheme: RSASSA-PKCS1-v1_5 / SHA-384 (RSA) or Ed25519 / RFC 8032 |
 
 The `GC-Public-Key` is **self-certifying**: the server derives the GC address from
 the supplied public key and requires it to equal `GC-Address`. No prior key
@@ -118,19 +118,32 @@ cryptographic configuration, because the canonical strings differ.
 
 ## Signing algorithm
 
-The signature is produced using **RSASSA-PKCS1-v1_5 with SHA-384** over the
-canonical string bytes. The key is the signing_key's RSA-2048 private key. The resulting
-signature bytes are encoded with **standard base64** (not URL-safe base64, using
-`+` and `/`).
+The signature is produced over the canonical string bytes in the key's native
+scheme, then encoded with **standard base64** (not URL-safe, using `+` and `/`):
+
+- **RSA-2048:** RSASSA-PKCS1-v1_5 with SHA-384.
+- **Ed25519:** Ed25519 (RFC 8032; the scheme hashes with SHA-512 internally).
+
+The `GC-Public-Key` (DER SubjectPublicKeyInfo) is self-describing — its
+algorithm OID tells the verifier which scheme to use. Nodes **verify Ed25519
+signatures with GumptionChain's vendored, version-independent cofactored
+verifier** (`src/gumptionchain/ed25519.py`), not OpenSSL, for the same
+node-uniform determinism the chain's consensus path requires (see #316); RSA
+verification uses `cryptography`/OpenSSL as before.
 
 In Python using the `cryptography` library:
 
 ```python
+# RSA-2048
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from base64 import standard_b64encode
 
 signature_bytes = private_key.sign(canonical_bytes, padding.PKCS1v15(), hashes.SHA384())
+gc_signature = standard_b64encode(signature_bytes).decode()
+
+# Ed25519
+signature_bytes = ed25519_private_key.sign(canonical_bytes)  # RFC 8032
 gc_signature = standard_b64encode(signature_bytes).decode()
 ```
 
@@ -140,7 +153,7 @@ gc_signature = standard_b64encode(signature_bytes).decode()
 
 A GC address is derived from a public key as follows:
 
-1. Serialize the RSA public key to DER-encoded SubjectPublicKeyInfo bytes.
+1. Serialize the RSA-2048 or Ed25519 public key to DER-encoded SubjectPublicKeyInfo bytes.
 2. Compute `mill_hash` of those bytes: `sha256(sha512(der_bytes).digest()).digest()` — 32 bytes.
 3. Base58Check-encode the 32-byte hash.
 4. Wrap with the `GC` tag: `"GC" + base58check_str + "GC"`.
@@ -181,8 +194,8 @@ The server performs these checks in order. Any failure in steps 1–6 results in
    present and non-empty → `401`.
 3. `GC-Timestamp` must parse as a decimal integer → `401`.
 4. Freshness: `abs(now − ts) <= 300` → else `401`.
-5. `GC-Public-Key` must be a valid RSA-2048 public key in base64 DER format, and
-   it must derive to an address equal to `GC-Address` → else `401`.
+5. `GC-Public-Key` must be a valid RSA-2048 or Ed25519 public key in base64 DER
+   format, and it must derive to an address equal to `GC-Address` → else `401`.
 6. Reconstruct the canonical string from the live request (see above); verify the
    `GC-Signature` using the public key from step 5 → else `401`.
 7. Map `GC-Address` to a role via the server's live address allowlists. If no role
@@ -228,7 +241,7 @@ GC-Sig-Version: 1
 GC-Address:     GCAbcDef…XyzGC
 GC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
 GC-Timestamp:   1748736000
-GC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
+GC-Signature:   <base64 signature over canonical bytes (RSA or Ed25519) — placeholder>
 ```
 
 ### POST `/api/block/<hash>`
@@ -265,7 +278,7 @@ GC-Sig-Version: 1
 GC-Address:     GCAbcDef…XyzGC
 GC-Public-Key:  <base64 DER SubjectPublicKeyInfo — placeholder>
 GC-Timestamp:   1748736001
-GC-Signature:   <base64 RSASSA-PKCS1-v1_5/SHA-384 over canonical bytes — placeholder>
+GC-Signature:   <base64 signature over canonical bytes (RSA or Ed25519) — placeholder>
 ```
 
 All placeholder values (`GCAbcDef…XyzGC`, the base64 keys, and the base64
@@ -278,8 +291,9 @@ signatures) are illustrative only and are not real cryptographic values.
 | Property | Value |
 |---|---|
 | RSA key size | 2048 bits |
-| Signature algorithm | RSASSA-PKCS1-v1_5 |
-| Signature hash | SHA-384 |
+| Ed25519 key size | 256 bits (RFC 8032) |
+| RSA signature algorithm | RSASSA-PKCS1-v1_5 / SHA-384 |
+| Ed25519 signature algorithm | Ed25519 (RFC 8032) |
 | Signature encoding | Standard base64 (RFC 4648, uses `+` and `/`) |
 | Public key encoding | Standard base64 of DER SubjectPublicKeyInfo |
 | Body digest algorithm | SHA-256 (hex digest, lowercase) |
