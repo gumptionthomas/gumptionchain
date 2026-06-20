@@ -143,9 +143,9 @@ class Transaction:
     def __post_init__(self) -> None:
         # `signing_key` is a non-field attribute set by `set_signing_key()`.
         # Initializing it in `__post_init__` (not as a dataclass field)
-        # keeps it out of `dataclasses.asdict()` — SigningKey wraps an RSA
-        # key whose `__getstate__` raises, which would break deepcopy
-        # via asdict if walked.
+        # keeps it out of `dataclasses.asdict()` — SigningKey wraps a
+        # cryptographic key whose `__getstate__` raises, which would break
+        # deepcopy via asdict if walked.
         self.signing_key: SigningKey | None = None
 
     @property
