@@ -1,11 +1,18 @@
 import pytest
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
 )
 
 import gumptionchain.signing_key as signing_key_module
+from gumptionchain import ed25519 as gc_ed25519
 from gumptionchain.exceptions import InvalidKeyError
-from gumptionchain.signing_key import SigningKey
+from gumptionchain.signing_key import (
+    SigningKey,
+    b58decode,
+    b64decode,
+    public_key_from_address,
+)
 
 
 def test_generate_ed25519_round_trips_and_signs():
@@ -19,12 +26,13 @@ def test_generate_ed25519_round_trips_and_signs():
     assert pub.validate_signature(b'tampered', sig) is False
 
 
-def test_ed25519_address_is_stable_and_tagged():
+def test_ed25519_address_is_stable():
     sk = SigningKey.generate_ed25519()
     a1 = sk.address
     a2 = SigningKey(b64ks=sk.public_key_b64).address
     assert a1 == a2
-    assert a1.startswith('GC') and a1.endswith('GC')
+    assert not a1.startswith('GC')
+    assert not a1.endswith('GC')
 
 
 def test_ed25519_verify_does_not_use_pyca(monkeypatch):
@@ -65,3 +73,33 @@ def test_no_rsa_in_signing_key_module():
     src = __import__('inspect').getsource(signing_key_module)
     assert 'rsa' not in src.lower()
     assert 'RSAPrivateKey' not in src
+
+
+def test_address_is_b58check_pubkey_no_tags():
+    sk = SigningKey()
+    addr = sk.address
+    assert not addr.startswith('GC')
+    assert not addr.endswith('GC')
+    raw = sk.public_key.public_bytes(
+        serialization.Encoding.Raw,
+        serialization.PublicFormat.Raw,
+    )
+    assert b58decode(addr) == raw  # the address IS the 32-byte pubkey
+    # reconstruct the key from the address; it must match and verify a sig
+    pub = public_key_from_address(addr)
+    assert (
+        pub.public_bytes(
+            serialization.Encoding.Raw,
+            serialization.PublicFormat.Raw,
+        )
+        == raw
+    )
+    sig = sk.sign(b'hi')
+    assert gc_ed25519.verify(raw, b64decode(sig), b'hi')
+
+
+def test_corrupt_address_rejected():
+    addr = SigningKey().address
+    bad = addr[:-1] + ('A' if addr[-1] != 'A' else 'B')  # flip last char
+    with pytest.raises(InvalidKeyError):
+        public_key_from_address(bad)

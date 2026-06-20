@@ -9,11 +9,10 @@ from pydantic_core import ErrorDetails
 
 from gumptionchain.exceptions import InvalidKeyError
 from gumptionchain.signing_key import (
-    ADDRESS_TAG,
     SigningKey,
-    b58decode,
     b64decode,
     b64encode,
+    public_key_from_address,
 )
 from gumptionchain.util import iso_2_dt
 
@@ -34,20 +33,10 @@ def validate_address(public_key_b64: str | None, address: str | None) -> bool:
 
 def validate_address_format(address: str) -> bool:
     try:
-        if (
-            address.startswith(ADDRESS_TAG)
-            and address.endswith(ADDRESS_TAG)
-            and len(
-                b58decode(
-                    address.removeprefix(ADDRESS_TAG).removesuffix(ADDRESS_TAG)
-                )
-            )
-            == 32
-        ):
-            return True
-    except Exception:
-        pass
-    return False
+        public_key_from_address(address)  # b58check + valid 32-byte point
+        return True
+    except InvalidKeyError:
+        return False
 
 
 def validate_base64(s: str) -> bool:

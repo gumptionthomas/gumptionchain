@@ -6,8 +6,8 @@ from gumptionchain.config import EnvAppSettings
 def test_environ_settings():
     s = EnvAppSettings.from_env()
     assert s.READER_ADDRESSES == [
-        'GCB9JajrPayCVUqRU7RrDAVfZ1QPj135moCyrKkNwMwEtRGC',
-        'GC3QfbBDAEktCNPzcTg8DPz4a1qY5zMKvenQjr5nFoaKXaGC',
+        'NpT1dBMEe5eEmYnoX3JsGkwek86WYhrw2RgMqYsui8S7AHzgE',
+        '2oPHNGj7eBXopvfoaZZxQxJmk6TkAWAWukFoh19xUnMqjeKP8t',
     ]
 
 

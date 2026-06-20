@@ -173,7 +173,7 @@ def test_build_support_converts_grit_and_passes_raw_subject():
 
 
 def test_build_transfer_converts_grit_and_passes_address():
-    addr = 'GCB9JajrPayCVUqRU7RrDAVfZ1QPj135moCyrKkNwMwEtRGC'
+    addr = 'NpT1dBMEe5eEmYnoX3JsGkwek86WYhrw2RgMqYsui8S7AHzgE'
     unsigned = {'txid': 't2', 'outflows': [{'amount': 2000, 'address': addr}]}
     client = FakeClient(build_transfer=FakeResponse(200, unsigned))
     resp = _app(client).post(
