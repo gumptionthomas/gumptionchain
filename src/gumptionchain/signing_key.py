@@ -304,7 +304,13 @@ class SigningKey:
 
     @classmethod
     def from_ed25519_seed(cls, seed: bytes) -> SigningKey:
-        priv = Ed25519PrivateKey.from_private_bytes(seed)
+        # Surface a bad seed (wrong length / type) as InvalidKeyError, matching
+        # how the rest of SigningKey construction reports invalid key material
+        # (pyca raises a raw ValueError on a non-32-byte seed).
+        try:
+            priv = Ed25519PrivateKey.from_private_bytes(seed)
+        except (ValueError, TypeError) as e:
+            raise InvalidKeyError() from e
         der = priv.private_bytes(
             encoding=serialization.Encoding.DER,
             format=serialization.PrivateFormat.PKCS8,

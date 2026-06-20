@@ -56,3 +56,16 @@ def test_ed25519_verify_does_not_use_pyca(monkeypatch):
     monkeypatch.setattr(type(sk.public_key), 'verify', boom)
     sig = sk.sign(b'x')
     assert SigningKey(b64ks=sk.public_key_b64).validate_signature(b'x', sig)
+
+
+def test_from_ed25519_seed_is_deterministic():
+    seed = bytes(range(32))
+    assert (
+        SigningKey.from_ed25519_seed(seed).address
+        == SigningKey.from_ed25519_seed(seed).address
+    )
+
+
+def test_from_ed25519_seed_bad_length_raises_invalidkey():
+    with pytest.raises(InvalidKeyError):
+        SigningKey.from_ed25519_seed(b'\x00' * 31)

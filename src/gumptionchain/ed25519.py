@@ -5,9 +5,9 @@ of installed OpenSSL/library version, so it cannot use `cryptography`/OpenSSL
 (which verifies cofactorless and varies across versions). This module owns the
 decision in pure Python.
 
-Field/group arithmetic is the RFC 8032 (EdDSA) Section 6 reference
-implementation (IETF Trust code component, BSD-style license). Three strict
-"Option B" rules are layered on top and marked `# Option B:` below:
+Field/group arithmetic is adapted from the RFC 8032 (EdDSA) Section 6 reference
+implementation. Three strict "Option B" rules are layered on top and marked
+`# Option B:` below:
   1. reject small-order public keys (strong binding),
   2. reject non-canonical point encodings (enforced by recover_x: y >= p),
   3. use the COFACTORED verification equation [8]sB == [8](R + hA).
@@ -16,6 +16,24 @@ Canonical scalar (S < L) is enforced as in the reference.
 Signing/keygen are NOT here — those use audited pyca and are not
 consensus-divergent. This module is verification only and handles only public
 data (no secrets, no side-channel surface).
+
+Provenance and license of the reference arithmetic
+---------------------------------------------------
+The field/group/point routines are derived from the Python reference code in
+RFC 8032 Section 6 ("Edwards-Curve Digital Signature Algorithm (EdDSA)"), an
+IETF "Code Component":
+
+    Copyright (c) 2017 IETF Trust and the persons identified as authors of
+    the code. All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, is permitted pursuant to, and subject to the license terms
+    contained in, the Revised BSD License set forth in Section 4.c of the IETF
+    Trust's Legal Provisions Relating to IETF Documents
+    (https://trustee.ietf.org/license-info).
+
+The Option-B strict rules and the cofactored verification equation are
+GumptionChain additions (MIT, per the repository LICENSE).
 """
 
 from __future__ import annotations
