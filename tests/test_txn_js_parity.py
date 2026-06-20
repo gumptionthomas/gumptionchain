@@ -21,6 +21,10 @@ from gumptionchain.payload import Inflow, Outflow
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
 
+pytestmark = pytest.mark.skip(
+    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
+)
+
 
 def _txn_from_fixture_dict(d: dict) -> Transaction:
     # Rebuild the dataclass directly from the fixture's `to_dict()` output

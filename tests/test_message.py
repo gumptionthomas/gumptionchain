@@ -1,5 +1,4 @@
 import pytest
-from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
 
 from gumptionchain.message import (
     BadProofError,
@@ -13,9 +12,11 @@ from gumptionchain.signing_key import SigningKey
 
 TS = '1700001000'
 
+_SEED = bytes(range(32))  # fixed 32-byte seed -> deterministic key
+
 
 def _signing_key() -> SigningKey:
-    return SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    return SigningKey.from_ed25519_seed(_SEED)
 
 
 def test_sign_then_verify_is_valid() -> None:
