@@ -32,7 +32,9 @@ function fakeAssertion({
   return {
     rawId,
     response: {
-      userHandle: userHandle == null ? null : new TextEncoder().encode(userHandle),
+      // Real browsers expose userHandle as ArrayBuffer | null — use .buffer so
+      // the mock matches that shape (TextDecoder handles either).
+      userHandle: userHandle == null ? null : new TextEncoder().encode(userHandle).buffer,
     },
     getClientExtensionResults: () => (prf ? { prf: { results: { first: prf } } } : {}),
   };
