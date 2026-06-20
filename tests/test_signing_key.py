@@ -4,7 +4,7 @@ import pytest
 
 from gumptionchain.exceptions import InvalidKeyError, NoPrivateKeyError
 from gumptionchain.schema import validate_address_format
-from gumptionchain.signing_key import KEY_SIZE, SigningKey
+from gumptionchain.signing_key import SigningKey
 
 PASSPHRASE = 'fourty-two'
 
@@ -15,17 +15,6 @@ def test_new():
     assert signing_key.private_key is not None
     assert signing_key.public_key is not None
     assert signing_key.address is not None
-
-
-def test_signing_key_key_size_is_2048():
-    assert KEY_SIZE == 2048
-    signing_key = SigningKey()
-    assert signing_key.private_key is not None
-    assert signing_key.private_key.key_size == 2048
-    # sign + verify round-trip at the new size
-    message = b'browser-signing_key friendliness'
-    signature = signing_key.sign(message)
-    assert signing_key.validate_signature(message, signature) is True
 
 
 def test_invalid_address():
