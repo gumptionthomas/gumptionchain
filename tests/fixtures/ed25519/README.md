@@ -31,3 +31,22 @@ strings, no `0x` prefix).
 - `tests[j]`: `{ tcId, comment, flags, msg, sig, result }` where `result` is
   `'valid'` or `'invalid'` (no `'acceptable'` entries in this file).
   All hex values use no `0x` prefix; `msg` and `sig` are hex, `pk` is hex.
+
+## Maintenance warning (consensus-critical)
+
+Verdicts in `test_ed25519_vectors.py` are derived from GumptionChain's
+**cofactored Option-B rule**, NOT copied from upstream labels:
+
+- **speccheck:** `SPECCHECK_EXPECTED` is hand-derived per case (mixed-order cases
+  accept under cofactored — they are not all rejects).
+- **Wycheproof:** its `valid`/`invalid` labels encode a *cofactorless* convention
+  that can legitimately disagree with our cofactored rule on small-order /
+  non-canonical / malleability edge vectors. The test tolerates a disagreement
+  ONLY on a vector flagged as such an edge class (tracked in
+  `EXPECTED_DIVERGENCES`, currently empty — this pinned set has none).
+
+If a fixture bump makes the gate fail on an edge vector, the verifier is almost
+certainly correct and the *upstream label* differs by convention. **Vet the
+vector and add its tcId to `EXPECTED_DIVERGENCES` — never change the consensus
+rule to match an upstream (cofactorless) label.** That would silently swap our
+rule for OpenSSL's, the exact split the vendored verifier prevents.

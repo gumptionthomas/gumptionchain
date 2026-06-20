@@ -38,10 +38,10 @@ def _load(name: str) -> object:
 # Summary of per-case properties (from speccheck README condition table):
 #
 # case 0: A=small, R=small, S=0
-#   -> REJECT: A is small-order (Option-B rule 2)
+#   -> REJECT: A is small-order
 #
 # case 1: A=small, R=mixed, 0<S<L
-#   -> REJECT: A is small-order (Option-B rule 2)
+#   -> REJECT: A is small-order
 #
 # case 2: A=mixed (non-small, full-prime-order), R=small, 0<S<L
 #   -> ACCEPT: A canonical+non-small-order, R canonically encodes (small-order
@@ -61,22 +61,22 @@ def _load(name: str) -> object:
 #      [8](R+hA)==[8]sB holds. Our verifier does NOT pre-reduce s.
 #
 # case 6: A at prime-order L, R at prime-order L, S>L (out of bounds)
-#   -> REJECT: S >= L (rule 1)
+#   -> REJECT: S >= L (non-canonical scalar)
 #
 # case 7: A at prime-order L, R at prime-order L, S>>L (far out of bounds)
-#   -> REJECT: S >= L (rule 1)
+#   -> REJECT: S >= L (non-canonical scalar)
 #
 # case 8: A=mixed, R=non-canonical encoding (y bit-pattern fails decode), 0<S<L
-#   -> REJECT: R does not decode (rule 3)
+#   -> REJECT: R is a non-canonical encoding (does not decode)
 #
 # case 9: A=mixed, R=non-canonical encoding, 0<S<L
-#   -> REJECT: R does not decode (rule 3)
+#   -> REJECT: R is a non-canonical encoding (does not decode)
 #
 # case 10: A=non-canonical encoding (small* in speccheck table), R=mixed, 0<S<L
-#   -> REJECT: A does not decode (rule 2)
+#   -> REJECT: A is a non-canonical encoding (does not decode)
 #
 # case 11: A=non-canonical encoding, R=mixed, 0<S<L
-#   -> REJECT: A does not decode (rule 2)
+#   -> REJECT: A is a non-canonical encoding (does not decode)
 
 SPECCHECK_EXPECTED: dict[int, bool] = {
     0: False,  # A small-order -> reject
@@ -116,12 +116,36 @@ def test_speccheck(idx: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Wycheproof's 'valid'/'invalid' labels embed a cofactorLESS / RFC-strict
+# convention. Our rule is COFACTORED (the strict strong-binding variant), so the
+# two can LEGITIMATELY disagree on cofactor / small-order / non-canonical edge
+# vectors (the same divergence speccheck case 4 demonstrates). This test
+# therefore does NOT blindly trust the upstream label: a disagreement is
+# tolerated ONLY on a vector flagged as one of those edge classes (and then
+# recorded as a deliberate, documented divergence). A disagreement on ANY OTHER
+# vector is a real verifier bug and fails the test — so this asserts "implements
+# Option-B", not merely "agrees with Wycheproof".
+COFACTOR_DIVERGENT_FLAGS = frozenset(
+    {'SignatureMalleability', 'InvalidEncoding', 'CompressedSignature'}
+)
+
+# This pinned corpus was verified to contain NO cofactored-divergent vector, so
+# this is empty. If a future fixture bump introduces one (our cofactored rule
+# accepts a vector Wycheproof's convention rejects, or vice versa), vet it and
+# add its tcId here with a justification — DO NOT re-point the consensus rule at
+# the upstream label, which would silently swap our cofactored rule for
+# Wycheproof's cofactorless one (the exact footgun the vendored verifier exists
+# to prevent).
+EXPECTED_DIVERGENCES: frozenset[int] = frozenset()
+
+
 def test_wycheproof() -> None:
     data = _load('wycheproof_ed25519.json')
     assert isinstance(data, dict)
     groups = data['testGroups']
     checked = 0
-    failures: list[str] = []
+    bugs: list[str] = []
+    divergences: list[int] = []
 
     for group in groups:
         pub = unhexlify(group['publicKey']['pk'])
@@ -129,21 +153,31 @@ def test_wycheproof() -> None:
             tc_id: int = t['tcId']
             msg = unhexlify(t['msg'])
             sig = unhexlify(t['sig'])
-            # 'acceptable' = malleable/non-canonical; strict Option-B rejects.
-            # No 'acceptable' entries exist in this file (all are 'valid' or
-            # 'invalid'), but `result == 'valid'` handles the general case:
-            # acceptable != valid => want=False.
             want: bool = t['result'] == 'valid'
             got = verify(pub, sig, msg)
             checked += 1
-            if got is not want:
-                failures.append(
+            if got is want:
+                continue
+            # Our cofactored verdict differs from Wycheproof's. Acceptable ONLY
+            # on a flagged cofactor-edge vector (a genuine convention diff);
+            # any other disagreement is a real verifier bug.
+            flags = set(t.get('flags', []))
+            if flags & COFACTOR_DIVERGENT_FLAGS:
+                divergences.append(tc_id)
+            else:
+                bugs.append(
                     f'tcId={tc_id} comment={t["comment"]!r} '
-                    f'flags={t["flags"]!r} got={got!r} want={want!r}'
+                    f'flags={sorted(flags)!r} got={got!r} want={want!r}'
                 )
 
     assert checked > 0, 'no Wycheproof vectors were checked'
-    assert not failures, (
-        f'{len(failures)} Wycheproof failure(s) out of {checked}:\n'
-        + '\n'.join(failures)
+    assert not bugs, (
+        f'{len(bugs)} unflagged Wycheproof disagreement(s) out of {checked} — '
+        f'real verifier bugs, NOT convention differences:\n' + '\n'.join(bugs)
+    )
+    assert set(divergences) == EXPECTED_DIVERGENCES, (
+        'cofactored-divergent Wycheproof set changed: '
+        f'got {sorted(divergences)}, expected {sorted(EXPECTED_DIVERGENCES)}. '
+        'Vet any new vector and add its tcId to EXPECTED_DIVERGENCES; do NOT '
+        'change the consensus rule to match the upstream (cofactorless) label.'
     )

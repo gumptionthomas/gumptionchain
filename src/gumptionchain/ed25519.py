@@ -6,12 +6,16 @@ of installed OpenSSL/library version, so it cannot use `cryptography`/OpenSSL
 decision in pure Python.
 
 Field/group arithmetic is adapted from the RFC 8032 (EdDSA) Section 6 reference
-implementation. Three strict "Option B" rules are layered on top and marked
-`# Option B:` below:
-  1. reject small-order public keys (strong binding),
+implementation. On top of it we pin one exact, node-uniform acceptance rule —
+the strict, strongly-binding (SBS) variant from "Taming the Many EdDSAs"
+(Chalkias, Garillot, Nikolaenko; IACR ePrint 2020/1244), which this codebase
+calls "Option B" (as opposed to the more permissive ZIP-215 / "Option A"). It is
+the conjunction of, marked `# Option B:` below:
+  1. reject small-order public keys A (strong binding),
   2. reject non-canonical point encodings (enforced by recover_x: y >= p),
-  3. use the COFACTORED verification equation [8]sB == [8](R + hA).
-Canonical scalar (S < L) is enforced as in the reference.
+  3. the COFACTORED verification equation [8]sB == [8](R + hA),
+plus canonical scalar S < L (enforced as in the reference). An honest signature
+always satisfies all four; these only reject adversarial/degenerate inputs.
 
 Signing/keygen are NOT here — those use audited pyca and are not
 consensus-divergent. This module is verification only and handles only public
