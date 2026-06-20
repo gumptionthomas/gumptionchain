@@ -139,7 +139,7 @@ def test_sign_headers_v2_has_no_pubkey_header(make_key):
     w = make_key()
     headers = signing.sign_headers(w, **REQ)
     assert headers[signing.H_VERSION] == '2'
-    assert signing.H_PUBKEY not in headers  # no GC-Public-Key
+    assert 'GC-Public-Key' not in headers  # dropped in v2
     assert signing.verify(headers, **REQ) == w.address
 
 

@@ -80,6 +80,7 @@ def bech32_decode(bech):
         return (None, None, None)
     if bech.lower() != bech and bech.upper() != bech:
         return (None, None, None)
+    bech = bech.lower()
     pos = bech.rfind('1')
     if pos < 1 or pos + 7 > len(bech) or len(bech) > 90:
         return (None, None, None)
@@ -121,6 +122,9 @@ ADDRESS_HRP = 'gc'
 
 def encode_address(pubkey: bytes) -> str:
     """bech32m-encode a raw 32-byte Ed25519 public key as a `gc1…` address."""
+    if len(pubkey) != 32:
+        msg = f'expected a 32-byte Ed25519 public key, got {len(pubkey)}'
+        raise ValueError(msg)
     data = convertbits(list(pubkey), 8, 5)
     if data is None:
         msg = 'cannot convert pubkey to 5-bit groups'

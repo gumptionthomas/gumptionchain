@@ -32,12 +32,15 @@ TXID_1 = '0' * 64
 # HS256 requires ≥32 bytes; this is 35 bytes (above the threshold so
 # pyjwt 2.13+ doesn't emit InsecureKeyLengthWarning during tests).
 TEST_SECRET_KEY = 'test-secret-key-for-phase-3-32bytes'
-# One self-consistent canonical Ed25519 key, derived dynamically so the
-# four SIGNING_KEY_* constants can never drift out of sync. (Pre-Ed25519
-# these were hardcoded RSA material coupled to KEY_SIZE; that coupling is
-# gone.) SIGNING_KEY_SIGNATURE is this key's signature over
+# One self-consistent canonical Ed25519 key, derived from a FIXED seed so the
+# four SIGNING_KEY_* constants are deterministic and stable across runs and
+# machines — the txn parity vectors (tests/fixtures/gen_txn_fixtures.py) embed
+# this key's b58 and the JS parity test (re-enabled in #3) asserts it matches.
+# (Pre-Ed25519 these were hardcoded RSA material coupled to KEY_SIZE; that
+# coupling is gone.) SIGNING_KEY_SIGNATURE is this key's signature over
 # SIGNING_KEY_SIGNATURE_DATA.
-_CANONICAL_SIGNING_KEY = SigningKey()
+_CANONICAL_SEED = b'gumptionchain canonical test key'  # 32 bytes
+_CANONICAL_SIGNING_KEY = SigningKey.from_ed25519_seed(_CANONICAL_SEED)
 SIGNING_KEY_PRIVATE_KEY_B58 = _CANONICAL_SIGNING_KEY.private_key_b58
 SIGNING_KEY_PUBLIC_KEY_B64 = _CANONICAL_SIGNING_KEY.public_key_b64
 SIGNING_KEY_ADDRESS = _CANONICAL_SIGNING_KEY.address

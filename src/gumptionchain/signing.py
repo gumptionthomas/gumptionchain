@@ -14,9 +14,11 @@ FRESHNESS_SECONDS = 300
 
 H_VERSION = 'GC-Sig-Version'
 H_ADDRESS = 'GC-Address'
-H_PUBKEY = 'GC-Public-Key'
 H_TIMESTAMP = 'GC-Timestamp'
 H_SIGNATURE = 'GC-Signature'
+# gc-sig-v1's GC-Public-Key header is gone in v2 — the verifier reconstructs
+# the key from GC-Address. A lingering v1 header is ignored (the version gate
+# rejects v1 outright); v2 simply never reads or emits a public-key header.
 
 
 class SignatureError(Exception):
