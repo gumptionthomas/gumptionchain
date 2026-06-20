@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import SIGNING_KEY_PRIVATE_KEY_B58
+from conftest import SIGNING_KEY_SECRET
 
 from gumptionchain.payload import Inflow, Outflow
 from gumptionchain.signing_key import SigningKey
@@ -85,7 +85,7 @@ def test_python_sign_over_fixture_verifies(vector: dict) -> None:
     # exercised end-to-end at the integration layer in a later PR; here we
     # lock the canonical bytes + the verify path.)
     signing_key = SigningKey(b58ks=vector['signing_key_b58'])
-    assert vector['signing_key_b58'] == SIGNING_KEY_PRIVATE_KEY_B58
+    assert vector['signing_key_b58'] == SIGNING_KEY_SECRET
     signing_data = base64.b64decode(vector['signing_data_b64'])
     signature = signing_key.sign(signing_data)
     assert signing_key.validate_signature(signing_data, signature)

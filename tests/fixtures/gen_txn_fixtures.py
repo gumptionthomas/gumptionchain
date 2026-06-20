@@ -27,7 +27,7 @@ from typing import Any
 # single canonical test signing_key the JS parity test also imports.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from conftest import SIGNING_KEY_PRIVATE_KEY_B58
+from conftest import SIGNING_KEY_SECRET
 
 from gumptionchain.payload import Inflow, Outflow, encode_subject
 from gumptionchain.signing_key import SigningKey
@@ -48,7 +48,7 @@ OUTPUT = Path(__file__).resolve().parent / 'txn_signing_vectors.json'
 def _vec(
     name: str, inflows: list[Inflow], outflows: list[Outflow]
 ) -> dict[str, Any]:
-    w = SigningKey(b58ks=SIGNING_KEY_PRIVATE_KEY_B58)
+    w = SigningKey(secret=SIGNING_KEY_SECRET)
     t = Transaction(
         timestamp=TIMESTAMP,
         inflows=inflows,
@@ -58,7 +58,7 @@ def _vec(
     t.seal()
     return {
         'name': name,
-        'signing_key_b58': SIGNING_KEY_PRIVATE_KEY_B58,
+        'secret': SIGNING_KEY_SECRET,
         'txn': t.to_dict(),
         'data_csv': t.data_csv,
         'txid': t.txid,

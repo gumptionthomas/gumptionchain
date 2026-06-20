@@ -27,21 +27,21 @@ def test_create_invalid_key():
     with pytest.raises(InvalidKeyError):
         SigningKey(b64ks='foo')
     with pytest.raises(InvalidKeyError):
-        SigningKey(b58ks='foo')
+        SigningKey(secret='foo')  # noqa: S106
     with pytest.raises(InvalidKeyError):
         SigningKey(ks='foo')
 
 
 def test_create_from_key(
-    signing_key_private_key_b58,
+    signing_key_secret,
     signing_key_public_key_b64,
     signing_key_address,
     signing_key_dict,
     signing_key_json,
 ):
-    signing_key = SigningKey(b58ks=signing_key_private_key_b58)
+    signing_key = SigningKey(secret=signing_key_secret)
     assert signing_key is not None
-    assert signing_key.private_key_b58 == signing_key_private_key_b58
+    assert signing_key.secret == signing_key_secret
     assert signing_key.public_key_b64 == signing_key_public_key_b64
     assert signing_key.address == signing_key_address
     assert signing_key.to_dict() == signing_key_dict
@@ -71,8 +71,8 @@ def test_file_passphrase(tmp_path, signing_key):
 
 
 def test_export(signing_key):
-    b58ks = signing_key.export_private_key_b58(passphrase=PASSPHRASE)
-    assert SigningKey(b58ks=b58ks, passphrase=PASSPHRASE) == signing_key
+    secret = signing_key.export_secret()
+    assert SigningKey(secret=secret) == signing_key
 
 
 def test_sign(signing_key, signing_key_signature_data, signing_key_signature):
@@ -84,7 +84,7 @@ def test_sign(signing_key, signing_key_signature_data, signing_key_signature):
 
 
 def test_eq(signing_key):
-    signing_key_copy = SigningKey(b58ks=signing_key.private_key_b58)
+    signing_key_copy = SigningKey(secret=signing_key.secret)
     assert signing_key == signing_key_copy
     new_signing_key = SigningKey()
     assert signing_key != new_signing_key
@@ -104,10 +104,10 @@ def test_signing_key_address_round_trips_through_pem(tmp_path):
     assert w1.address == w2.address
 
 
-def test_signing_key_address_round_trips_through_b58():
-    """Freshly generated signing_key → b58 → read back → same address."""
+def test_signing_key_address_round_trips_through_secret():
+    """Freshly generated signing_key → secret → read back → same address."""
     w1 = SigningKey()
-    w2 = SigningKey(b58ks=w1.private_key_b58)
+    w2 = SigningKey(secret=w1.secret)
     assert w1.address == w2.address
 
 
