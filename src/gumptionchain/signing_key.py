@@ -7,7 +7,6 @@ import os
 from base64 import standard_b64decode, standard_b64encode
 from typing import Any
 
-import base58check
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -15,18 +14,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from gumptionchain import ed25519 as gc_ed25519
-from gumptionchain.bech32 import decode_address, encode_address
+from gumptionchain.bech32 import (
+    decode_address,
+    decode_secret,
+    encode_address,
+    encode_secret,
+)
 from gumptionchain.exceptions import InvalidKeyError, NoPrivateKeyError
 
 SignKey = Ed25519PrivateKey | Ed25519PublicKey
-
-
-def b58decode(s: str) -> bytes:
-    return base58check.b58decode(s.encode())  # type: ignore[no-any-return]
-
-
-def b58encode(b: bytes) -> str:
-    return base58check.b58encode(b).decode()  # type: ignore[no-any-return]
 
 
 def b64decode(s: str) -> bytes:
@@ -90,17 +86,20 @@ def import_key(
         return None
 
 
-def import_b58_key(ks: str, passphrase: str | None = None) -> SignKey | None:
-    try:
-        return import_key(b58decode(ks), passphrase=passphrase)
-    except Exception:
-        return None
-
-
 def import_b64_key(ks: str, passphrase: str | None = None) -> SignKey | None:
     try:
         return import_key(b64decode(ks), passphrase=passphrase)
     except Exception:
+        return None
+
+
+def import_secret_key(secret: str) -> SignKey | None:
+    raw = decode_secret(secret)
+    if raw is None:
+        return None
+    try:
+        return Ed25519PrivateKey.from_private_bytes(raw)
+    except (ValueError, TypeError):
         return None
 
 
@@ -118,15 +117,15 @@ class SigningKey:
     def __init__(
         self,
         b64ks: str | None = None,
-        b58ks: str | None = None,
+        secret: str | None = None,
         ks: bytes | str | None = None,
         passphrase: str | None = None,
     ) -> None:
         key: SignKey | None
         if b64ks is not None:
             key = import_b64_key(b64ks, passphrase=passphrase)
-        elif b58ks is not None:
-            key = import_b58_key(b58ks, passphrase=passphrase)
+        elif secret is not None:
+            key = import_secret_key(secret)
         elif ks is not None:
             key = import_key(ks, passphrase=passphrase)
         else:
@@ -146,8 +145,8 @@ class SigningKey:
         return self.key
 
     @property
-    def private_key_b58(self) -> str:
-        return self.export_private_key_b58()
+    def secret(self) -> str:
+        return self.export_secret()
 
     @property
     def public_key_b64(self) -> str:
@@ -177,12 +176,10 @@ class SigningKey:
             encryption_algorithm=encryption,
         )
 
-    def export_private_key_b58(self, passphrase: str | None = None) -> str:
+    def export_secret(self) -> str:
         if self.private_key is None:
             raise NoPrivateKeyError()
-        return b58encode(
-            export_binary_key(self.private_key, passphrase=passphrase)
-        )
+        return encode_secret(self.private_key.private_bytes_raw())
 
     def sign(self, data: bytes) -> str:
         pk = self.private_key
@@ -203,7 +200,7 @@ class SigningKey:
             return False
 
     def to_dict(self) -> dict[str, str]:
-        return {'private_key': self.private_key_b58}
+        return {'private_key': self.secret}
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict())
@@ -265,6 +262,10 @@ class SigningKey:
         return sk
 
     @classmethod
+    def from_secret(cls, secret: str) -> SigningKey:
+        return cls(secret=secret)
+
+    @classmethod
     def generate_ed25519(cls) -> SigningKey:
         return cls()
 
@@ -286,7 +287,7 @@ class SigningKey:
 
     @classmethod
     def from_dict(cls, signing_key_dict: dict[str, Any]) -> SigningKey:
-        return cls(b58ks=signing_key_dict.get('private_key'))
+        return cls(secret=signing_key_dict.get('private_key'))
 
     @classmethod
     def from_json(cls, signing_key_json: str) -> SigningKey:
