@@ -144,3 +144,32 @@ def decode_address(address: str) -> bytes | None:
     if decoded is None or len(decoded) != 32:
         return None
     return bytes(decoded)
+
+
+SECRET_HRP = 'gcsec'
+
+
+def encode_secret(seed: bytes) -> str:
+    """bech32m-encode a raw 32-byte Ed25519 seed as a `gcsec1…` secret."""
+    if len(seed) != 32:
+        msg = f'expected a 32-byte Ed25519 seed, got {len(seed)}'
+        raise ValueError(msg)
+    data = convertbits(list(seed), 8, 5)
+    if data is None:
+        msg = 'cannot convert seed to 5-bit groups'
+        raise ValueError(msg)
+    return bech32_encode(SECRET_HRP, data, Encoding.BECH32M)
+
+
+def decode_secret(secret: str) -> bytes | None:
+    """Decode a `gcsec1…` secret back to the raw 32-byte seed.
+
+    Returns None on any failure (bad HRP, checksum, encoding, or length).
+    """
+    hrp, data, spec = bech32_decode(secret)
+    if hrp != SECRET_HRP or data is None or spec != Encoding.BECH32M:
+        return None
+    decoded = convertbits(data, 5, 8, False)
+    if decoded is None or len(decoded) != 32:
+        return None
+    return bytes(decoded)

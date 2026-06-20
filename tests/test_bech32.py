@@ -9,7 +9,9 @@ from gumptionchain.bech32 import (
     bech32_encode,
     convertbits,
     decode_address,
+    decode_secret,
     encode_address,
+    encode_secret,
 )
 
 
@@ -144,3 +146,22 @@ def test_bip350_valid_bech32m_vectors_decode(vec):
 @pytest.mark.parametrize('vec', _BIP350_INVALID)
 def test_bip350_invalid_bech32m_vectors_rejected(vec):
     assert bech32_decode(vec) == (None, None, None)
+
+
+def test_secret_round_trip():
+    seed = bytes(range(32))
+    s = encode_secret(seed)
+    assert s.startswith('gcsec1')
+    assert decode_secret(s) == seed
+
+
+def test_secret_rejects_non_32_byte():
+    with pytest.raises(ValueError, match='32-byte'):
+        encode_secret(b'\x00' * 31)
+
+
+def test_secret_and_address_hrps_do_not_cross_decode():
+    # An address must not decode as a secret, and vice-versa (distinct HRP).
+    key32 = bytes(range(32))
+    assert decode_secret(encode_address(key32)) is None
+    assert decode_address(encode_secret(key32)) is None
