@@ -79,20 +79,22 @@ def test_txn_get_outflow(single_txn):
 
 
 def test_txn_invalid_address(single_txn):
+    # The address IS the verifying key now: overwriting it to a key the
+    # signature wasn't made under means validate() reconstructs the wrong
+    # key and rejects the signature.
     single_txn.address = SigningKey().address
     single_txn.seal()
     single_txn.sign()
-    with pytest.raises(
-        InvalidTransactionError, match='Address/public key mismatch'
-    ):
+    with pytest.raises(InvalidSignatureError):
         single_txn.validate()
 
 
 def test_txn_invalid_signature(single_txn):
     single_txn.seal()
     single_txn.sign()
+    # Repoint the address at a different key after signing: verification
+    # reconstructs that key and the original signature no longer validates.
     w = SigningKey()
-    single_txn.public_key = w.public_key_b64
     single_txn.address = w.address
     with pytest.raises(InvalidSignatureError):
         single_txn.validate()
@@ -211,8 +213,8 @@ def test_regular_txn_data_csv_excludes_prev_hash(signing_key):
 
     The prev_hash field is conditionally appended to data_csv only when
     set; regular txns leave it None, so their data_csv must be the exact
-    6-field join (timestamp, address, public_key, inflows, outflows,
-    version) with no trailing prev_hash field.
+    5-field join (timestamp, address, inflows, outflows, version) with no
+    trailing prev_hash field.
     """
     t = Transaction()
     t.add_inflow(Inflow(outflow_txid='a' * 64, outflow_idx=0))
@@ -224,7 +226,6 @@ def test_regular_txn_data_csv_excludes_prev_hash(signing_key):
         [
             str(t.timestamp),
             str(t.address),
-            str(t.public_key),
             ','.join(i.data_csv for i in t.inflows),
             ','.join(o.data_csv for o in t.outflows),
             str(t.version),

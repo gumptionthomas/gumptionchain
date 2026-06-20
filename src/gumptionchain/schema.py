@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import binascii
 from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Annotated, Any, Protocol
 
+from cryptography.hazmat.primitives import serialization
 from pydantic import AfterValidator
 from pydantic_core import ErrorDetails
 
+from gumptionchain import ed25519 as gc_ed25519
 from gumptionchain.exceptions import InvalidKeyError
 from gumptionchain.signing_key import (
     SigningKey,
@@ -21,14 +24,6 @@ def asdict_sans_none(dc: Any) -> dict[str, Any]:
     return asdict(
         dc, dict_factory=lambda x: {k: v for (k, v) in x if v is not None}
     )
-
-
-def validate_address(public_key_b64: str | None, address: str | None) -> bool:
-    try:
-        signing_key = SigningKey(b64ks=public_key_b64)
-    except InvalidKeyError:
-        return False
-    return bool((signing_key is not None) and address == signing_key.address)
 
 
 def validate_address_format(address: str) -> bool:
@@ -58,17 +53,24 @@ def validate_public_key(public_key_b64: str) -> bool:
 
 
 def validate_signature(
-    public_key_b64: str | None,
+    address: str | None,
     signing_data: bytes,
     signature: str | None,
 ) -> bool:
+    if address is None or signature is None:
+        return False
     try:
-        signing_key = SigningKey(b64ks=public_key_b64)
+        pub = public_key_from_address(address)
     except InvalidKeyError:
         return False
-    if signing_key is not None:
-        return bool(signing_key.validate_signature(signing_data, signature))
-    return False
+    raw = pub.public_bytes(
+        serialization.Encoding.Raw,
+        serialization.PublicFormat.Raw,
+    )
+    try:
+        return gc_ed25519.verify(raw, b64decode(signature), signing_data)
+    except (binascii.Error, ValueError, TypeError):
+        return False
 
 
 def validate_timestamp(s: str) -> bool:

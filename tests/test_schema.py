@@ -1,10 +1,9 @@
 """Regression tests for the schema validator try/except guards.
 
-`validate_address`, `validate_public_key`, and `validate_signature` each
-make a `SigningKey(b64ks=...)`. SigningKey's `__init__` raises `InvalidKeyError`
-on malformed key strings; without the try/except wrappers added in this PR,
-that exception would propagate through marshmallow's validation pipeline
-and surface as a 500 instead of a structured 400.
+`validate_public_key` makes a `SigningKey(b64ks=...)` and `validate_signature`
+reconstructs a key from an address; both raise `InvalidKeyError` on malformed
+input. Without the try/except guards, that exception would propagate through
+the validation pipeline and surface as a 500 instead of a structured 400.
 """
 
 from base64 import b64encode
@@ -20,19 +19,10 @@ from gumptionchain.schema import (
     PublicKeyType,
     TimestampType,
     pydantic_errors_to_messages,
-    validate_address,
     validate_public_key,
     validate_signature,
 )
 from gumptionchain.util import now_iso
-
-
-def test_validate_address_returns_false_on_malformed_key():
-    assert validate_address('not-a-valid-base64-key', 'CCxxxCC') is False
-
-
-def test_validate_address_returns_false_on_empty_key():
-    assert validate_address('', 'CCxxxCC') is False
 
 
 def test_validate_public_key_returns_false_on_malformed_key():
@@ -43,12 +33,20 @@ def test_validate_public_key_returns_false_on_empty_key():
     assert validate_public_key('') is False
 
 
-def test_validate_signature_returns_false_on_malformed_key():
-    assert validate_signature('not-a-valid-base64-key', b'data', 'sig') is False
+def test_validate_signature_returns_false_on_malformed_address():
+    assert validate_signature('not-a-valid-address', b'data', 'sig') is False
 
 
-def test_validate_signature_returns_false_on_empty_key():
+def test_validate_signature_returns_false_on_empty_address():
     assert validate_signature('', b'data', 'sig') is False
+
+
+def test_validate_signature_returns_false_on_none_address():
+    assert validate_signature(None, b'data', 'sig') is False
+
+
+def test_validate_signature_returns_false_on_none_signature():
+    assert validate_signature('gc1xyz', b'data', None) is False
 
 
 # ---------------------------------------------------------------------------
