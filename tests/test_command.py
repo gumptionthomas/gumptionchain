@@ -4,6 +4,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import patch
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from gumptionchain.api_client import ApiClient
 from gumptionchain.application import create_clients
 from gumptionchain.block import Block
@@ -490,6 +492,24 @@ def test_create_signing_key(app, runner):
         pem_files = list(Path(signing_keydir).glob('*.pem'))
         assert len(pem_files) == 1
         assert SigningKey.from_file(str(pem_files[0])) is not None
+
+
+def test_signing_key_create_ed25519(app, runner):
+    with app.app_context(), TemporaryDirectory() as signing_keydir:
+        result = runner.invoke(
+            args=[
+                'signing-key',
+                'create',
+                '--ed25519',
+                '--signing_keydir',
+                signing_keydir,
+            ]
+        )
+        assert result.exit_code == 0
+        pems = list(Path(signing_keydir).glob('*.pem'))
+        assert len(pems) == 1
+        sk = SigningKey(ks=pems[0].read_bytes())
+        assert isinstance(sk.key, Ed25519PrivateKey)
 
 
 def test_signing_key_balance(

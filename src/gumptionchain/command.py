@@ -1072,11 +1072,18 @@ signing_key_cli = AppGroup(
     default=None,
     help='Parent directory for the signing-key file (default from app config).',
 )
+@click.option(
+    '--ed25519',
+    'ed25519',
+    is_flag=True,
+    default=False,
+    help='Create an Ed25519 signing key instead of RSA.',
+)
 @with_appcontext
-def create_signing_key(signing_keydir: str | None) -> None:
+def create_signing_key(signing_keydir: str | None, ed25519: bool) -> None:  # noqa: FBT001
     """Create a new signing_key file."""
     signing_keydir = signing_keydir or current_app.config.get('SIGNING_KEY_DIR')
-    w = SigningKey()
+    w = SigningKey.generate_ed25519() if ed25519 else SigningKey()
     filename = w.to_file(signing_keydir=signing_keydir)
     console.print(f'Created {filename}', style='success')
 
