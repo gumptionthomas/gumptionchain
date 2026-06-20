@@ -24,9 +24,16 @@ test('idb store adapter exposes the store interface', () => {
 // enough logic — empty allowCredentials, PRF extraction, null-on-dismissal,
 // mediation forwarding — to warrant a unit test.)
 
-function fakeAssertion({ rawId = new Uint8Array([1, 2, 3]), prf = new Uint8Array(32).fill(9) } = {}) {
+function fakeAssertion({
+  rawId = new Uint8Array([1, 2, 3]),
+  prf = new Uint8Array(32).fill(9),
+  userHandle = 'GCdemoaddrGC',
+} = {}) {
   return {
     rawId,
+    response: {
+      userHandle: userHandle == null ? null : new TextEncoder().encode(userHandle),
+    },
     getClientExtensionResults: () => (prf ? { prf: { results: { first: prf } } } : {}),
   };
 }
@@ -74,6 +81,22 @@ test('discover() returns {credentialId, prfOutput}; empty allowCredentials + PRF
     assert.deepEqual(calls[0].publicKey.allowCredentials, []);
     assert.ok(calls[0].publicKey.extensions.prf.eval.first);
     assert.equal(calls[0].mediation, 'conditional');
+  });
+});
+
+test('discover() returns the credential userHandle (the enrolled GC address)', async () => {
+  await withFakeWebauthn({ getImpl: async () => fakeAssertion({ userHandle: 'GCalice123GC' }) }, async () => {
+    const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
+    const r = await pk.discover();
+    assert.equal(r.userHandle, 'GCalice123GC');
+  });
+});
+
+test('discover() userHandle is null when the assertion carries none', async () => {
+  await withFakeWebauthn({ getImpl: async () => fakeAssertion({ userHandle: null }) }, async () => {
+    const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
+    const r = await pk.discover();
+    assert.equal(r.userHandle, null);
   });
 });
 

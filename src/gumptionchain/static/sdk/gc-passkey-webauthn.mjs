@@ -77,9 +77,14 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
     if (!out) {
       throw new UnsupportedError('passkey PRF not available on assertion');
     }
+    // userHandle carries the enrolled user.id — in EGU apps that's the GC
+    // address — so a cross-origin discovery yields *which* identity, with no
+    // key material. Generic at the SDK layer; the consumer interprets it.
+    const uh = assertion.response && assertion.response.userHandle;
     return {
       credentialId: b64urlEncode(new Uint8Array(assertion.rawId)),
       prfOutput: out,
+      userHandle: uh ? new TextDecoder().decode(uh) : null,
     };
   }
 
