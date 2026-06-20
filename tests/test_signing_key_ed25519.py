@@ -6,10 +6,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 import gumptionchain.signing_key as signing_key_module
 from gumptionchain import ed25519 as gc_ed25519
+from gumptionchain.bech32 import decode_address
 from gumptionchain.exceptions import InvalidKeyError
 from gumptionchain.signing_key import (
     SigningKey,
-    b58decode,
     b64decode,
     public_key_from_address,
 )
@@ -75,17 +75,15 @@ def test_no_rsa_in_signing_key_module():
     assert 'RSAPrivateKey' not in src
 
 
-def test_address_is_b58check_pubkey_no_tags():
+def test_address_is_bech32m_pubkey_gc_hrp():
     sk = SigningKey()
     addr = sk.address
-    assert not addr.startswith('GC')
-    assert not addr.endswith('GC')
+    assert addr.startswith('gc1')
     raw = sk.public_key.public_bytes(
         serialization.Encoding.Raw,
         serialization.PublicFormat.Raw,
     )
-    assert b58decode(addr) == raw  # the address IS the 32-byte pubkey
-    # reconstruct the key from the address; it must match and verify a sig
+    assert decode_address(addr) == raw
     pub = public_key_from_address(addr)
     assert (
         pub.public_bytes(
@@ -94,12 +92,11 @@ def test_address_is_b58check_pubkey_no_tags():
         )
         == raw
     )
-    sig = sk.sign(b'hi')
-    assert gc_ed25519.verify(raw, b64decode(sig), b'hi')
+    assert gc_ed25519.verify(raw, b64decode(sk.sign(b'hi')), b'hi')
 
 
 def test_corrupt_address_rejected():
     addr = SigningKey().address
-    bad = addr[:-1] + ('A' if addr[-1] != 'A' else 'B')  # flip last char
+    bad = addr[:-1] + ('q' if addr[-1] != 'q' else 'p')
     with pytest.raises(InvalidKeyError):
         public_key_from_address(bad)

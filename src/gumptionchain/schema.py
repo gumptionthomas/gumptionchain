@@ -32,8 +32,10 @@ def validate_address(public_key_b64: str | None, address: str | None) -> bool:
 
 
 def validate_address_format(address: str) -> bool:
+    if not isinstance(address, str):
+        return False
     try:
-        public_key_from_address(address)  # b58check + valid 32-byte point
+        public_key_from_address(address)
         return True
     except InvalidKeyError:
         return False

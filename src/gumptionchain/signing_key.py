@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import binascii
 import contextlib
-import hashlib
 import json
 import os
 from base64 import standard_b64decode, standard_b64encode
@@ -16,42 +15,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from gumptionchain import ed25519 as gc_ed25519
+from gumptionchain.bech32 import decode_address, encode_address
 from gumptionchain.exceptions import InvalidKeyError, NoPrivateKeyError
 
 SignKey = Ed25519PrivateKey | Ed25519PublicKey
 
-_B58_CHECKSUM_LEN = 4
-
-
-def _b58_checksum(b: bytes) -> bytes:
-    # Bitcoin-style base58check checksum: first 4 bytes of SHA256d.
-    return hashlib.sha256(hashlib.sha256(b).digest()).digest()[
-        :_B58_CHECKSUM_LEN
-    ]
-
 
 def b58decode(s: str) -> bytes:
-    # base58check: plain-base58 decode, then verify and strip the trailing
-    # 4-byte SHA256d checksum. The vendored ``base58check`` package is a
-    # misnomer (it performs *plain* base58 with no checksum), so the
-    # checksum layer is applied here. A corrupted/truncated input fails the
-    # checksum comparison and raises ValueError — this is what makes an
-    # address self-verifying (a single flipped character is rejected).
-    raw: bytes = base58check.b58decode(s.encode())
-    if len(raw) < _B58_CHECKSUM_LEN:
-        msg = 'base58check value too short to contain a checksum'
-        raise ValueError(msg)
-    payload, checksum = raw[:-_B58_CHECKSUM_LEN], raw[-_B58_CHECKSUM_LEN:]
-    if _b58_checksum(payload) != checksum:
-        msg = 'invalid base58check checksum'
-        raise ValueError(msg)
-    return payload
+    return base58check.b58decode(s.encode())  # type: ignore[no-any-return]
 
 
 def b58encode(b: bytes) -> str:
-    # base58check encode: append the 4-byte SHA256d checksum, then base58.
-    checksummed = b + _b58_checksum(b)
-    return base58check.b58encode(checksummed).decode()  # type: ignore[no-any-return]
+    return base58check.b58encode(b).decode()  # type: ignore[no-any-return]
 
 
 def b64decode(s: str) -> bytes:
@@ -130,20 +105,12 @@ def import_b64_key(ks: str, passphrase: str | None = None) -> SignKey | None:
 
 
 def public_key_from_address(address: str) -> Ed25519PublicKey:
-    """Reconstruct the Ed25519 public key from its self-verifying address.
-
-    The address is ``base58check(raw_32-byte_ed25519_pubkey)``, so decoding
-    it (with checksum verification) yields the raw public key bytes directly.
-    A malformed or corrupted address (bad base58check checksum, wrong length,
-    or a non-point) is surfaced as ``InvalidKeyError``.
-    """
+    raw = decode_address(address)
+    if raw is None:
+        raise InvalidKeyError()
     try:
-        raw = b58decode(address)
         return Ed25519PublicKey.from_public_bytes(raw)
-    except (binascii.Error, ValueError, TypeError, AttributeError) as e:
-        # AttributeError covers a non-str ``address`` (``.encode`` missing);
-        # ValueError covers a bad base58check checksum or a non-32-byte
-        # payload rejected by ``from_public_bytes``.
+    except (ValueError, TypeError) as e:
         raise InvalidKeyError() from e
 
 
@@ -192,7 +159,7 @@ class SigningKey:
             serialization.Encoding.Raw,
             serialization.PublicFormat.Raw,
         )
-        return b58encode(raw)
+        return encode_address(raw)
 
     def export_private_key_pem(self, passphrase: str | None = None) -> bytes:
         if self.private_key is None:
