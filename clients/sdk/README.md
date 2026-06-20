@@ -119,8 +119,11 @@ Anything not listed is internal/unstable.
 
 `makeWebauthnPasskey({ rpId }).discover({ mediation })` finds an **existing**
 discoverable passkey for `rpId` on a fresh origin (no prior local state) and
-returns `{ credentialId, prfOutput }`, or `null` if none is found or the user
-dismisses. `mediation: 'optional'` (default) is a modal prompt; `'conditional'`
+returns `{ credentialId, prfOutput, userHandle }`, or `null` if none is found or
+the user dismisses. `userHandle` is the credential's enrolled `user.id` decoded
+as a string (in EGU apps that's the signer's address), or `null` if the
+assertion carries none — so a member can learn *which* identity returned with no
+key material. `mediation: 'optional'` (default) is a modal prompt; `'conditional'`
 is passkey autofill — for which the **consumer** supplies the
 `<input autocomplete="webauthn">` (the SDK stays DOM-free). Feature-detect with
 `isConditionalAvailable()`. For conditional mediation in a single-page app, pass a `signal` from an `AbortController` and abort it on route changes to cancel the autofill session. `makeOnboarding(...)` exposes the same `discover()`

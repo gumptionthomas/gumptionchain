@@ -133,8 +133,10 @@ path by hand:
 1. Enroll a passkey on the demo page (creates a discoverable credential).
 2. Reload (or open a second tab on the same `rpId`) and call
    `makeWebauthnPasskey({ rpId }).discover()` from the console.
-3. Confirm it resolves to `{ credentialId, prfOutput }` after one ceremony, with
-   the same `credentialId` as enrollment.
+3. Confirm it resolves to `{ credentialId, prfOutput, userHandle }` after one
+   ceremony, with the same `credentialId` as enrollment, and `userHandle` equal
+   to the enrolled `user.id` (the GC address in EGU apps) — or `null` if the
+   credential was enrolled without one.
 4. Call `discover()` and **cancel** the prompt — confirm it resolves to `null`
    (not a throw).
 5. On a browser exposing `PublicKeyCredential.isConditionalMediationAvailable`,
