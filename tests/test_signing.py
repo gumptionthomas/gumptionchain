@@ -97,15 +97,6 @@ def test_verify_rejects_future_timestamp(make_key):
         signing.verify(headers, now=now, **REQ)
 
 
-def test_verify_rejects_pubkey_address_mismatch(make_key):
-    w = make_key()
-    other = make_key()
-    headers = signing.sign_headers(w, **REQ)
-    headers[signing.H_PUBKEY] = other.public_key_b64
-    with pytest.raises(signing.SignatureError):
-        signing.verify(headers, **REQ)
-
-
 def test_verify_rejects_missing_header(make_key):
     w = make_key()
     headers = signing.sign_headers(w, **REQ)
@@ -140,5 +131,21 @@ def test_verify_rejects_signature_from_other_key(make_key):
         address=w.address,
     )
     headers[signing.H_SIGNATURE] = other.sign(canonical)
+    with pytest.raises(signing.SignatureError):
+        signing.verify(headers, **REQ)
+
+
+def test_sign_headers_v2_has_no_pubkey_header(make_key):
+    w = make_key()
+    headers = signing.sign_headers(w, **REQ)
+    assert headers[signing.H_VERSION] == '2'
+    assert signing.H_PUBKEY not in headers  # no GC-Public-Key
+    assert signing.verify(headers, **REQ) == w.address
+
+
+def test_verify_rejects_v1_pubkey_scheme(make_key):
+    w = make_key()
+    headers = signing.sign_headers(w, **REQ)
+    headers[signing.H_VERSION] = '1'  # old scheme
     with pytest.raises(signing.SignatureError):
         signing.verify(headers, **REQ)

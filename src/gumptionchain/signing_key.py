@@ -254,6 +254,17 @@ class SigningKey:
         return bool(self.key == other.key)
 
     @classmethod
+    def from_address(cls, address: str) -> SigningKey:
+        """Public-only SigningKey reconstructed from a gc1… address.
+
+        Raises InvalidKeyError on a malformed/bad-checksum address.
+        """
+        pub = public_key_from_address(address)
+        sk = cls.__new__(cls)
+        sk.key = pub
+        return sk
+
+    @classmethod
     def generate_ed25519(cls) -> SigningKey:
         return cls()
 

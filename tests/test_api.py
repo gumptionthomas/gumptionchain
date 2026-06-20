@@ -631,26 +631,6 @@ def test_missing_one_signature_header_rejected(
         assert r.status_code == httpx.codes.UNAUTHORIZED
 
 
-def test_pubkey_address_mismatch_rejected(
-    app, host, mill_block, requests_proxy, reader_signing_key
-):
-    with app.app_context():
-        mill_block(reader_signing_key)
-        headers = signing.sign_headers(
-            reader_signing_key,
-            method='GET',
-            path='/api/block',
-            query='',
-            body=b'',
-            node_host=_node(host),
-        )
-        headers[signing.H_PUBKEY] = (
-            SigningKey().public_key_b64
-        )  # pubkey != address
-        r = requests_proxy.get('/api/block', headers=headers, timeout=60)
-        assert r.status_code == httpx.codes.UNAUTHORIZED
-
-
 def test_post_process_signs_at_send_time(
     app, host, mill_block, requests_proxy, signing_key
 ):
