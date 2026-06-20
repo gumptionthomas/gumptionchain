@@ -2,8 +2,14 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from gumptionchain.signing import _canonical
 from gumptionchain.signing_key import SigningKey
+
+pytestmark = pytest.mark.skip(
+    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
+)
 
 # A fixed, freshly-minted 2048-bit RSA signing_key used solely to generate the
 # golden gc-sig vectors. Distinct from conftest's SIGNING_KEY_PRIVATE_KEY_B58.

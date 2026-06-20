@@ -59,7 +59,6 @@ def upgrade():
     sa.Column('version', sa.String(length=10), nullable=False),
     sa.Column('timestamp', sa.DateTime(), nullable=False),
     sa.Column('address', sa.String(length=100), nullable=True),
-    sa.Column('public_key', sa.String(length=700), nullable=True),
     sa.Column('signature', sa.String(length=700), nullable=True),
     sa.Column('prev_hash', sa.String(length=100), nullable=True),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_transaction'))

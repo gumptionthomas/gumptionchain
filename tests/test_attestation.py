@@ -1,7 +1,6 @@
 import time
 
 import pytest
-from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
 
 from gumptionchain.attestation import (
     BadAttestationError,
@@ -27,8 +26,11 @@ CLAIM = {
 }
 
 
+_SEED = bytes(range(32))  # fixed 32-byte seed -> deterministic key
+
+
 def _signing_key() -> SigningKey:
-    return SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    return SigningKey.from_ed25519_seed(_SEED)
 
 
 def _provenance(

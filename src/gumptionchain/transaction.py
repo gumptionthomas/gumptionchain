@@ -12,7 +12,6 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
-    model_validator,
 )
 
 from gumptionchain.database import db
@@ -41,11 +40,9 @@ from gumptionchain.schema import (
     AddressType,
     Base64Type,
     MillHashType,
-    PublicKeyType,
     TimestampType,
     asdict_sans_none,
     pydantic_errors_to_messages,
-    validate_address,
     validate_signature,
 )
 from gumptionchain.signing_key import SigningKey
@@ -53,7 +50,6 @@ from gumptionchain.util import dt_2_iso, iso_2_dt, now_iso
 
 VERSION_1 = '1'
 MAX_FLOWS = 50
-ADDRESS_MISMATCH_MSG = 'Address/public key mismatch'
 
 
 @dataclass(frozen=True)
@@ -106,7 +102,6 @@ class TransactionModel(BaseModel):
     timestamp: TimestampType
     txid: MillHashType
     address: AddressType
-    public_key: PublicKeyType
     signature: Base64Type | None = None
     inflows: Annotated[
         list[InflowModel], Field(min_length=0, max_length=MAX_FLOWS)
@@ -116,12 +111,6 @@ class TransactionModel(BaseModel):
     ]
     version: Literal['1']
     prev_hash: MillHashType | None = None
-
-    @model_validator(mode='after')
-    def validate_pk_address(self) -> Self:
-        if not validate_address(self.public_key, self.address):
-            raise ValueError(ADDRESS_MISMATCH_MSG)
-        return self
 
 
 class RegularTransactionModel(TransactionModel):
@@ -145,7 +134,6 @@ class Transaction:
     timestamp: str = field(default_factory=now_iso)
     txid: str | None = field(default=None)
     address: str | None = field(default=None, compare=False)
-    public_key: str | None = field(default=None, compare=False, repr=False)
     signature: str | None = field(default=None, compare=False, repr=False)
     inflows: list[Inflow] = field(default_factory=list, compare=False)
     outflows: list[Outflow] = field(default_factory=list, compare=False)
@@ -155,9 +143,9 @@ class Transaction:
     def __post_init__(self) -> None:
         # `signing_key` is a non-field attribute set by `set_signing_key()`.
         # Initializing it in `__post_init__` (not as a dataclass field)
-        # keeps it out of `dataclasses.asdict()` — SigningKey wraps an RSA
-        # key whose `__getstate__` raises, which would break deepcopy
-        # via asdict if walked.
+        # keeps it out of `dataclasses.asdict()` — SigningKey wraps a
+        # cryptographic key whose `__getstate__` raises, which would break
+        # deepcopy via asdict if walked.
         self.signing_key: SigningKey | None = None
 
     @property
@@ -177,7 +165,6 @@ class Transaction:
         fields = [
             str(self.timestamp),
             str(self.address),
-            str(self.public_key),
             ','.join(i.data_csv for i in self.inflows),
             ','.join(o.data_csv for o in self.outflows),
             str(self.version),
@@ -200,7 +187,6 @@ class Transaction:
     def set_signing_key(self, signing_key: SigningKey) -> None:
         self.signing_key = signing_key
         self.address = self.signing_key.address
-        self.public_key = self.signing_key.public_key_b64
 
     def add_inflow(self, i: Inflow) -> None:
         self.inflows.append(i)
@@ -239,7 +225,7 @@ class Transaction:
 
     def validate_signature(self) -> None:
         if not validate_signature(
-            self.public_key, self.signing_data, self.signature
+            self.address, self.signing_data, self.signature
         ):
             raise InvalidSignatureError()
 
@@ -299,7 +285,6 @@ class Transaction:
                 self.version,
                 timestamp_dt,
                 address=self.address,
-                public_key=self.public_key,
                 signature=self.signature,
                 prev_hash=self.prev_hash,
                 inflow_daos=[
@@ -356,7 +341,6 @@ class Transaction:
             timestamp=dt_2_iso(dao.timestamp),
             txid=dao.txid,
             address=dao.address,
-            public_key=dao.public_key,
             signature=dao.signature,
             prev_hash=dao.prev_hash,
             inflows=[Inflow.from_dao(inflow_dao) for inflow_dao in dao.inflows],

@@ -8,15 +8,17 @@ from typing import Any
 from gumptionchain.exceptions import InvalidKeyError
 from gumptionchain.signing_key import SigningKey
 
-SIG_VERSION = '1'  # GC-Sig-Version header value (dispatch key)
-SIG_SCHEME = 'gc-sig-v1'  # scheme id bound into the signed canonical
+SIG_VERSION = '2'  # GC-Sig-Version header value (dispatch key)
+SIG_SCHEME = 'gc-sig-v2'  # scheme id bound into the signed canonical
 FRESHNESS_SECONDS = 300
 
 H_VERSION = 'GC-Sig-Version'
 H_ADDRESS = 'GC-Address'
-H_PUBKEY = 'GC-Public-Key'
 H_TIMESTAMP = 'GC-Timestamp'
 H_SIGNATURE = 'GC-Signature'
+# gc-sig-v1's GC-Public-Key header is gone in v2 — the verifier reconstructs
+# the key from GC-Address. A lingering v1 header is ignored (the version gate
+# rejects v1 outright); v2 simply never reads or emits a public-key header.
 
 
 class SignatureError(Exception):
@@ -71,7 +73,6 @@ def sign_headers(
     return {
         H_VERSION: SIG_VERSION,
         H_ADDRESS: signing_key.address,
-        H_PUBKEY: signing_key.public_key_b64,
         H_TIMESTAMP: ts,
         H_SIGNATURE: signing_key.sign(canonical),
     }
@@ -87,17 +88,16 @@ def verify(
     node_host: str,
     now: int | None = None,
 ) -> str:
-    """Verify a `gc-sig-v1` signed request; return the authenticated
+    """Verify a `gc-sig-v2` signed request; return the authenticated
     address or raise SignatureError.
     """
     if headers.get(H_VERSION) != SIG_VERSION:
         msg = 'unsupported signature version'
         raise SignatureError(msg)
     address: str | None = headers.get(H_ADDRESS)
-    pubkey: str | None = headers.get(H_PUBKEY)
     ts: str | None = headers.get(H_TIMESTAMP)
     sig: str | None = headers.get(H_SIGNATURE)
-    if not (address and pubkey and ts and sig):
+    if not (address and ts and sig):
         msg = 'missing signature headers'
         raise SignatureError(msg)
     try:
@@ -110,13 +110,10 @@ def verify(
         msg = 'stale or future timestamp'
         raise SignatureError(msg)
     try:
-        signing_key = SigningKey(b64ks=pubkey)
+        signing_key = SigningKey.from_address(address)
     except InvalidKeyError as e:
-        msg = 'invalid public key'
+        msg = 'invalid address'
         raise SignatureError(msg) from e
-    if signing_key.address != address:
-        msg = 'public key does not match address'
-        raise SignatureError(msg)
     canonical = _canonical(
         method=method,
         path=path,

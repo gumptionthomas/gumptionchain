@@ -14,14 +14,9 @@ REQ = {
 }
 
 
-@pytest.fixture(params=['rsa', 'ed25519'])
-def make_key(request):
-    """Factory for a fresh SigningKey of the parametrized type, so every test
-    runs for both RSA-2048 and Ed25519. Tests needing >1 key call it again."""
-
+@pytest.fixture
+def make_key():
     def _make() -> SigningKey:
-        if request.param == 'ed25519':
-            return SigningKey.generate_ed25519()
         return SigningKey()
 
     return _make
@@ -102,15 +97,6 @@ def test_verify_rejects_future_timestamp(make_key):
         signing.verify(headers, now=now, **REQ)
 
 
-def test_verify_rejects_pubkey_address_mismatch(make_key):
-    w = make_key()
-    other = make_key()
-    headers = signing.sign_headers(w, **REQ)
-    headers[signing.H_PUBKEY] = other.public_key_b64
-    with pytest.raises(signing.SignatureError):
-        signing.verify(headers, **REQ)
-
-
 def test_verify_rejects_missing_header(make_key):
     w = make_key()
     headers = signing.sign_headers(w, **REQ)
@@ -149,39 +135,17 @@ def test_verify_rejects_signature_from_other_key(make_key):
         signing.verify(headers, **REQ)
 
 
-def _canonical_for(signing_key, timestamp):
-    return signing._canonical(
-        method=REQ['method'],
-        path=REQ['path'],
-        query=REQ['query'],
-        body=REQ['body'],
-        node_host=REQ['node_host'],
-        timestamp=timestamp,
-        address=signing_key.address,
-    )
+def test_sign_headers_v2_has_no_pubkey_header(make_key):
+    w = make_key()
+    headers = signing.sign_headers(w, **REQ)
+    assert headers[signing.H_VERSION] == '2'
+    assert 'GC-Public-Key' not in headers  # dropped in v2
+    assert signing.verify(headers, **REQ) == w.address
 
 
-def test_verify_rejects_cross_scheme_signature():
-    # Document that the OID-self-describing wire is safe: a signature of the
-    # WRONG scheme (over the exact canonical verify checks) is rejected by the
-    # scheme picked from the pubkey type. Not parametrized — inherently
-    # cross-type. Address self-cert passes; only the signature scheme is wrong.
-    rsa = SigningKey()
-    ed = SigningKey.generate_ed25519()
-
-    # RSA identity, but an Ed25519 (64-byte) signature -> RSA verify rejects.
-    headers = signing.sign_headers(rsa, **REQ)
-    headers[signing.H_SIGNATURE] = ed.sign(
-        _canonical_for(rsa, headers[signing.H_TIMESTAMP])
-    )
-    with pytest.raises(signing.SignatureError):
-        signing.verify(headers, **REQ)
-
-    # Ed25519 identity, but an RSA (256-byte) signature -> the vendored
-    # verifier's len(signature) != 64 check rejects.
-    headers = signing.sign_headers(ed, **REQ)
-    headers[signing.H_SIGNATURE] = rsa.sign(
-        _canonical_for(ed, headers[signing.H_TIMESTAMP])
-    )
+def test_verify_rejects_v1_pubkey_scheme(make_key):
+    w = make_key()
+    headers = signing.sign_headers(w, **REQ)
+    headers[signing.H_VERSION] = '1'  # old scheme
     with pytest.raises(signing.SignatureError):
         signing.verify(headers, **REQ)

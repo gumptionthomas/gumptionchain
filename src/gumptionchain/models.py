@@ -76,7 +76,6 @@ class TransactionDAO(Base):
     version: Mapped[str] = mapped_column(String(10))
     timestamp: Mapped[datetime.datetime] = mapped_column(DateTime)
     address: Mapped[str | None] = mapped_column(String(100))
-    public_key: Mapped[str | None] = mapped_column(String(700))
     signature: Mapped[str | None] = mapped_column(String(700))
     prev_hash: Mapped[str | None] = mapped_column(String(100))
     blocks: Mapped[list[BlockDAO]] = relationship(
@@ -95,7 +94,6 @@ class TransactionDAO(Base):
         version: str,
         timestamp: datetime.datetime,
         address: str | None = None,
-        public_key: str | None = None,
         signature: str | None = None,
         prev_hash: str | None = None,
         inflow_daos: list[InflowDAO] | None = None,
@@ -105,7 +103,6 @@ class TransactionDAO(Base):
         self.version = version
         self.timestamp = timestamp
         self.address = address
-        self.public_key = public_key
         self.signature = signature
         self.prev_hash = prev_hash
         for inflow_dao in inflow_daos or []:

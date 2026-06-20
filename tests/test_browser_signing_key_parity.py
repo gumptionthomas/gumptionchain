@@ -9,6 +9,10 @@ from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
 from gumptionchain.signing import _canonical
 from gumptionchain.signing_key import SigningKey
 
+pytestmark = pytest.mark.skip(
+    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
+)
+
 CLI = (
     Path(__file__).resolve().parent.parent / 'clients' / 'sdk' / 'sign-cli.mjs'
 )

@@ -123,6 +123,11 @@ ignore = [
   "S110",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# Vendored BIP-350 bech32/bech32m reference (Pieter Wuille); kept pristine.
+# FBT003 also covers our positional `pad=False` call into the reference API.
+"src/gumptionchain/bech32.py" = ["RUF005", "FBT003"]
+
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "single"
 
@@ -179,3 +184,13 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["humanfriendly", "millify"]
 ignore_missing_imports = true
+
+# Vendored BIP-350 bech32/bech32m reference implementation (Pieter Wuille).
+# Kept pristine/untyped; the thin address helpers we add are fully typed.
+[[tool.mypy.overrides]]
+module = ["gumptionchain.bech32"]
+allow_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+warn_return_any = false

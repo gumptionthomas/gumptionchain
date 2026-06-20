@@ -32,55 +32,21 @@ TXID_1 = '0' * 64
 # HS256 requires ≥32 bytes; this is 35 bytes (above the threshold so
 # pyjwt 2.13+ doesn't emit InsecureKeyLengthWarning during tests).
 TEST_SECRET_KEY = 'test-secret-key-for-phase-3-32bytes'
-# The four SIGNING_KEY_* constants below are ONE self-consistent canonical key:
-# SIGNING_KEY_PUBLIC_KEY_B64 / SIGNING_KEY_ADDRESS derive from
-# SIGNING_KEY_PRIVATE_KEY_B58, and
-# SIGNING_KEY_SIGNATURE is that key's signature over
-# SIGNING_KEY_SIGNATURE_DATA. They are
-# RSA-key-size-coupled: if signing_key.KEY_SIZE changes, regenerate ALL FOUR
-# from one fresh SigningKey (a partial update fails the key_size guard (#167).
-SIGNING_KEY_PRIVATE_KEY_B58 = (
-    'riiewRJm2wpE3rWTs1ikUc83so8ZXMX8vp9dUTnRgMC8GyfLr99M2sohUdWp62MRBJLvX1'
-    'FzqWDaJihdNfsx3ybub662Njn3Rsig8zyWHeXLihfvjnFt6qgPMqfvTevYgmutwK7xWNW5'
-    'GHd76EbVtHd7FwCTgMmt5aZC5n3Zem7w95SUUnQaUjsPXYACifojrMtn83L2pyFyzebdum'
-    'gQqLTpTtH3hTFQ2HHypF4EGn78Fk66QAaoN99j11VbMFwaeuiycs341bxmkxymEjxUETZQ'
-    'AfJDqXx4v9vHnEAr56EBLoQGqvHim7pw72Nk6YLgvgtNoweCkJ8UEw1X9frEniVd9bNFWn'
-    'BoTxzuCNcvrjqcejjD3vkV5Qi5EgAiWSnnPwhxwuaFmdX5j2peZKBGQWAkHkXF1Pzqzs2s'
-    'dortnKeJh21S6gGErfWsgDc2EHMg59W17buJk5ZpCqx9dvg8p6FQYMLkDYPPxLxSSaSciq'
-    'ExANZA7rWJ5ZahAKg56pLDmXNkXxemvmoiaSK1yGetkiPLs8SP3cW3w94nzUMvGTLF1xmJ'
-    'whYw9iJ3DPxr18KqPw7GNobBNzvjTuPmN77cvBRoRHTdiSe9gzmhJBtHrRMcLRT8hAgTot'
-    'iZeQxobwvxbTVe9WoD59jyZmt8PiNQnFj4BQmhAL9tfMEZLs1M6jk8xpD5JG8saocEo5vG'
-    '4btu9a4CcQsBLqj3MHM3RLdk6VuFFi3nrVCk3ud7U6eNBBH4C7De29kCTQQgRwtgx6woor'
-    'mjLCbXKK3jvnZYDRVXvPuF48CgxpVLnTxPnipX5vLUu9xk98RiKDQ3FhgHfD4bohJEt4sB'
-    'xVbkb31hevZcW54YVmQSRaJRBFaNrwXKmhi2ajBHrn36MbyopbK7qpyoQogS3k1pW4d6yh'
-    'fXbneFxGSyQHjcEHxLsfxJtA6S9bQrU68EVqmpifZWwc4jZ67psURdnVYFHWRRt36dxmxD'
-    'L1gaPfrsQoZ4V3d7U2Z1ry9YtTdXH4C3L6xb2pRfA4XDP2jMMauV6aTAKhrNwmmuzvGpv8'
-    'wziTeHdfErN6XTmjz8VTXVPjjEHMY17ooM45vNVH58RgM8QiDBJVUSsLBebQqAD9aXJTpv'
-    'jf2FYdSBBsXkn3yBv8aAAgufiibgPbmktXMog4ECMnGXofWG9f3hgWwuVpwVVrY8UDJQuy'
-    '8Eep1AjaVvQjQUXcAkVUs1ShVKEDBiUqYNgQBYmdZWRJKhc1nePtY5UveVTnxe2ezQqVbx'
-    'oPayvXoZzVd8D7zVqJeyeEuCr3sKdP4Fo8AcmX4SGhFyqqRbHjcjJ6p7sACQcaiSTmdk5p'
-    '97VVRTVMzgp7C3yJ53C2AJwD9g1P4t2wVNSV9voCErjCe8b6EXabUbndb9dT11WZbdDmXL'
-    'weKkZ3XiJjMNZW4H2riYJHmzqtYYHzaTbVJA6jSiz2xRuoZikZPR4YUEd2mAiUHyQVeQYT'
-    'VTPkLz3TYnZLiDEyrEkup7yGMphuDeYkviETuUPrF4TAhd5BzHtmE1bzYu5LjZnKQ2jNTB'
-    'LSjxyYRyC58K4LR4jeY4UXhpFVn3LTgmMUCd4cM9HVQ6zQBhEmxQ9x3P4sKe1gLv3pxNsv'
-    'hkyTPxkAFapYc33kPMoEos3kkkgBYRSot1BCr1s8uurP7bgy1bWbe'
-)
-SIGNING_KEY_PUBLIC_KEY_B64 = (
-    'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvJo0ATMovGmJ+UPp1yj0na1aby'
-    'TVT1QR9XvBMwmYYP0UmT17mdKmQGc+lv+W/rCwtjySu5ruWD9QDw8uAS1IQGMt1ad8Uq7h'
-    'JPGIu5rROlnnE3UeETsy82jvOqm722xpqzsLKq/ZlJJFxTKsx+I/ahm+MDuHeT2TlwTv2W'
-    'mD04VmbXSUJvIIt4LKmNcSPZNFd2HGvX+MLIybZhBy6Za2g2/gByLq0aR5FysLDOStCtM5'
-    'JgaJzQVbPAf2kHMPE9pHC+N3DdnKkJObhpYay076Fdit6lLZ9Lzok8FmqL/2+4BDbCt51g'
-    'Zpz5WRBJ7t5NOIPSKgvwhkM4710AdXSga8PQIDAQAB'
-)
-SIGNING_KEY_ADDRESS = 'GCv9o9bgZzrYFdqcYeS6MnZNC5FraUmiwu244C4rbiGBUGC'
+# One self-consistent canonical Ed25519 key, derived from a FIXED seed so the
+# four SIGNING_KEY_* constants are deterministic and stable across runs and
+# machines — the txn parity vectors (tests/fixtures/gen_txn_fixtures.py) embed
+# this key's b58 and the JS parity test (re-enabled in #3) asserts it matches.
+# (Pre-Ed25519 these were hardcoded RSA material coupled to KEY_SIZE; that
+# coupling is gone.) SIGNING_KEY_SIGNATURE is this key's signature over
+# SIGNING_KEY_SIGNATURE_DATA.
+_CANONICAL_SEED = b'gumptionchain canonical test key'  # 32 bytes
+_CANONICAL_SIGNING_KEY = SigningKey.from_ed25519_seed(_CANONICAL_SEED)
+SIGNING_KEY_PRIVATE_KEY_B58 = _CANONICAL_SIGNING_KEY.private_key_b58
+SIGNING_KEY_PUBLIC_KEY_B64 = _CANONICAL_SIGNING_KEY.public_key_b64
+SIGNING_KEY_ADDRESS = _CANONICAL_SIGNING_KEY.address
 SIGNING_KEY_SIGNATURE_DATA = 'helloworld'
-SIGNING_KEY_SIGNATURE = (
-    'lw/CKt9GJqCwW4YPA/ixZ3AuAYj/RfnTGt/xHFRPdL6/4S6OnyX2ff1MkSXtb19VGbF+2B'
-    'BkbusV6wOWywYJFSUDOlrFqQosGjFgva/dguXFT0QblmPFNX0J1ii3I6SSHaVCMkzIX+2c'
-    '/Awfkx11dr9yJcJUV4XLZbPNnfqbIzCg7p54Fe5nClFBXClkxlwdFzGdbPvqxNeIof0QEV'
-    'Q/ri6CPaTQT5fRs2SwaXc4+aLgCFk99u4wrs3J/B5+yhiWQJWbca652aXP4tD9DGBvynw8'
-    'WEib/wJkA5mSh0cv8z5fQ+ZPjxhKGfVFBQG6nAlUayKPVwTahHP0t7NTWyA/uw=='
+SIGNING_KEY_SIGNATURE = _CANONICAL_SIGNING_KEY.sign(
+    SIGNING_KEY_SIGNATURE_DATA.encode()
 )
 
 
