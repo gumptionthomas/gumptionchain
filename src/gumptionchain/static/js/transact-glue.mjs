@@ -127,7 +127,7 @@ async function readBody(resp) {
 // nowSeconds: gc-sig timestamps are epoch SECONDS (server allows +/-300s).
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-// Send a gc-sig-v2 authed request. path/query are signed separately so the
+// Send a gc-sig-v1 authed request. path/query are signed separately so the
 // canonical matches what the server reconstructs from the actual request.
 async function authedFetch(
   fetchImpl,

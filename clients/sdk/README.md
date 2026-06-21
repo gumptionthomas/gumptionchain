@@ -2,7 +2,7 @@
 
 A dependency-free, vanilla-JS ([Web Crypto](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API))
 SDK for [GumptionChain](../../README.md): Ed25519 key management,
-`gc-sig-v2` authenticated API requests, passkey-anchored at-rest storage,
+`gc-sig-v1` authenticated API requests, passkey-anchored at-rest storage,
 passkey-PRF key **derivation** (self-custodial federated login),
 24-word BIP-39 recovery phrases, self-custody backup/recovery, and generic
 `gc-msg-v1` message signing.
@@ -41,7 +41,7 @@ files (`gc-crypto.mjs`, `gc-envelope.mjs`, …) are internal and may change.
 
 ## Quickstart
 
-### 1. Sign an authenticated API request (`gc-sig-v2`)
+### 1. Sign an authenticated API request (`gc-sig-v1`)
 
 ```js
 import { SigningKey, signHeaders } from './index.mjs';
@@ -145,7 +145,7 @@ mapping, *not* BIP-39's PBKDF2 seed-stretching — the words **are** the seed.)
 | Symbol | Purpose |
 | --- | --- |
 | `SigningKey` | Ed25519 keygen, `exportSecret`/`fromSecret` (`gcsec1…`), `mnemonic()`/`fromMnemonic` (24-word phrase), `gc1…` address, sign, verify-only via `fromPublicKeyB64` |
-| `canonical`, `signHeaders` | `gc-sig-v2` request signing |
+| `canonical`, `signHeaders` | `gc-sig-v1` request signing |
 | `enroll`, `unlock`, `hasSigningKey`, `clear` | passkey-anchored storage orchestration |
 | `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters; the passkey adapter also exposes `discover({ mediation, signal })` / `isConditionalAvailable()` |
 | `deriveSeed`, `deriveSigningKey` | passkey-PRF → 32-byte seed / `SigningKey` (no stored key; optional `passphrase` 2FA) |
@@ -227,7 +227,7 @@ key is preferred.
 
 `version` is the **package** semver (pre-1.0, pre-launch — the
 embedder API is not yet frozen). It is **independent** of the wire scheme ids
-`gc-sig-v2` and `gc-msg-v1`, which are protocol identifiers bound into
+`gc-sig-v1` and `gc-msg-v1`, which are protocol identifiers bound into
 signatures and change only on a protocol revision.
 
 ## Testing

@@ -1,4 +1,4 @@
-// GumptionChain gc-sig-v2 signing CLI (test harness, not a unit test).
+// GumptionChain gc-sig-v1 signing CLI (test harness, not a unit test).
 // Reads a JSON request from argv[2], signs it with the given gcsec secret,
 // and prints {address, signature} JSON to stdout. Used by the Python live
 // cross-verify test to prove byte-for-byte gc-sig parity without fixtures.
