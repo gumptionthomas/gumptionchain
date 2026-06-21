@@ -1,4 +1,4 @@
-# GumptionChain API Authentication Protocol: `gc-sig-v2`
+# GumptionChain API Authentication Protocol: `gc-sig-v1`
 
 Every GumptionChain API request (excluding the unauthenticated browser views) must
 be authenticated with a per-request signing_key signature. The server verifies the
@@ -12,21 +12,25 @@ the signature is verified.
 ## Versioning
 
 Authentication scheme selection is driven by the `GC-Sig-Version` request header.
-This document specifies **version `2`** — the `gc-sig-v2` scheme. The header value
-is the decimal string `"2"`.
+This document specifies **version `1`** — the `gc-sig-v1` scheme. The header value
+is the decimal string `"1"`.
 
 GumptionChain is Ed25519-only: every key is an Ed25519 key, and the GC address
 **is** the public key (a bech32m encoding of the raw 32-byte Ed25519 public key).
 The verifier therefore reconstructs the public key directly from `GC-Address`, so
-`v2` carries **no** `GC-Public-Key` header — the address is the credential, not a
-fingerprint of one.
+`gc-sig-v1` carries **no** `GC-Public-Key` header — the address is the credential,
+not a fingerprint of one.
 
-Future schemes (for example, an RFC 9421 HTTP Message Signatures-based scheme for
-broader third-party library interoperability) will be assigned new version numbers
-and accepted by the server side-by-side with existing versions — existing `v2`
-clients do not need to change when a new version is introduced. RFC 9421 support is
-deferred pending real third-party-client demand and a fuller Python library
-ecosystem; it is a planned additive scheme, not a current one.
+Pre-1.0, the scheme is **v1, redefined in place**: as the wire format evolves
+during development the single `gc-sig-v1` definition is edited rather than a new
+version stacked beside it (there are no deployed clients pinned to an older
+definition to stay compatible with). The `GC-Sig-Version` field nonetheless exists
+as a forward-looking dispatch hook: once the protocol is stable (post-1.0), a
+future incompatible change — for example, an RFC 9421 HTTP Message Signatures-based
+scheme for broader third-party library interoperability — can bump the version and
+be accepted side-by-side with `gc-sig-v1`. RFC 9421 support is deferred pending
+real third-party-client demand and a fuller Python library ecosystem; it is a
+planned additive scheme, not a current one.
 
 ---
 
@@ -36,12 +40,12 @@ Every signed request must include all four of the following headers.
 
 | Header | Value |
 |---|---|
-| `GC-Sig-Version` | `2` |
+| `GC-Sig-Version` | `1` |
 | `GC-Address` | Caller's GC address — a `gc1…` bech32m string that **is** the raw 32-byte Ed25519 public key |
 | `GC-Timestamp` | Unix time of the request, decimal seconds (e.g. `1748736000`) |
 | `GC-Signature` | Base64 Ed25519 signature (RFC 8032) over the canonical string |
 
-There is **no** `GC-Public-Key` header in `gc-sig-v2`. The address itself encodes
+There is **no** `GC-Public-Key` header in `gc-sig-v1`. The address itself encodes
 the public key, so the server **reconstructs** the Ed25519 verifying key by
 decoding `GC-Address` (validating its HRP and bech32m checksum) — see
 [Address derivation](#address-derivation). No prior key registration is needed;
@@ -50,14 +54,14 @@ authenticate.
 
 ---
 
-## Canonical string (`gc-sig-v2`)
+## Canonical string (`gc-sig-v1`)
 
 The client signs — and the server reconstructs — a canonical string formed by
 joining exactly these eight fields with newline (`\n`) characters, **in this
 order**, with no trailing newline:
 
 ```
-gc-sig-v2
+gc-sig-v1
 <METHOD>
 <path>
 <query>
@@ -71,7 +75,7 @@ Field-by-field rules:
 
 | Field | Value |
 |---|---|
-| `gc-sig-v2` | Literal scheme identifier, always this exact string |
+| `gc-sig-v1` | Literal scheme identifier, always this exact string |
 | `<METHOD>` | HTTP method, **uppercased** (e.g. `GET`, `POST`) |
 | `<path>` | The URL path, exactly as the server sees it (e.g. `/api/block`) |
 | `<query>` | The raw URL query string; empty string `""` when no query is present |
@@ -191,7 +195,7 @@ transport precondition assumed for all API communication).
 The server performs these checks in order. Any failure in steps 1–6 results in
 `401 Unauthorized`. Insufficient role in step 7 results in `403 Forbidden`.
 
-1. `GC-Sig-Version` must be present and equal to `"2"`. Unknown or missing version
+1. `GC-Sig-Version` must be present and equal to `"1"`. Unknown or missing version
    → `401`.
 2. `GC-Address`, `GC-Timestamp`, and `GC-Signature` must all be present and
    non-empty → `401`.
@@ -225,7 +229,7 @@ address:   gc1abc…xyz   ← placeholder
 **Canonical string** (fields separated by `\n`, shown here on separate lines):
 
 ```
-gc-sig-v2
+gc-sig-v1
 GET
 /api/block
 
@@ -240,7 +244,7 @@ gc1abc…xyz
 **Resulting request headers:**
 
 ```
-GC-Sig-Version: 2
+GC-Sig-Version: 1
 GC-Address:     gc1abc…xyz
 GC-Timestamp:   1748736000
 GC-Signature:   <base64 Ed25519 signature over canonical bytes — placeholder>
@@ -263,7 +267,7 @@ address:   gc1abc…xyz
 **Canonical string:**
 
 ```
-gc-sig-v2
+gc-sig-v1
 POST
 /api/block/0000ab12…ef34
 
@@ -276,7 +280,7 @@ gc1abc…xyz
 **Resulting request headers:**
 
 ```
-GC-Sig-Version: 2
+GC-Sig-Version: 1
 GC-Address:     gc1abc…xyz
 GC-Timestamp:   1748736001
 GC-Signature:   <base64 Ed25519 signature over canonical bytes — placeholder>
@@ -298,5 +302,5 @@ only and are not real cryptographic values.
 | Body digest algorithm | SHA-256 (hex digest, lowercase) |
 | Timestamp format | Decimal integer, Unix seconds |
 | Freshness window | ±300 seconds |
-| Scheme identifier | `gc-sig-v2` (first field of canonical string) |
-| Version header value | `2` |
+| Scheme identifier | `gc-sig-v1` (first field of canonical string) |
+| Version header value | `1` |

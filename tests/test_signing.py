@@ -135,17 +135,17 @@ def test_verify_rejects_signature_from_other_key(make_key):
         signing.verify(headers, **REQ)
 
 
-def test_sign_headers_v2_has_no_pubkey_header(make_key):
+def test_sign_headers_v1_has_no_pubkey_header(make_key):
     w = make_key()
     headers = signing.sign_headers(w, **REQ)
-    assert headers[signing.H_VERSION] == '2'
-    assert 'GC-Public-Key' not in headers  # dropped in v2
+    assert headers[signing.H_VERSION] == '1'
+    assert 'GC-Public-Key' not in headers  # dropped in v1
     assert signing.verify(headers, **REQ) == w.address
 
 
-def test_verify_rejects_v1_pubkey_scheme(make_key):
+def test_verify_rejects_wrong_version(make_key):
     w = make_key()
     headers = signing.sign_headers(w, **REQ)
-    headers[signing.H_VERSION] = '1'  # old scheme
+    headers[signing.H_VERSION] = '2'  # a non-'1' (wrong) version is rejected
     with pytest.raises(signing.SignatureError):
         signing.verify(headers, **REQ)
