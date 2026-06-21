@@ -48,3 +48,18 @@ test('fromSecret rejects a corrupted secret', async () => {
   const bad = secret.slice(0, -1) + (secret.at(-1) === 'q' ? 'p' : 'q');
   await assert.rejects(() => SigningKey.fromSecret(bad));
 });
+
+test('mnemonic() round-trips through fromMnemonic to the same address', async () => {
+  const w = await SigningKey.generate();
+  const phrase = await w.mnemonic();
+  assert.equal(phrase.split(' ').length, 24);
+  const w2 = await SigningKey.fromMnemonic(phrase);
+  assert.equal(await w2.address(), await w.address());
+});
+
+test('fromMnemonic rejects a corrupted phrase', async () => {
+  const w = await SigningKey.generate();
+  const words = (await w.mnemonic()).split(' ');
+  words[23] = words[23] === 'zoo' ? 'zone' : 'zoo';
+  await assert.rejects(() => SigningKey.fromMnemonic(words.join(' ')), /checksum/);
+});

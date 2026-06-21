@@ -164,3 +164,18 @@ def test_signing_key_public_key_only_constructs(signing_key):
     # Private operations raise
     with pytest.raises(NoPrivateKeyError):
         w.sign(b'data')
+
+
+def test_mnemonic_round_trip():
+    sk = SigningKey()
+    phrase = sk.mnemonic()
+    assert len(phrase.split()) == 24
+    assert SigningKey.from_mnemonic(phrase).address == sk.address
+
+
+def test_from_mnemonic_rejects_bad_phrase():
+    sk = SigningKey()
+    words = sk.mnemonic().split()
+    words[-1] = 'zone' if words[-1] == 'zoo' else 'zoo'
+    with pytest.raises(ValueError, match='checksum'):
+        SigningKey.from_mnemonic(' '.join(words))

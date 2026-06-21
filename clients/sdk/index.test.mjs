@@ -8,6 +8,7 @@ const FUNCTIONS = [
   'enroll', 'unlock', 'hasSigningKey', 'clear',
   'makeWebauthnPasskey', 'makeIdbStore',
   'exportEncrypted', 'importEncrypted', 'exportPlain', 'importPlain',
+  'deriveSeed', 'deriveSigningKey', 'seedToMnemonic', 'mnemonicToSeed',
   'signMessage', 'verifyMessage', 'toArmored', 'fromArmored',
   'signStakeAttestation', 'parseStakeAttestation', 'verifyStake',
 ];
@@ -25,6 +26,7 @@ test('barrel exports every public function', () => {
 test('barrel exports SigningKey as a class and the typed errors', () => {
   assert.equal(typeof api.SigningKey, 'function');
   assert.equal(typeof api.SigningKey.generate, 'function');
+  assert.equal(typeof api.SigningKey.fromMnemonic, 'function');
   for (const name of ERRORS) {
     assert.equal(typeof api[name], 'function', `missing error: ${name}`);
     assert.ok(
