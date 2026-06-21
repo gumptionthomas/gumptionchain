@@ -21,6 +21,19 @@ export class SigningKey {
     this.#publicKey = publicKey;
   }
 
+  // Feature-detect WebCrypto Ed25519. Some browsers/webviews (e.g. Chrome
+  // before v137) lack it; without this probe, keygen/import/sign reject with
+  // an opaque NotSupportedError. Returns true only if Ed25519 keygen works.
+  static async isSupported() {
+    try {
+      if (typeof crypto === 'undefined' || !crypto?.subtle) return false;
+      await crypto.subtle.generateKey(ALG, false, ['sign', 'verify']);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   static async generate() {
     const pair = await crypto.subtle.generateKey(ALG, true, ['sign', 'verify']);
     return new SigningKey(pair.privateKey, pair.publicKey);

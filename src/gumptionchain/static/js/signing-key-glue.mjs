@@ -87,6 +87,21 @@ function msgOf(e) {
   return e instanceof Error ? e.message : String(e);
 }
 
+// Shown when WebCrypto Ed25519 is unavailable (e.g. Chrome before v137, some
+// embedded webviews). Exported so tests can assert the exact message.
+export const UNSUPPORTED_MSG =
+  'This browser does not support Ed25519 keys. Please update to a current ' +
+  'version of Chrome, Firefox, or Safari.';
+
+// Guard a keygen/import handler: if Ed25519 is unsupported, show the friendly
+// message on the handler's status element and return false (so the caller
+// returns early, instead of letting the SDK throw an opaque NotSupportedError).
+async function ensureEd25519(statusEl) {
+  if (await SigningKey.isSupported()) return true;
+  setStatus(statusEl, UNSUPPORTED_MSG, 'error');
+  return false;
+}
+
 // Trigger a client-side download of a text blob (the encrypted backup).
 function downloadText(doc, filename, text) {
   const blob = new Blob([text], { type: 'application/json' });
@@ -228,6 +243,7 @@ export function init(
           return;
         }
         if (!trustGateOk(els.createStatus)) return;
+        if (!(await ensureEd25519(els.createStatus))) return;
         const signing_key = await SigningKey.generate();
         await keyring.enroll(signing_key, { store }, { passphrase });
         const address = await signing_key.address();
@@ -266,6 +282,7 @@ export function init(
           return;
         }
         if (!trustGateOk(els.importStatus)) return;
+        if (!(await ensureEd25519(els.importStatus))) return;
         const signing_key = await SigningKey.fromSecret(secret);
         await keyring.enroll(signing_key, { store }, { passphrase });
         const address = await signing_key.address();

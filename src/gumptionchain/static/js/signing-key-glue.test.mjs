@@ -7,6 +7,7 @@ import {
   readTrustAck,
   writeTrustAck,
   init,
+  UNSUPPORTED_MSG,
 } from './signing-key-glue.mjs';
 import { SigningKey } from '../sdk/gc-signing-key.mjs';
 import { makeSession } from './signing-key-session.mjs';
@@ -265,4 +266,88 @@ test('init: a blank gcsec secret reports the gcsec prompt, enrolls nothing', asy
 
   assert.equal(record, null);
   assert.match(root.querySelector('#import-status').textContent, /gcsec1…/);
+});
+
+// --- graceful degradation: an Ed25519-unsupported browser must show the
+// friendly "update your browser" message INSTEAD of the SDK's opaque
+// NotSupportedError, and must NOT reach SDK keygen/import (nothing enrolled).
+// We simulate the unsupported browser by stubbing SigningKey.isSupported ->
+// false for the test's duration. A regression that drops the guard would let
+// real keygen/import run (enrolling a record or surfacing the opaque throw),
+// failing these assertions.
+
+test('init: keygen on an Ed25519-unsupported browser shows the update message', async () => {
+  const orig = SigningKey.isSupported;
+  const origGenerate = SigningKey.generate;
+  let generateCalled = false;
+  SigningKey.isSupported = async () => false;
+  SigningKey.generate = async () => {
+    generateCalled = true;
+    return origGenerate.call(SigningKey);
+  };
+  try {
+    const root = fakeRoot();
+    const session = makeSession();
+    let record = null;
+    const store = {
+      get: async () => record,
+      put: async (rec) => {
+        record = rec;
+      },
+      delete: async () => {
+        record = null;
+      },
+    };
+    // Trust-ack already granted so the create handler reaches the guard.
+    const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+    init(root, { store, session, storage });
+
+    root.querySelector('#create-passphrase').value = 'correct horse battery';
+    await root.querySelector('#create-btn').click();
+
+    assert.equal(root.querySelector('#create-status').textContent, UNSUPPORTED_MSG);
+    assert.equal(generateCalled, false);
+    assert.equal(record, null);
+  } finally {
+    SigningKey.isSupported = orig;
+    SigningKey.generate = origGenerate;
+  }
+});
+
+test('init: gcsec import on an Ed25519-unsupported browser shows the update message', async () => {
+  const orig = SigningKey.isSupported;
+  const origFromSecret = SigningKey.fromSecret;
+  let fromSecretCalled = false;
+  SigningKey.isSupported = async () => false;
+  SigningKey.fromSecret = async (s) => {
+    fromSecretCalled = true;
+    return origFromSecret.call(SigningKey, s);
+  };
+  try {
+    const root = fakeRoot();
+    const session = makeSession();
+    let record = null;
+    const store = {
+      get: async () => record,
+      put: async (rec) => {
+        record = rec;
+      },
+      delete: async () => {
+        record = null;
+      },
+    };
+    const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+    init(root, { store, session, storage });
+
+    root.querySelector('#import-secret').value = 'gcsec1anything';
+    root.querySelector('#import-passphrase').value = 'correct horse battery';
+    await root.querySelector('#import-btn').click();
+
+    assert.equal(root.querySelector('#import-status').textContent, UNSUPPORTED_MSG);
+    assert.equal(fromSecretCalled, false);
+    assert.equal(record, null);
+  } finally {
+    SigningKey.isSupported = orig;
+    SigningKey.fromSecret = origFromSecret;
+  }
 });

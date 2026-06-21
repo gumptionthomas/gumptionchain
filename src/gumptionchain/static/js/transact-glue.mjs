@@ -339,6 +339,21 @@ function setStatus(el, text, kind = 'info') {
   el.dataset.kind = kind;
 }
 
+// Shown when WebCrypto Ed25519 is unavailable (e.g. Chrome before v137, some
+// embedded webviews). Exported so tests can assert the exact message.
+export const UNSUPPORTED_MSG =
+  'This browser does not support Ed25519 keys. Please update to a current ' +
+  'version of Chrome, Firefox, or Safari.';
+
+// Guard a keygen/import handler: if Ed25519 is unsupported, show the friendly
+// message on the handler's status element and return false (so the caller
+// returns early, instead of letting the SDK throw an opaque NotSupportedError).
+async function ensureEd25519(statusEl) {
+  if (await SigningKey.isSupported()) return true;
+  setStatus(statusEl, UNSUPPORTED_MSG, 'error');
+  return false;
+}
+
 // Import from a pasted gcsec1… secret (primary path). PEM is a follow-up.
 async function importSecret(secret) {
   return SigningKey.fromSecret(secret.trim());
@@ -577,6 +592,7 @@ export function init(
           return;
         }
       }
+      if (!(await ensureEd25519(createStatus))) return;
       createBtn.disabled = true; // no double-submit while enrolling
       try {
         const signing_key = await SigningKey.generate();
@@ -611,6 +627,7 @@ export function init(
           setStatus(keyStatus, 'Paste a gcsec1… secret key first.', 'error');
           return;
         }
+        if (!(await ensureEd25519(keyStatus))) return;
         session.setSigningKey(await importSecret(secret));
         unlockSource = 'session';
         await onUnlocked(keyStatus, 'Key imported');

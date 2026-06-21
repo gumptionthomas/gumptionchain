@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SigningKey } from './gc-signing-key.mjs';
 
+test('isSupported() returns true on a runtime with WebCrypto Ed25519', async () => {
+  // Node 20+ (and current browsers) support Ed25519, so the probe succeeds.
+  assert.equal(await SigningKey.isSupported(), true);
+});
+
 test('fresh keygen: address is gc1…, sign/verify round-trips', async () => {
   const w = await SigningKey.generate();
   const addr = await w.address();

@@ -12,6 +12,7 @@ import {
   whichKeyPanel,
   unlockSaved,
   init,
+  UNSUPPORTED_MSG,
 } from './transact-glue.mjs';
 import { SigningKey } from '../sdk/gc-signing-key.mjs';
 import { parseStakeAttestation } from '../sdk/gc-attestation.mjs';
@@ -608,4 +609,80 @@ test('init: a blank one-session secret reports the gcsec prompt, no key set', as
 
   assert.equal(session.getSigningKey(), null);
   assert.match(root.querySelector('#key-status').textContent, /gcsec1…/);
+});
+
+// --- graceful degradation: an Ed25519-unsupported browser must show the
+// friendly "update your browser" message INSTEAD of the SDK's opaque
+// NotSupportedError, and must NOT reach SDK keygen/import (no key lands in the
+// session). We simulate the unsupported browser by stubbing
+// SigningKey.isSupported -> false for the test's duration. A regression that
+// drops the guard would let SDK keygen/import run (and either set a key or
+// surface the opaque throw), failing these assertions.
+
+test('init: keygen on an Ed25519-unsupported browser shows the update message', async () => {
+  const orig = SigningKey.isSupported;
+  // Trip a tripwire if the guard is removed: real keygen must NOT run.
+  const origGenerate = SigningKey.generate;
+  let generateCalled = false;
+  SigningKey.isSupported = async () => false;
+  SigningKey.generate = async () => {
+    generateCalled = true;
+    return origGenerate.call(SigningKey);
+  };
+  try {
+    const root = fakeRoot();
+    const session = makeSession();
+    const store = {
+      get: async () => null,
+      put: async () => {},
+      delete: async () => {},
+    };
+    init(root, { nodeHost: 'http://node.example', store, session });
+
+    // Satisfy the create handler's prior validation so we reach the guard:
+    // a passphrase and the trust-ack checkbox.
+    root.querySelector('#key-create-passphrase').value = 'correct horse';
+    root.querySelector('#key-trust-ack').checked = true;
+    await root.querySelector('#key-create-btn').click();
+
+    // Friendly message shown; SDK keygen never reached; no key in session.
+    assert.equal(root.querySelector('#key-create-status').textContent, UNSUPPORTED_MSG);
+    assert.equal(generateCalled, false);
+    assert.equal(session.getSigningKey(), null);
+  } finally {
+    SigningKey.isSupported = orig;
+    SigningKey.generate = origGenerate;
+  }
+});
+
+test('init: gcsec import on an Ed25519-unsupported browser shows the update message', async () => {
+  const orig = SigningKey.isSupported;
+  const origFromSecret = SigningKey.fromSecret;
+  let fromSecretCalled = false;
+  SigningKey.isSupported = async () => false;
+  SigningKey.fromSecret = async (s) => {
+    fromSecretCalled = true;
+    return origFromSecret.call(SigningKey, s);
+  };
+  try {
+    const root = fakeRoot();
+    const session = makeSession();
+    const store = {
+      get: async () => null,
+      put: async () => {},
+      delete: async () => {},
+    };
+    init(root, { nodeHost: 'http://node.example', store, session });
+
+    // A non-blank secret so we get past the gcsec prompt to the guard.
+    root.querySelector('#key-secret').value = 'gcsec1anything';
+    await root.querySelector('#import-key-btn').click();
+
+    assert.equal(root.querySelector('#key-status').textContent, UNSUPPORTED_MSG);
+    assert.equal(fromSecretCalled, false);
+    assert.equal(session.getSigningKey(), null);
+  } finally {
+    SigningKey.isSupported = orig;
+    SigningKey.fromSecret = origFromSecret;
+  }
 });
