@@ -4,14 +4,14 @@
 // duplicated.
 //
 // Scheme:
-//   - A random 32-byte DEK (AES-GCM) encrypts the signing_key's b58 -> signing_key_ct.
+//   - A random 32-byte DEK (AES-GCM) encrypts the signing_key's gcsec -> signing_key_ct.
 //   - The DEK's raw bytes are wrapped SEPARATELY per method's KEK:
 //       passphrase -> deriveKey (PBKDF2 -> AES-GCM)        -> sealWithKey(KEK, dekRaw)
 //       passkey    -> deriveAesKey (WebAuthn-PRF -> HKDF)  -> sealWithKey(KEK, dekRaw)
 //   - unlock(method, secret): derive that KEK -> openWithKey the wrap -> dekRaw
-//     -> import DEK -> openWithKey(DEK, signing_key_ct) -> b58 -> SigningKey.
+//     -> import DEK -> openWithKey(DEK, signing_key_ct) -> gcsec -> SigningKey.
 //
-// The stored record is ALWAYS ciphertext; the plaintext b58/DEK exist only
+// The stored record is ALWAYS ciphertext; the plaintext gcsec/DEK exist only
 // transiently in function scope. A wrong secret fails closed via the AES-GCM
 // auth tag (openWithKey rejects) — never a partial/garbage signing_key.
 //
