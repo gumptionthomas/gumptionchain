@@ -1,6 +1,6 @@
 // Real WebAuthn-PRF passkey adapter (browser-only). Implements the `passkey`
 // interface. The passkey is a normal credential (ES256/RS256) used ONLY for its
-// PRF output — it is NOT the signing_key's RSA key.
+// PRF output — it is NOT the signing key's Ed25519 key.
 import { base64encode, base64decode } from './gc-crypto.mjs';
 import { UnsupportedError } from './gc-errors.mjs';
 

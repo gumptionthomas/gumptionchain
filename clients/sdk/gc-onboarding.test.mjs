@@ -67,7 +67,7 @@ test('create persists + holds unlocked, and onChange fires with fresh status', a
   let last = null;
   const off = onb.onChange((s) => { last = s; });
   const { address } = await onb.create({ passphrase: 'pw' });
-  assert.match(address, /^GC.*GC$/);
+  assert.ok(address.startsWith('gc1'));
   const s = await onb.status();
   assert.equal(s.hasKey, true);
   assert.equal(s.unlocked, true);
@@ -120,7 +120,7 @@ test('create with withPasskey silently skips the passkey when unsupported (no th
   const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey });
   assert.equal((await onb.status()).passkeySupported, false);
   const { address } = await onb.create({ passphrase: 'pw', withPasskey: true });
-  assert.match(address, /^GC.*GC$/);
+  assert.ok(address.startsWith('gc1'));
   assert.equal((await onb.status()).unlocked, true);
 });
 
@@ -176,7 +176,6 @@ test('signTransaction: throws when locked; signs a node-built unsigned txn when 
   const base = {
     timestamp: '1700000000',
     address: await k.address(),
-    public_key: await k.publicKeyB64(),
     signature: null,
     inflows: [],
     outflows: [{ amount: 100, support: 'Z29ibGlucw' }],
@@ -187,7 +186,7 @@ test('signTransaction: throws when locked; signs a node-built unsigned txn when 
 
   const signed = await onb.signTransaction(unsigned);
   assert.equal(signed.address, await k.address());
-  assert.equal(signed.public_key, await k.publicKeyB64());
+  assert.equal(signed.txid, unsigned.txid);
   assert.equal(typeof signed.signature, 'string');
   // The signature is real: it verifies over the canonical signing data.
   assert.equal(await k.verify(signingData(signed), signed.signature), true);

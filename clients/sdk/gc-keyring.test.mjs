@@ -52,16 +52,16 @@ test('wrong passphrase fails closed with a typed BadPassphraseError', async () =
   );
 });
 
-test('the stored record is always ciphertext (no plaintext b58/DEK leaks)', async () => {
+test('the stored record is always ciphertext (no plaintext secret/DEK leaks)', async () => {
   const store = fakeStore();
   const w = await SigningKey.generate();
-  const b58 = await w.exportPrivateKeyB58();
+  const secret = await w.exportSecret();
   await keyring.enroll(w, { store }, { passphrase: 'pw' });
   const rec = await store.get();
   const blob = JSON.stringify(rec, (_k, v) =>
     v instanceof Uint8Array ? Buffer.from(v).toString('hex') : v,
   );
-  assert.ok(!blob.includes(b58), 'plaintext b58 must not appear in the record');
+  assert.ok(!blob.includes(secret), 'plaintext secret must not appear in the record');
   assert.equal(rec.version, 2);
   assert.equal(rec.address, await w.address());
   assert.ok(rec.signing_key_ct && rec.signing_key_ct.iv && rec.signing_key_ct.ciphertext);
