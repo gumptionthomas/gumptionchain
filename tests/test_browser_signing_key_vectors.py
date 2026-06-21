@@ -2,43 +2,12 @@ import json
 import os
 from pathlib import Path
 
-import pytest
-
 from gumptionchain.signing import _canonical
 from gumptionchain.signing_key import SigningKey
 
-pytestmark = pytest.mark.skip(
-    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
-)
-
-# A fixed, freshly-minted 2048-bit RSA signing_key used solely to generate the
-# golden gc-sig vectors. Distinct from conftest's SIGNING_KEY_PRIVATE_KEY_B58.
-VECTOR_SIGNING_KEY_B58 = (
-    'riiewRJm2wpE3rWTs1ikUc83so8ZXMX8vp9dUTnRgMC8GyfLr99LtkqK8gDNAd1VyihbjW'
-    'opge9tGR3W9GCbpojrHtjpUqmmuEhHjpehtXGiMF1LqiZedaEE4V3X8X679uzitLTP3m8A'
-    'zcNGgqbPKWtVEd7VWmVWQdan68EpojZFwqrY3LFLiRnaKSLoNryxLUEFFrxcBNjyTpjL94'
-    '3Rs6YXFRgBs5UDSazh6GLPwu26oAPfLy8NNPqKjPuNHcCXoywopkMUug4bXJaKc93PxdtR'
-    '6kEWWxCaiNtsCe4JkukbRXNR6NpUrAtrgNgw8uM7Pg2tMP9ThbyaHxHLcaeYs8tfdPs2MX'
-    '3qfkw37cPX6P5wkFUVqcZhrL4PMzqHF2Hkf79hWYU1c3xwit8Rx2gM8HAQZgq5CGuNjj9Y'
-    'Ao3JcAbkVKtTqgFKJqmwY8jVLCtxKkzyBbxAAyuHtyioNQ5LFrxBs5qzoyRATTJwqVfhjo'
-    'WNEvHNpT3g97htCjtkgMssbfSBq6fmSa7mFpE3vA7dHPUhmjdiwhsdDhDVLnekVk8yxELP'
-    'EZzjCvKKZ1JW4oaXVcGvgkjFB2RquXCUFX272SYie7b2sEDbB61kC7rTxmrfanLX5Ah2X4'
-    'PKZK9xCaUKhEcbQsMBMve9uniasFMYecu829v9ELWRaRCjhMDKqnHhsPvvd7xMdLyUcTyC'
-    'Pcbwphc76GhyULAvpqumAoxvsQqXTcWmh4AtFzjjURneezkVa1sA1yfCEvfyEjPynpYv7X'
-    'WtymfciJ8NNS1SpuXBUrqdFSps2txaVD2F6JBwZE2VBA2SnVdd57cn5z7bcejheQB99mSC'
-    '69UFqR2vgPQek1VGHEQFsmtQXBWR3jrCeiSKsvW4SLESB3W7vDvhN1es5mjBnQ1rExmpDP'
-    'HQTAacJSVt1eiijvq8GccQcNsbLgHsJqXNBquvffYgWXTv3jY7kcZj7iCK1wjpLujhCzGX'
-    'J8mzTn7h6hu7ouAr3J54317eC4XeyZo7AQgiVSK7YrEyxw61fbsFdqMFMKi3ChmxfckTUk'
-    '3gNrTK8bXyhNrWpGN4masjADciLRYS7UD5M96nquMJop8hyftXEd2vmJVwqnzsorbePGu7'
-    'iAdFh26jKfYtDS1rNycLVCxKYR7nB9o6xDPVvEqnnTUUDrPNKf9wE8EbaHoysTeh5FqK7d'
-    'HupxRJCNp4h46dUnQpUCGtp5QzEZfRa6MLMoecPQ5icwfMMZuzraLpbLfSVdniZyuomZwd'
-    'W5rPDSqeZwaaWRTBizLaeeJKsfbb4gU27THHzCSxtd8S1pn4obmD5UHLXzBgi5nBCWuwmD'
-    'duz8mVm2ytQnTYGkAq6LJig8eGtYFtXMzhWuHUfEsj4o6k6rP1hLvVr7bhpp8r59a6m9Zi'
-    'tUCsCiEKxJC1b1TAy2EGLHoC6bwyUXUQe69dPTR981QsuW2CNmUrgtCduFfuGhqwvavxpP'
-    'NKPXuWVnuYYE2nzVNHZ7Bh2cicnQGF48iFnptWTWN7Nj6v8w6bHE4j9iosu13skYeN63y2'
-    'j4swwegX36KuEEfbutTBLJ7hq9GpSAqMgACbMKKEVhE7Zz3uzDTEFWHFGobWUYT8hzA9iy'
-    'fyhVv74B6CX4DS3biGzgPeBK81x6Yn83NSxXCh97wWTd1Q4ewdpwk'
-)
+# A fixed Ed25519 key used solely to generate the golden JS<->Python parity
+# vectors. Deterministic across runs (fixed seed). gcsec1… secret string.
+VECTOR_SECRET = SigningKey.from_ed25519_seed(bytes(range(1, 33))).secret
 VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
     / 'clients'
@@ -68,7 +37,7 @@ _CASES = [
 
 
 def _build_vectors() -> dict[str, object]:
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     cases = []
     for c in _CASES:
         canonical = _canonical(
@@ -88,7 +57,7 @@ def _build_vectors() -> dict[str, object]:
             }
         )
     return {
-        'private_key_b58': VECTOR_SIGNING_KEY_B58,
+        'secret': VECTOR_SECRET,
         'public_key_b64': w.public_key_b64,
         'address': w.address,
         'cases': cases,
@@ -109,7 +78,7 @@ def test_vectors_committed_and_self_consistent() -> None:
     committed = json.loads(VECTORS_PATH.read_text())
     assert committed == fresh, 'gc-sig-vectors.json drifted; regenerate'
 
-    w = SigningKey(b58ks=committed['private_key_b58'])
+    w = SigningKey(secret=committed['secret'])
     for case in committed['cases']:
         assert w.validate_signature(
             case['canonical'].encode(), case['signature']

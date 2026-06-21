@@ -114,10 +114,12 @@ test('JS signatures match the committed golden vectors', async () => {
   const VEC = JSON.parse(readFileSync(
     new URL('./testdata/gc-msg-vectors.json', import.meta.url),
   ));
-  // VECTOR_SIGNING_KEY_B58 is the fixed key used by the Python generator.
-  const B58 = process.env.GC_VECTOR_KEY;
-  if (!B58) return; // key supplied by the parity runner; skip if absent
-  const w = await W2.fromPrivateKeyB58(B58);
+  // The fixed Ed25519 key the Python generator uses (seed 1..32), as a
+  // gcsec1… secret. Importing it in JS must reproduce byte-identical
+  // signatures and the same gc1… address.
+  const SECRET =
+    'gcsec1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5z5tpwxqergd3c8g7rusquhpjl5';
+  const w = await W2.fromSecret(SECRET);
   for (const c of VEC) {
     const proof = await signMessage(w, c.message, { timestamp: c.timestamp });
     assert.equal(proof.signature, c.signature);

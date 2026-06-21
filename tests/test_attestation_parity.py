@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
+from test_browser_signing_key_vectors import VECTOR_SECRET
 
 from gumptionchain.attestation import (
     BadAttestationError,
@@ -17,10 +17,6 @@ from gumptionchain.attestation import (
     verify_stake,
 )
 from gumptionchain.signing_key import SigningKey
-
-pytestmark = pytest.mark.skip(
-    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
-)
 
 CLI = (
     Path(__file__).resolve().parent.parent
@@ -59,13 +55,13 @@ def test_js_signed_attestation_verifies_in_python() -> None:
         _node(
             'sign',
             {
-                'private_key_b58': VECTOR_SIGNING_KEY_B58,
+                'secret': VECTOR_SECRET,
                 'claim': CLAIM,
                 'timestamp': TS,
             },
         )
     )
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     prov = {
         'txid': '1' * 64,
         'address': w.address,
@@ -80,7 +76,7 @@ def test_js_signed_attestation_verifies_in_python() -> None:
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_python_signed_attestation_verifies_in_js() -> None:
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     proof = sign_stake_attestation(w, CLAIM, timestamp=int(TS))
     prov = {
         'txid': '1' * 64,
@@ -123,7 +119,7 @@ def test_js_signed_binding_verifies_in_python() -> None:
         _node(
             'sign-binding',
             {
-                'private_key_b58': VECTOR_SIGNING_KEY_B58,
+                'secret': VECTOR_SECRET,
                 'claim': _BINDING_CLAIM_WITH_URL,
                 'timestamp': _BINDING_TS,
             },
@@ -136,7 +132,7 @@ def test_js_signed_binding_verifies_in_python() -> None:
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_python_signed_binding_verifies_in_js() -> None:
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     proof = sign_social_binding(
         w, _BINDING_CLAIM_WITH_URL, timestamp=int(_BINDING_TS)
     )
@@ -147,7 +143,7 @@ def test_python_signed_binding_verifies_in_js() -> None:
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_binding_reject_parity() -> None:
     # Build a non-canonical proof: reordered keys (handle before platform).
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     good_proof = sign_social_binding(
         w, _BINDING_CLAIM_MINIMAL, timestamp=int(_BINDING_TS)
     )

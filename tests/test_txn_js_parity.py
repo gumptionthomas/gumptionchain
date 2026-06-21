@@ -21,10 +21,6 @@ from gumptionchain.payload import Inflow, Outflow
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
 
-pytestmark = pytest.mark.skip(
-    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
-)
-
 
 def _txn_from_fixture_dict(d: dict) -> Transaction:
     # Rebuild the dataclass directly from the fixture's `to_dict()` output
@@ -39,7 +35,6 @@ def _txn_from_fixture_dict(d: dict) -> Transaction:
         timestamp=d['timestamp'],
         txid=d.get('txid'),
         address=d.get('address'),
-        public_key=d.get('public_key'),
         signature=d.get('signature'),
         inflows=[Inflow(**i) for i in d.get('inflows', [])],
         outflows=[Outflow(**o) for o in d.get('outflows', [])],
@@ -84,8 +79,8 @@ def test_python_sign_over_fixture_verifies(vector: dict) -> None:
     # imports, and verify it. (The JS-sign -> Python-verify direction is
     # exercised end-to-end at the integration layer in a later PR; here we
     # lock the canonical bytes + the verify path.)
-    signing_key = SigningKey(b58ks=vector['signing_key_b58'])
-    assert vector['signing_key_b58'] == SIGNING_KEY_SECRET
+    signing_key = SigningKey(secret=vector['secret'])
+    assert vector['secret'] == SIGNING_KEY_SECRET
     signing_data = base64.b64decode(vector['signing_data_b64'])
     signature = signing_key.sign(signing_data)
     assert signing_key.validate_signature(signing_data, signature)

@@ -4,14 +4,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
+from test_browser_signing_key_vectors import VECTOR_SECRET
 
 from gumptionchain.message import sign_message, verify_message
 from gumptionchain.signing_key import SigningKey
-
-pytestmark = pytest.mark.skip(
-    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
-)
 
 CLI = (
     Path(__file__).resolve().parent.parent
@@ -38,7 +34,7 @@ def test_js_signed_message_verifies_in_python() -> None:
     proof = _node(
         'sign',
         {
-            'private_key_b58': VECTOR_SIGNING_KEY_B58,
+            'secret': VECTOR_SECRET,
             'message': MESSAGE,
             'timestamp': TS,
         },
@@ -48,7 +44,7 @@ def test_js_signed_message_verifies_in_python() -> None:
 
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_python_signed_message_verifies_in_js() -> None:
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     proof = sign_message(w, MESSAGE, timestamp=int(TS))
     result = _node('verify', proof)
     assert result['valid'] is True

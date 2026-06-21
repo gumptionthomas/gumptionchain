@@ -2,19 +2,19 @@
   {
     "message": "hello world",
     "timestamp": "1700001000",
-    "signature": "fWV3dWJquOJYYzNIJYgBwz5WRhfaC3VNDu88ZB0/L4ShH/rYSmdHSNkViNiUt6nyuD3csX4l72IDFc6ePtpeeB02L3HKpid3WUZjNQJAdXEkznv8n7gjTEdk7BAqIC0ODvvFN4T47zztVRjx6UkDSQi2yOa8FvJi0WtbXLb+Sd665rGwRR/9Ztp20SmuNomvQjQoqlbV4EevZVXlKX//Ibe1lNkvoNb/Hrtcm06psoswB6sd9yhkYAJw19tJ7y6QDqrlJxUMo8kGMYWKpIkX8vocJlanTYw9LOutjJkpXfQ6C6wQ8otpGOYNrVdsoLyaGg6Bq/6603HvZLkhXII8Sg==",
-    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+    "signature": "+h5rL3/lAx6L4k/6PBdCZFBwqmAPKvdbxbdTgeEXQd9jFRFZcYJ835GjxZ7B1kgjDCp0WgZGrk2xdG/A3HxEAQ==",
+    "address": "gc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3"
   },
   {
     "message": "I made stake T1 \u2014 3 GRIT opposition on goblins",
     "timestamp": "1700001001",
-    "signature": "WadwNjKhA0shH6kDCp9me5Myw0EGVGUS10MjqIMjw2PqXY39tnbCaiSSXQpiKkNS4sMzBAiYiTtabg9s+FbxSFitqp68YlgyIb0lruIs+blNRhnA8oLW7or4wpRBkS3zCHF97F4Ayh9FyRjIoEpd03QA3o/ngF3t3dTX9vMzRIcA9nddAkvpSgVI1vN/8OPmqYFuAh7BL/aKSlLdkbsMrwMumxBu2LdrM0Xh13Q2YCkQ3plX2Yphyqxt9TgavdG/S488I9ua7phlTiE5XjzZMq99jy5oTdmjW72lCPliI8XWTn/sl2YQEquX3bPYQPjetU+UxF3IAgQJ42wmZ79xcQ==",
-    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+    "signature": "Uu+FC3Olx2aSM5K7PHUP1Xr+7TK7nkD+CN9blNl/VSw2VHr/nrpMfymwuvtmGvgW7p8nZUYyEAmG5NZB3WMkCw==",
+    "address": "gc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3"
   },
   {
     "message": "multi\nline\nmessage",
     "timestamp": "1700001002",
-    "signature": "Gw2GNcfydkwfh/XY8/chdouHaAb0BYKDy/FoUvT7pm3HkoD+kfnnyZFVvj1ko/8LKFZ3nvBFubUZyLmMqbJmTfOHrME9X9IG4y5Er5J/E9K/YSZmMHjy3fAnWt9OgsXFtyrr7KqaYhvehtKmsuROFzp15B7DqOtLHL7HS4mbEurb1Qwi++Rk+92cicdFc77TeXdgKJn2adsUYr7nYjWIJFqDnuuVidqNqTdzP2mGjS4xGClOIPajCHDmbPKXnCBdDvlta08aNibt3ZZ2ki+6+PYxTbBf/2fD8p1meDsF67dFD4EC+lJanZ9us2CLULDDXGABNO2giuMAmlOu5unGgg==",
-    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+    "signature": "xa72pGiTXj2aar6As0WJsGvaLYv1Wvw76lwcDsWrIAKvFe1hTJLyv/wCKLxfRwZFGpyCc5L9Gn6nZMpQvNjbCg==",
+    "address": "gc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3"
   }
 ]
