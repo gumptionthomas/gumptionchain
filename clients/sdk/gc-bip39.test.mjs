@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { WORDLIST } from './gc-bip39-wordlist.mjs';
 import { seedToMnemonic, mnemonicToSeed } from './gc-bip39.mjs';
@@ -51,4 +52,19 @@ test('a bad word / wrong length is rejected', async () => {
 
 test('seedToMnemonic requires exactly 32 bytes', async () => {
   await assert.rejects(() => seedToMnemonic(new Uint8Array(31)), /32/);
+});
+
+test('JS reproduces the committed Python BIP-39 vectors', async () => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../tests/fixtures/bip39_vectors.json', import.meta.url),
+    ),
+  );
+  for (const v of vectors) {
+    const seed = Uint8Array.from(
+      v.seed_hex.match(/../g).map((h) => parseInt(h, 16)),
+    );
+    assert.equal(await seedToMnemonic(seed), v.mnemonic);
+    assert.deepEqual([...(await mnemonicToSeed(v.mnemonic))], [...seed]);
+  }
 });
