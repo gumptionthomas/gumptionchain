@@ -287,7 +287,14 @@ class SigningKey:
 
     @classmethod
     def from_dict(cls, signing_key_dict: dict[str, Any]) -> SigningKey:
-        return cls(secret=signing_key_dict.get('private_key'))
+        # Fail closed on a missing/None 'private_key': passing secret=None to
+        # the constructor would fall through to keygen and silently mint a NEW
+        # identity (a malformed/truncated restore file would look like success
+        # while producing the wrong key). A restore must error, not generate.
+        secret = signing_key_dict.get('private_key')
+        if secret is None:
+            raise InvalidKeyError()
+        return cls(secret=secret)
 
     @classmethod
     def from_json(cls, signing_key_json: str) -> SigningKey:

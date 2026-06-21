@@ -57,6 +57,17 @@ def test_from(signing_key):
     assert signing_key == new_signing_key
 
 
+def test_from_dict_missing_private_key_fails_closed():
+    # A malformed/truncated restore must raise, NOT silently generate a new
+    # identity (secret=None would otherwise fall through to keygen).
+    with pytest.raises(InvalidKeyError):
+        SigningKey.from_dict({})
+    with pytest.raises(InvalidKeyError):
+        SigningKey.from_dict({'private_key': None})
+    with pytest.raises(InvalidKeyError):
+        SigningKey.from_json('{}')
+
+
 def test_file(tmp_path, signing_key):
     f = signing_key.to_file(signing_keydir=tmp_path)
     w = SigningKey.from_file(f)
