@@ -142,7 +142,7 @@ class ApiClient:
 
     def get_transfer_transaction(
         self,
-        public_key: str,
+        signer: str,
         amount: int,
         address: str,
         timeout: int | float | None = None,
@@ -151,7 +151,7 @@ class ApiClient:
         return self.get(
             '/api/transaction/transfer',
             params={
-                'public_key': public_key,
+                'signer': signer,
                 'amount': str(amount),
                 'address': address,
             },
@@ -161,7 +161,7 @@ class ApiClient:
 
     def get_split_transaction(
         self,
-        public_key: str,
+        signer: str,
         denomination: int,
         count: int,
         timeout: int | float | None = None,
@@ -170,7 +170,7 @@ class ApiClient:
         return self.get(
             '/api/transaction/split',
             params={
-                'public_key': public_key,
+                'signer': signer,
                 'denomination': str(denomination),
                 'count': str(count),
             },
@@ -180,7 +180,7 @@ class ApiClient:
 
     def get_opposition_transaction(
         self,
-        public_key: str,
+        signer: str,
         amount: int,
         subject: str,
         timeout: int | float | None = None,
@@ -189,7 +189,7 @@ class ApiClient:
         return self.get(
             '/api/transaction/opposition',
             params={
-                'public_key': public_key,
+                'signer': signer,
                 'amount': str(amount),
                 'subject': subject,
             },
@@ -199,7 +199,7 @@ class ApiClient:
 
     def get_rescind_transaction(
         self,
-        public_key: str,
+        signer: str,
         amount: int,
         subject: str,
         kind: Literal['opposition', 'support'],
@@ -209,7 +209,7 @@ class ApiClient:
         return self.get(
             '/api/transaction/rescind',
             params={
-                'public_key': public_key,
+                'signer': signer,
                 'amount': str(amount),
                 'subject': subject,
                 'kind': kind,
@@ -220,7 +220,7 @@ class ApiClient:
 
     def get_support_transaction(
         self,
-        public_key: str,
+        signer: str,
         amount: int,
         subject: str,
         timeout: int | float | None = None,
@@ -229,7 +229,7 @@ class ApiClient:
         return self.get(
             '/api/transaction/support',
             params={
-                'public_key': public_key,
+                'signer': signer,
                 'amount': str(amount),
                 'subject': subject,
             },

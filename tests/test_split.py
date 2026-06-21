@@ -77,7 +77,7 @@ def test_split_endpoint_returns_unsigned_txn(
     r = client.get(
         '/api/transaction/split',
         params={
-            'public_key': transactor_signing_key.public_key_b64,
+            'signer': transactor_signing_key.address,
             'denomination': '100',
             'count': '3',
         },
@@ -96,7 +96,7 @@ def test_split_endpoint_rejects_count_over_49(
     r = ApiClient(host, transactor_signing_key).get(
         '/api/transaction/split',
         params={
-            'public_key': transactor_signing_key.public_key_b64,
+            'signer': transactor_signing_key.address,
             'denomination': '1',
             'count': '50',
         },
@@ -113,7 +113,7 @@ def test_split_endpoint_rejects_zero_denomination(
     r = ApiClient(host, transactor_signing_key).get(
         '/api/transaction/split',
         params={
-            'public_key': transactor_signing_key.public_key_b64,
+            'signer': transactor_signing_key.address,
             'denomination': '0',
             'count': '3',
         },
@@ -128,7 +128,7 @@ def test_api_client_get_split_transaction(
     with app.app_context():
         mill_block(transactor_signing_key)
     r = ApiClient(host, transactor_signing_key).get_split_transaction(
-        transactor_signing_key.public_key_b64, 100, 3
+        transactor_signing_key.address, 100, 3
     )
     assert r.status_code == 200
     chips = [o for o in r.json()['outflows'] if o.get('amount') == 100]

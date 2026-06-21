@@ -29,9 +29,10 @@ import { readTrustAck, writeTrustAck } from './signing-key-glue.mjs';
 
 const API_PREFIX = '/api';
 
-// The fields each transaction type sends. public_key is always added from the
-// imported signing_key; the rest come from the form. (subject is the RAW UTF-8
-// subject — the server encodes it itself, so it must NOT be pre-encoded.)
+// The fields each transaction type sends. signer (the signing key's address) is
+// always added from the imported signing_key; the rest come from the form.
+// (subject is the RAW UTF-8 subject — the server encodes it itself, so it must
+// NOT be pre-encoded.)
 const TYPE_FIELDS = {
   transfer: ['amount', 'address'],
   opposition: ['amount', 'subject'],
@@ -47,10 +48,10 @@ export function buildQuery(type, fields) {
     throw new Error(`unknown transaction type: ${type}`);
   }
   const params = new URLSearchParams();
-  // public_key first by convention; order is irrelevant to the server (it
+  // signer first by convention; order is irrelevant to the server (it
   // reconstructs the canonical from the actual request), but stable for tests.
-  if (fields.publicKey != null) {
-    params.set('public_key', fields.publicKey);
+  if (fields.signer != null) {
+    params.set('signer', fields.signer);
   }
   for (const name of names) {
     const value = fields[name];
@@ -163,8 +164,8 @@ export async function buildUnsigned({
   fetchImpl = globalThis.fetch,
   timestamp = nowSeconds(),
 }) {
-  const publicKey = await signing_key.publicKeyB64();
-  const query = buildQuery(type, { ...fields, publicKey });
+  const signer = await signing_key.address();
+  const query = buildQuery(type, { ...fields, signer });
   const buildPath = `${API_PREFIX}/transaction/${type}`;
   const buildResp = await authedFetch(fetchImpl, {
     method: 'GET',

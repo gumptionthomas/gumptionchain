@@ -21,28 +21,29 @@ import { makeSession } from './signing-key-session.mjs';
 // --- buildQuery: one query string, used for BOTH the fetch URL and the
 // gc-sig canonical, so it must round-trip exactly the fields the type needs.
 
-test('buildQuery transfer carries public_key, amount, address', () => {
+test('buildQuery transfer carries signer, amount, address', () => {
   const q = buildQuery('transfer', {
-    publicKey: 'PUB',
+    signer: 'gc1...sometestaddr',
     amount: '42',
     address: 'GCdestGC',
   });
   const p = new URLSearchParams(q);
-  assert.equal(p.get('public_key'), 'PUB');
+  assert.equal(p.get('signer'), 'gc1...sometestaddr');
+  assert.equal(p.get('public_key'), null);
   assert.equal(p.get('amount'), '42');
   assert.equal(p.get('address'), 'GCdestGC');
   assert.equal(p.has('subject'), false);
   assert.equal(p.has('kind'), false);
 });
 
-test('buildQuery opposition carries public_key, amount, subject (raw)', () => {
+test('buildQuery opposition carries signer, amount, subject (raw)', () => {
   const q = buildQuery('opposition', {
-    publicKey: 'PUB',
+    signer: 'gc1...sometestaddr',
     amount: '7',
     subject: 'goblins & orcs',
   });
   const p = new URLSearchParams(q);
-  assert.equal(p.get('public_key'), 'PUB');
+  assert.equal(p.get('signer'), 'gc1...sometestaddr');
   assert.equal(p.get('amount'), '7');
   // The server takes the RAW subject and encodes it itself — do NOT pre-encode.
   assert.equal(p.get('subject'), 'goblins & orcs');
@@ -52,7 +53,7 @@ test('buildQuery opposition carries public_key, amount, subject (raw)', () => {
 
 test('buildQuery support behaves like opposition', () => {
   const q = buildQuery('support', {
-    publicKey: 'PUB',
+    signer: 'gc1...sometestaddr',
     amount: '3',
     subject: 'dragons',
   });
@@ -63,7 +64,7 @@ test('buildQuery support behaves like opposition', () => {
 
 test('buildQuery rescind carries subject AND kind', () => {
   const q = buildQuery('rescind', {
-    publicKey: 'PUB',
+    signer: 'gc1...sometestaddr',
     amount: '5',
     subject: 'goblins',
     kind: 'support',
@@ -210,7 +211,7 @@ test('buildUnsigned: GET authed, verifies txid, does NOT sign or POST', async ()
   assert.equal(calls.length, 1);
   const get = calls[0];
   assert.match(get.url, /\/api\/transaction\/transfer\?/);
-  assert.match(get.url, /public_key=SIGNER_PUB/);
+  assert.match(get.url, /signer=GCsignerGC/);
   assert.equal(get.opts.headers['GC-Signature'], 'SIGNATURE_B64');
   assert.equal(got.txid, unsigned.txid);
 });

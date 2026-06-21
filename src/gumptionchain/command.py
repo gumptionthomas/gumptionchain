@@ -716,7 +716,7 @@ def create_transfer(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_transfer_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             to_address,
         )
@@ -795,7 +795,7 @@ def create_split(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_split_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(denomination_grit),
             count,
         )
@@ -872,7 +872,7 @@ def create_opposition(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_opposition_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             subject,
         )
@@ -958,7 +958,7 @@ def create_rescind(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_rescind_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             subject,
             cast(StakeKind, kind),
@@ -1036,7 +1036,7 @@ def create_support(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_support_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             subject,
         )
