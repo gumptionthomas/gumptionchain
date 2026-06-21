@@ -244,6 +244,42 @@ test('init: pasting a gcsec1… secret enrolls the key at the matching address',
   assert.equal(root.querySelector('#import-secret').value, '');
 });
 
+test('init: pasting a 24-word recovery phrase enrolls the key at the phrase address', async () => {
+  const w = await SigningKey.generate();
+  const phrase = await w.mnemonic();
+
+  const root = fakeRoot();
+  const session = makeSession();
+  let record = null;
+  const store = {
+    get: async () => record,
+    put: async (rec) => {
+      record = rec;
+    },
+    delete: async () => {
+      record = null;
+    },
+  };
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+
+  init(root, { store, session, storage });
+
+  root.querySelector('#import-secret').value = phrase;
+  root.querySelector('#import-passphrase').value = 'correct horse battery';
+  await root.querySelector('#import-btn').click();
+
+  // The phrase routed through SigningKey.fromMnemonic + keyring.enroll: a
+  // ciphertext record was persisted at the phrase's key address (wrap-bound
+  // under the device passphrase — the cross-ecosystem migration path).
+  assert.notEqual(record, null);
+  assert.equal(record.address, await w.address());
+  assert.match(
+    root.querySelector('#import-status').textContent,
+    /imported and saved/i,
+  );
+  assert.equal(root.querySelector('#import-secret').value, '');
+});
+
 test('init: a blank gcsec secret reports the gcsec prompt, enrolls nothing', async () => {
   const root = fakeRoot();
   const session = makeSession();

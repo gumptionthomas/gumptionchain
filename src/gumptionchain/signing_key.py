@@ -20,6 +20,7 @@ from gumptionchain.bech32 import (
     encode_address,
     encode_secret,
 )
+from gumptionchain.bip39 import mnemonic_to_seed, seed_to_mnemonic
 from gumptionchain.exceptions import InvalidKeyError, NoPrivateKeyError
 
 SignKey = Ed25519PrivateKey | Ed25519PublicKey
@@ -268,6 +269,24 @@ class SigningKey:
     @classmethod
     def generate_ed25519(cls) -> SigningKey:
         return cls()
+
+    @classmethod
+    def from_mnemonic(cls, mnemonic: str) -> SigningKey:
+        # Normalize the codec's ValueError (bad word / length / checksum) to
+        # InvalidKeyError so every SigningKey.from_* import path reports invalid
+        # key material the same way; the specific reason survives as the cause.
+        try:
+            seed = mnemonic_to_seed(mnemonic)
+        except ValueError as e:
+            raise InvalidKeyError() from e
+        return cls.from_ed25519_seed(seed)
+
+    def mnemonic(self) -> str:
+        """The signing key's 24-word BIP-39 recovery phrase."""
+        raw = decode_secret(self.secret)
+        if raw is None:  # pragma: no cover - self.secret is always valid
+            raise InvalidKeyError()
+        return seed_to_mnemonic(raw)
 
     @classmethod
     def from_ed25519_seed(cls, seed: bytes) -> SigningKey:

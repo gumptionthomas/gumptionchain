@@ -5,7 +5,7 @@
 //
 // The package `version` is the embedder-API semver; it is INDEPENDENT of the
 // wire scheme ids gc-sig-v2 / gc-msg-v1 bound into signatures.
-export const version = '0.5.0';
+export const version = '0.6.0';
 
 // Identity / keys
 export { SigningKey } from './gc-signing-key.mjs';
@@ -25,6 +25,10 @@ export { makeIdbStore } from './gc-store-idb.mjs';
 export {
   exportEncrypted, importEncrypted, exportPlain, importPlain,
 } from './gc-backup.mjs';
+
+// PRF derivation + BIP-39 recovery codec
+export { deriveSeed, deriveSigningKey } from './gc-derive.mjs';
+export { seedToMnemonic, mnemonicToSeed } from './gc-bip39.mjs';
 
 // Message signing (gc-msg-v1)
 export {

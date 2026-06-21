@@ -3,7 +3,9 @@
 A dependency-free, vanilla-JS ([Web Crypto](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API))
 SDK for [GumptionChain](../../README.md): Ed25519 key management,
 `gc-sig-v2` authenticated API requests, passkey-anchored at-rest storage,
-self-custody backup/recovery, and generic `gc-msg-v1` message signing.
+passkey-PRF key **derivation** (self-custodial federated login),
+24-word BIP-39 recovery phrases, self-custody backup/recovery, and generic
+`gc-msg-v1` message signing.
 
 The Python node verifies every signature this produces byte-for-byte.
 
@@ -100,14 +102,54 @@ const result = await verifyMessage(fromArmored(armored));
 // { valid: true, address, timestamp, message }
 ```
 
+### 5. Derive a key from a passkey's PRF (no stored key)
+
+```js
+import { deriveSigningKey, deriveSeed } from './index.mjs';
+
+// `prfOutput` is the WebAuthn PRF result (a Uint8Array) from an
+// enroll/discover ceremony. The same passkey reproduces the same key anywhere.
+const signing_key = await deriveSigningKey(prfOutput);
+// Optional passphrase = a second factor (a different passphrase → a different
+// key, hence a different address):
+const sk2 = await deriveSigningKey(prfOutput, { passphrase: 'correct horse' });
+```
+
+The seed is `HKDF-SHA-256(PRF)` — domain-separated from the wrap-keyring's
+PRF→AES-KEK use by a distinct HKDF info label. With a passphrase it is
+`HKDF(PRF ‖ PBKDF2-SHA-256-stretched(passphrase))`. It is fully deterministic
+(no stored salt), so **the same passkey re-derives the same GC identity on any
+origin without storing key material** — this is the "self-custodial federated
+login" primitive. `deriveSeed(prfOutput, { passphrase? })` returns the raw
+32-byte seed if you want to encode it yourself.
+
+### 6. Import / export a 24-word recovery phrase (BIP-39)
+
+```js
+import { SigningKey } from './index.mjs';
+
+const phrase = await signing_key.mnemonic();          // 24 words
+const restored = await SigningKey.fromMnemonic(phrase);
+// Standalone codec over the raw seed:
+import { seedToMnemonic, mnemonicToSeed } from './index.mjs';
+```
+
+A recovery phrase is a standard 24-word BIP-39 encoding (8-bit SHA-256
+checksum) of the **same 32-byte seed** that `gcsec1…` encodes — just a more
+transcribable alternate form. The `/signing-key` page accepts either a phrase
+or a `gcsec1…` string to import an identity. (This is the entropy↔mnemonic
+mapping, *not* BIP-39's PBKDF2 seed-stretching — the words **are** the seed.)
+
 ## Public API
 
 | Symbol | Purpose |
 | --- | --- |
-| `SigningKey` | Ed25519 keygen, `exportSecret`/`fromSecret` (`gcsec1…`), `gc1…` address, sign, verify-only via `fromPublicKeyB64` |
+| `SigningKey` | Ed25519 keygen, `exportSecret`/`fromSecret` (`gcsec1…`), `mnemonic()`/`fromMnemonic` (24-word phrase), `gc1…` address, sign, verify-only via `fromPublicKeyB64` |
 | `canonical`, `signHeaders` | `gc-sig-v2` request signing |
 | `enroll`, `unlock`, `hasSigningKey`, `clear` | passkey-anchored storage orchestration |
 | `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters; the passkey adapter also exposes `discover({ mediation, signal })` / `isConditionalAvailable()` |
+| `deriveSeed`, `deriveSigningKey` | passkey-PRF → 32-byte seed / `SigningKey` (no stored key; optional `passphrase` 2FA) |
+| `seedToMnemonic`, `mnemonicToSeed` | BIP-39 24-word recovery-phrase codec over the raw seed |
 | `exportEncrypted`, `importEncrypted`, `exportPlain`, `importPlain` | backup/recovery |
 | `signMessage`, `verifyMessage`, `toArmored`, `fromArmored` | `gc-msg-v1` message signing |
 | `UnsupportedError`, `NoSigningKeyError`, `BadBackupError`, `BadPassphraseError`, `BadProofError` | typed errors |
@@ -132,9 +174,54 @@ when it is configured with a passkey adapter (`rpId` + `rpName`, or an injected
 `rpId` — `rpName` is required for enrollment, not discovery.
 
 This is the base primitive for hub-brokered "Sign in with Gumption" recognition.
-**It yields recognition + unlock authority (the PRF), not the key bytes** — the
-encrypted key blob is origin-scoped and not re-derivable from the PRF, so the
-material itself still comes from the hub-served store or a user backup.
+**It yields recognition + unlock authority (the PRF), not the key bytes** — in
+the *wrap* model the encrypted key blob is origin-scoped and not re-derivable
+from the PRF, so the material itself still comes from the hub-served store or a
+user backup. (In the *derive* model below, the PRF **is** the key — see the
+federation boundary.)
+
+### Derived-identity flow (`gc-derived-identity.mjs`)
+
+`makeDerivedIdentity({ passkey })` composes PRF derivation into a federated
+login flow. It is a runtime module (imported from `./gc-derived-identity.mjs`,
+not the `index.mjs` barrel); the hub and the `/signing-key` page build on it.
+The injected `passkey` has the same shape as `makeWebauthnPasskey(...)`.
+
+- **`enroll({ userName, passphrase? })`** creates a passkey, derives the key
+  from its PRF, and returns `{ signing_key, address, mnemonic, credentialId }`
+  — the derived key, its 24-word recovery phrase, and the credential id. The
+  caller records `credentialId → address` (and whether a passphrase was used)
+  in its own recognition directory; the derived address is **not** the
+  passkey's `userHandle` (that is fixed at `create()` time, before the PRF
+  exists).
+- **`resolve({ expectedAddress, passphrase? })`** is federated login: it
+  discovers a passkey, re-derives the key, and matches `address` against the
+  caller-supplied `expectedAddress` (falling back to the discovered
+  `userHandle` only when the caller omitted it and the credential carries one).
+  It returns a status: `ok` (matched), `needs-passphrase` (mismatch with no
+  passphrase tried), `mismatch` (wrong passphrase), `derived` (no expected
+  address to check against), or `no-passkey`. A wrong passphrase simply derives
+  a different address, so the match alone confirms the 2FA.
+
+### Derive vs. wrap — the federation boundary
+
+Two key-custody models ship side by side, and **only DERIVE identities federate
+cross-origin**:
+
+- **DERIVE** (`gc-derive.mjs` / `gc-derived-identity.mjs`): the seed is computed
+  from the passkey PRF on the fly and **nothing is stored**. Because the
+  derivation is deterministic and salt-free, the same passkey reproduces the
+  same GC identity on **any** origin — so this is the model that supports
+  "Sign in with Gumption" across sites.
+- **WRAP** (`gc-store.mjs` keyring + `gc-envelope.mjs`): a generated key is
+  AES-GCM-encrypted under a PRF-derived KEK and persisted in **origin-local**
+  IndexedDB. The PRF unlocks the blob but cannot reconstruct the key elsewhere,
+  so a wrap identity is **origin-bound** — it does not federate; cross-origin
+  recovery needs the hub-served store or a user backup.
+
+Consumers choosing a model should pick DERIVE when they need the same identity
+to appear across origins, and WRAP when an origin-local, individually-generated
+key is preferred.
 
 ## Versioning
 

@@ -68,6 +68,57 @@ in the demo page (file download/upload, passphrase prompt, clipboard) is manual:
 6. Click **Show raw key**, copy the `gcsec1…` secret; reload; paste it into the
    import textarea and click **Import raw key** — confirm the address matches.
 
+## PRF key derivation & recovery phrase
+
+The derivation math (`gc-derive.mjs` — HKDF-SHA-256 over the PRF, optional
+PBKDF2-stretched passphrase) and the BIP-39 codec (`gc-bip39.mjs` /
+`gc-bip39-wordlist.mjs`) are fully covered by `node --test` and the JS↔Python
+parity harnesses. What is browser-only is feeding a **real** WebAuthn PRF
+output into them. From the console on the demo page (PRF-capable authenticator):
+
+1. **Determinism.** Enroll/discover a passkey to obtain a `prfOutput`
+   (Uint8Array). Call `deriveSigningKey(prfOutput)` twice and confirm both
+   resolve to the **same** `gc1…` address — the derivation stores no salt, so
+   the same passkey always reproduces the same identity.
+2. **Cross-origin reproducibility.** Open a second origin (or profile) sharing
+   the same `rpId`, `discover()` the same passkey, derive again, and confirm the
+   address matches step 1 — no key material was stored or transferred.
+3. **Passphrase 2FA.** `deriveSigningKey(prfOutput, { passphrase: 'a' })` and
+   `{ passphrase: 'b' }` must produce **different** addresses, and repeating the
+   *same* passphrase must reproduce the same one. A passphrase-derived address
+   differs from the no-passphrase address for the same PRF.
+4. **Recovery phrase round-trip.** With a derived (or any) signing_key, call
+   `await signing_key.mnemonic()` — confirm 24 words. `SigningKey.fromMnemonic(phrase)`
+   must recover the **same** address. Edit one word and confirm a checksum/word
+   error is thrown (no silent acceptance). Confirm the phrase encodes the same
+   seed as `exportSecret()` by importing the `gcsec1…` form and comparing
+   addresses.
+
+## Derived-identity flow
+
+`makeDerivedIdentity({ passkey })` (`gc-derived-identity.mjs`) composes the
+above into enroll/resolve. The logic is unit-tested with a faked passkey;
+verify the real WebAuthn wiring by hand:
+
+1. **Enroll.** Build it with `makeWebauthnPasskey({ rpId, rpName })`, call
+   `enroll({ userName })`, and confirm it returns `{ signing_key, address,
+   mnemonic, credentialId }` — note the `address` and `credentialId`. The
+   `address` must **not** equal the passkey `userHandle`.
+2. **Resolve (match).** Call `resolve({ expectedAddress: <address from step 1> })`
+   and complete the discovery ceremony; confirm `{ status: 'ok', address }` with
+   the same address.
+3. **Resolve (passphrase).** Enroll with `{ passphrase: 'pw' }`; resolve with
+   the wrong/no passphrase and confirm `needs-passphrase` / `mismatch`; resolve
+   with the right passphrase and confirm `ok`.
+4. **No passkey.** Cancel the discovery prompt and confirm `{ status: 'no-passkey' }`
+   (not a throw).
+
+> **Derive vs. wrap.** This DERIVE flow stores **nothing** and re-derives the
+> same identity on any origin (it federates). The WRAP keyring
+> (`gc-store.mjs` enroll/unlock, verified above) persists an AES-GCM blob in
+> **origin-local** IndexedDB and does **not** federate cross-origin. They are
+> separate custody models served side by side.
+
 ## Message signing
 
 The `gc-msg-v1` crypto (`gc-message.mjs` — canonical, sign/verify, armored) is
