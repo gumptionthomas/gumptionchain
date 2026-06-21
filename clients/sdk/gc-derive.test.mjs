@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { deriveSeed, deriveSigningKey } from './gc-derive.mjs';
 
@@ -36,4 +37,25 @@ test('deriveSigningKey returns a usable SigningKey at the derived address', asyn
 
 test('an empty PRF is rejected', async () => {
   await assert.rejects(() => deriveSeed(new Uint8Array(0)), /PRF/);
+});
+
+test('JS reproduces the committed Python derive vectors', async () => {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL('../../tests/fixtures/derive_vectors.json', import.meta.url),
+    ),
+  );
+  for (const v of vectors) {
+    const prf = Uint8Array.from(
+      v.prf_hex.match(/../g).map((h) => parseInt(h, 16)),
+    );
+    const seed = await deriveSeed(
+      prf,
+      v.passphrase ? { passphrase: v.passphrase } : {},
+    );
+    assert.equal(
+      [...seed].map((b) => b.toString(16).padStart(2, '0')).join(''),
+      v.seed_hex,
+    );
+  }
 });

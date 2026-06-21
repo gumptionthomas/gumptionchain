@@ -1,0 +1,22 @@
+[
+  {
+    "prf_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "passphrase": null,
+    "seed_hex": "c28104d7dfade02e222fd57d3f542ab5599c29f664fb18a0d6223aa6c67742fe"
+  },
+  {
+    "prf_hex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "passphrase": "hunter2",
+    "seed_hex": "9a657ad9767cdee49c7bf9961a7c48c565823eb88c8352f37c88c00245b87f5b"
+  },
+  {
+    "prf_hex": "abababababababababababababababababababababababababababababababab",
+    "passphrase": null,
+    "seed_hex": "583c4bbb8e6996211191744fde48ad774aec001b77c7045a265be95447a6d9d2"
+  },
+  {
+    "prf_hex": "abababababababababababababababababababababababababababababababab",
+    "passphrase": "correct horse",
+    "seed_hex": "a4951bde0af40bcb1d071b28b3e448f6fc447b4fc1af27defc27fed56446ec92"
+  }
+]
