@@ -12,7 +12,6 @@ from pydantic_core import ErrorDetails
 from gumptionchain import ed25519 as gc_ed25519
 from gumptionchain.exceptions import InvalidKeyError
 from gumptionchain.signing_key import (
-    SigningKey,
     b64decode,
     b64encode,
     public_key_from_address,
@@ -42,14 +41,6 @@ def validate_base64(s: str) -> bool:
     except Exception:
         pass
     return False
-
-
-def validate_public_key(public_key_b64: str) -> bool:
-    try:
-        signing_key = SigningKey(b64ks=public_key_b64)
-    except InvalidKeyError:
-        return False
-    return signing_key is not None and signing_key.private_key is None
 
 
 def validate_signature(
@@ -128,18 +119,10 @@ def _check_timestamp(s: str) -> str:
     return s
 
 
-def _check_public_key(s: str) -> str:
-    if not validate_public_key(s):
-        msg = f'Invalid public key: {truncate(s)!r}'
-        raise ValueError(msg)
-    return s
-
-
 AddressType = Annotated[str, AfterValidator(_check_address_format)]
 Base64Type = Annotated[str, AfterValidator(_check_base64)]
 MillHashType = Annotated[str, AfterValidator(_check_mill_hash)]
 TimestampType = Annotated[str, AfterValidator(_check_timestamp)]
-PublicKeyType = Annotated[str, AfterValidator(_check_public_key)]
 
 
 class _ErrorsAware(Protocol):

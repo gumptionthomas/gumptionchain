@@ -662,7 +662,7 @@ def test_rescind_missing_kind_returns_validation_error(
             client.get(
                 '/api/transaction/rescind',
                 params={
-                    'public_key': transactor_signing_key.public_key_b64,
+                    'signer': transactor_signing_key.address,
                     'amount': '1',
                     'subject': subject_raw,
                     # `kind` deliberately absent
@@ -681,12 +681,38 @@ def test_rescind_invalid_kind_returns_validation_error(
             client.get(
                 '/api/transaction/rescind',
                 params={
-                    'public_key': transactor_signing_key.public_key_b64,
+                    'signer': transactor_signing_key.address,
                     'amount': '1',
                     'subject': subject_raw,
                     'kind': 'invalid',
                 },
             )
+
+
+def test_transfer_build_accepts_signer_address(
+    app, host, mill_block, requests_proxy, transactor_signing_key
+):
+    """The transfer builder takes a `signer` address, not a `public_key`.
+
+    Mills a block to fund the transactor, then requests an unsigned transfer
+    keyed by the signer's gc1… address. The request SHAPE must be accepted
+    (no 400 on an unknown `public_key` field or a missing `signer`).
+    """
+    with app.app_context():
+        mill_block(transactor_signing_key)
+        dest = SigningKey().address
+        client = ApiClient(host, transactor_signing_key)
+        r = client.get(
+            '/api/transaction/transfer',
+            params={
+                'signer': transactor_signing_key.address,
+                'amount': '1',
+                'address': dest,
+            },
+        )
+        assert r.status_code == httpx.codes.OK
+        # The builder echoes the signer as the unsigned txn's `address`.
+        assert r.json()['address'] == transactor_signing_key.address
 
 
 def test_transaction_provenance_endpoint_canonical(
