@@ -3,8 +3,8 @@
 // implementation (src/gumptionchain/transaction.py + payload.py). Locked by
 // Python-generated test vectors (tests/fixtures/txn_signing_vectors.json).
 //
-// The node builds an *unsigned, sealed* transaction from a public key and
-// returns it as JSON (omitting None fields via asdict_sans_none). The browser
+// The node builds an *unsigned, sealed* transaction and returns it as JSON
+// (omitting None fields via asdict_sans_none). The browser
 // independently recomputes the txid to catch a dishonest node, then signs
 // `signing_data` with the imported key. This module is the only client-side
 // port of the canonical serialization.
@@ -26,13 +26,12 @@ const outflowCsv = (o) =>
     o.rescind_kind ?? '',
   ].join(',');
 
-// Transaction.data_csv = timestamp, address, public_key, <inflows>,
-// <outflows>, version (+ prev_hash ONLY for coinbases — never produced here).
+// Transaction.data_csv = timestamp, address, <inflows>, <outflows>, version
+// (+ prev_hash ONLY for coinbases — never produced here).
 export function dataCsv(txn) {
   const fields = [
     String(txn.timestamp),
     String(txn.address),
-    String(txn.public_key),
     (txn.inflows ?? []).map(inflowCsv).join(','),
     (txn.outflows ?? []).map(outflowCsv).join(','),
     String(txn.version),
@@ -71,7 +70,6 @@ export async function signUnsignedTxn(unsigned, signing_key) {
   const signature = await signing_key.sign(signingData(unsigned));
   return {
     ...unsigned,
-    public_key: await signing_key.publicKeyB64(),
     address: await signing_key.address(),
     signature,
   };

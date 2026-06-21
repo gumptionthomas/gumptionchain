@@ -28,7 +28,7 @@ export async function enroll(signing_key, { passkey, store }, opts) {
   const { credentialId, prfOutput } = await passkey.enroll(opts);
   const { iv, ciphertext } = await seal(
     prfOutput,
-    te.encode(await signing_key.exportPrivateKeyB58()),
+    te.encode(await signing_key.exportSecret()),
   );
   const address = await signing_key.address();
   await store.put({
@@ -52,11 +52,11 @@ export async function unlock({ passkey, store }) {
     throw new Error(`unsupported signing_key record version: ${rec.version}`);
   }
   const prfOutput = await passkey.unlock(rec.credentialId);
-  const b58Bytes = await open(prfOutput, {
+  const secretBytes = await open(prfOutput, {
     iv: base64decode(rec.iv),
     ciphertext: base64decode(rec.ciphertext),
   });
-  return SigningKey.fromPrivateKeyB58(td.decode(b58Bytes));
+  return SigningKey.fromSecret(td.decode(secretBytes));
 }
 
 export async function clear(store) {

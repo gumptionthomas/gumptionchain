@@ -83,9 +83,9 @@ export async function hasSigningKey(store) {
 // Create the record + the mandatory passphrase wrap. The passphrase is the
 // universal floor; passkey is added later via addPasskey.
 export async function enroll(signing_key, { store }, { passphrase }) {
-  const b58 = await signing_key.exportPrivateKeyB58();
+  const secret = await signing_key.exportSecret();
   const { raw: dekRaw, key: dekKey } = await newDek();
-  const signing_key_ct = await sealWithKey(dekKey, te.encode(b58));
+  const signing_key_ct = await sealWithKey(dekKey, te.encode(secret));
   const wraps = { passphrase: await passphraseWrap(passphrase, dekRaw) };
   await store.put({
     version: VERSION,
@@ -137,8 +137,8 @@ export async function unlock({ store, passkey } = {}, { passphrase } = {}) {
   const rec = loadRecord(await store.get());
   const dekRaw = await unwrapDek(rec, { passkey }, { passphrase });
   const dekKey = await importDek(dekRaw);
-  const b58 = td.decode(new Uint8Array(await openWithKey(dekKey, rec.signing_key_ct)));
-  return SigningKey.fromPrivateKeyB58(b58);
+  const secret = td.decode(new Uint8Array(await openWithKey(dekKey, rec.signing_key_ct)));
+  return SigningKey.fromSecret(secret);
 }
 
 // Add a passkey wrap to an already-enrolled signing_key. Unwrap the DEK via the

@@ -8,6 +8,7 @@ REQUIRED = [
     'gc-message.mjs',
     'gc-errors.mjs',
     'gc-signing-key.mjs',
+    'gc-bech32.mjs',
     'gc-crypto.mjs',
     'gc-sig.mjs',
     'index.mjs',
