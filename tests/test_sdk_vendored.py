@@ -11,6 +11,10 @@ REQUIRED = [
     'gc-bech32.mjs',
     'gc-crypto.mjs',
     'gc-sig.mjs',
+    'gc-derive.mjs',
+    'gc-bip39.mjs',
+    'gc-bip39-wordlist.mjs',
+    'gc-derived-identity.mjs',
     'index.mjs',
 ]
 

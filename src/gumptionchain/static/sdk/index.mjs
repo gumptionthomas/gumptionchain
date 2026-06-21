@@ -5,7 +5,7 @@
 //
 // The package `version` is the embedder-API semver; it is INDEPENDENT of the
 // wire scheme ids gc-sig-v2 / gc-msg-v1 bound into signatures.
-export const version = '0.5.0';
+export const version = '0.6.0';
 
 // Identity / keys
 export { SigningKey } from './gc-signing-key.mjs';
