@@ -336,6 +336,7 @@ export function init(
           return;
         }
         if (!trustGateOk(els.importBackupStatus)) return;
+        if (!(await ensureEd25519(els.importBackupStatus))) return;
         const backup = JSON.parse(await file.text());
         const signing_key = await importEncrypted(backup, passphrase);
         // Persist under the SAME passphrase the backup used (the user has it).

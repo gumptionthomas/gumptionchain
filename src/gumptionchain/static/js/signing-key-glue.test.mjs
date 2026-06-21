@@ -351,3 +351,47 @@ test('init: gcsec import on an Ed25519-unsupported browser shows the update mess
     SigningKey.fromSecret = origFromSecret;
   }
 });
+
+test('init: backup restore on an Ed25519-unsupported browser shows the update message', async () => {
+  const orig = SigningKey.isSupported;
+  SigningKey.isSupported = async () => false;
+  let fileRead = false;
+  try {
+    const root = fakeRoot();
+    const session = makeSession();
+    let record = null;
+    const store = {
+      get: async () => record,
+      put: async (rec) => {
+        record = rec;
+      },
+      delete: async () => {
+        record = null;
+      },
+    };
+    const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+    init(root, { store, session, storage });
+
+    // The guard runs before the backup file is read, so a tripwire on
+    // file.text() proves it short-circuited (no opaque Ed25519 throw).
+    root.querySelector('#import-backup-file').files = [
+      {
+        text: async () => {
+          fileRead = true;
+          return '{}';
+        },
+      },
+    ];
+    root.querySelector('#import-backup-passphrase').value = 'correct horse battery';
+    await root.querySelector('#import-backup-btn').click();
+
+    assert.equal(
+      root.querySelector('#import-backup-status').textContent,
+      UNSUPPORTED_MSG,
+    );
+    assert.equal(fileRead, false);
+    assert.equal(record, null);
+  } finally {
+    SigningKey.isSupported = orig;
+  }
+});
