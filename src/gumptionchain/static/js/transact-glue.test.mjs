@@ -11,6 +11,7 @@ import {
   signAttestation,
   whichKeyPanel,
   unlockSaved,
+  init,
 } from './transact-glue.mjs';
 import { SigningKey } from '../sdk/gc-signing-key.mjs';
 import { parseStakeAttestation } from '../sdk/gc-attestation.mjs';
@@ -531,4 +532,80 @@ test('whichKeyPanel: session key -> unlocked even with no record', () => {
   assert.equal(c.state, 'unlocked');
   assert.equal(c.actionsEnabled, true);
   assert.equal(c.badge, 'session');
+});
+
+// --- one-session key import (#B5): the Advanced "paste a gcsec1… secret"
+// path must drive the REAL SigningKey.fromSecret through the DOM glue and
+// land the resulting key in the shared session. This is the regression guard
+// that the served glue calls the present SDK method (fromSecret), not the
+// removed base58 one — a revert to fromPrivateKeyB58 makes this throw.
+
+// Minimal DOM stand-in for init(): querySelector returns a cached fake element
+// per selector (so the glue and the test see the same node), and elements record
+// click handlers so the test can trigger them. querySelectorAll returns [].
+function fakeElement() {
+  const handlers = {};
+  return {
+    value: '',
+    hidden: false,
+    disabled: false,
+    textContent: '',
+    dataset: {},
+    addEventListener(type, fn) {
+      (handlers[type] ??= []).push(fn);
+    },
+    async click() {
+      for (const fn of handlers.click ?? []) await fn();
+    },
+  };
+}
+
+function fakeRoot() {
+  const nodes = {};
+  return {
+    querySelector(sel) {
+      return (nodes[sel] ??= fakeElement());
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+}
+
+test('init: pasting a gcsec1… secret imports the key into the session', async () => {
+  // A real key + its real exported gcsec secret.
+  const w = await SigningKey.generate();
+  const secret = await w.exportSecret();
+
+  const root = fakeRoot();
+  const session = makeSession();
+  // No saved record (the import path is independent of the keyring).
+  const store = { get: async () => null, put: async () => {}, delete: async () => {} };
+
+  // win/doc omitted so installAutoLock is skipped and makePasskey -> null.
+  init(root, { nodeHost: 'http://node.example', store, session });
+
+  // Paste the secret into the Advanced one-session textarea and import.
+  root.querySelector('#key-secret').value = secret;
+  await root.querySelector('#import-key-btn').click();
+
+  // The real SigningKey.fromSecret ran via the glue and the resulting key is
+  // now held in the shared session at the SAME address as the source key.
+  const imported = session.getSigningKey();
+  assert.notEqual(imported, null);
+  assert.equal(await imported.address(), await w.address());
+  assert.equal(session.isUnlocked(), true);
+});
+
+test('init: a blank one-session secret reports the gcsec prompt, no key set', async () => {
+  const root = fakeRoot();
+  const session = makeSession();
+  const store = { get: async () => null, put: async () => {}, delete: async () => {} };
+  init(root, { nodeHost: 'http://node.example', store, session });
+
+  root.querySelector('#key-secret').value = '   ';
+  await root.querySelector('#import-key-btn').click();
+
+  assert.equal(session.getSigningKey(), null);
+  assert.match(root.querySelector('#key-status').textContent, /gcsec1…/);
 });

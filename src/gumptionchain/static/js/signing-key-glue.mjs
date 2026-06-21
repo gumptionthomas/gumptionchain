@@ -126,7 +126,7 @@ export function init(
     createBtn: $('#create-btn'),
     createStatus: $('#create-status'),
     // import
-    importB58: $('#import-b58'),
+    importSecret: $('#import-secret'),
     importPem: $('#import-pem'),
     importPassphrase: $('#import-passphrase'),
     importBtn: $('#import-btn'),
@@ -245,16 +245,16 @@ export function init(
     });
   }
 
-  // --- import (b58) ---
+  // --- import (gcsec secret) ---
   if (els.importBtn) {
     els.importBtn.addEventListener('click', async () => {
       try {
-        const b58 = els.importB58 ? els.importB58.value.trim() : '';
+        const secret = els.importSecret ? els.importSecret.value.trim() : '';
         const passphrase = els.importPassphrase
           ? els.importPassphrase.value
           : '';
-        if (!b58) {
-          setStatus(els.importStatus, 'Paste a base58 private key.', 'error');
+        if (!secret) {
+          setStatus(els.importStatus, 'Paste a gcsec1… secret key.', 'error');
           return;
         }
         if (!passphrase) {
@@ -266,10 +266,10 @@ export function init(
           return;
         }
         if (!trustGateOk(els.importStatus)) return;
-        const signing_key = await SigningKey.fromPrivateKeyB58(b58);
+        const signing_key = await SigningKey.fromSecret(secret);
         await keyring.enroll(signing_key, { store }, { passphrase });
         const address = await signing_key.address();
-        if (els.importB58) els.importB58.value = '';
+        if (els.importSecret) els.importSecret.value = '';
         clearSecrets();
         setStatus(
           els.importStatus,
@@ -287,7 +287,7 @@ export function init(
     els.importPem.addEventListener('change', () => {
       setStatus(
         els.importStatus,
-        'PEM upload is not supported yet — paste the base58 private key ' +
+        'PEM upload is not supported yet — paste the gcsec1… secret key ' +
           'instead (a follow-up will add .pem import).',
         'error',
       );

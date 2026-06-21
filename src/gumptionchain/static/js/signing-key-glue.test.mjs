@@ -6,7 +6,10 @@ import {
   TRUST_ACK_KEY,
   readTrustAck,
   writeTrustAck,
+  init,
 } from './signing-key-glue.mjs';
+import { SigningKey } from '../sdk/gc-signing-key.mjs';
+import { makeSession } from './signing-key-session.mjs';
 
 // --- whichControls: state -> which sections/buttons are visible ----------
 
@@ -151,4 +154,115 @@ test('writeTrustAck tolerates a missing/throwing storage', () => {
     },
   };
   assert.doesNotThrow(() => writeTrustAck(boom));
+});
+
+// --- import (gcsec secret) via init (#B5) --------------------------------
+// The served /signing-key glue must drive the REAL SigningKey.fromSecret when
+// a gcsec1… secret is pasted into #import-secret. This is the regression guard
+// that catches a revert to the removed fromPrivateKeyB58 (which would throw).
+
+// Minimal DOM stand-in: querySelector caches a fake element per selector;
+// elements record click handlers so the test can trigger them. querySelectorAll
+// returns [] (no password inputs to clear in this stub).
+function fakeElement() {
+  const handlers = {};
+  return {
+    value: '',
+    hidden: false,
+    checked: false,
+    textContent: '',
+    dataset: {},
+    files: null,
+    addEventListener(type, fn) {
+      (handlers[type] ??= []).push(fn);
+    },
+    async click() {
+      for (const fn of handlers.click ?? []) await fn();
+    },
+  };
+}
+
+function fakeRoot() {
+  const nodes = {};
+  return {
+    querySelector(sel) {
+      return (nodes[sel] ??= fakeElement());
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+}
+
+function memStorage(seed = {}) {
+  const m = new Map(Object.entries(seed));
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => m.set(k, String(v)),
+    removeItem: (k) => m.delete(k),
+  };
+}
+
+test('init: pasting a gcsec1… secret enrolls the key at the matching address', async () => {
+  const w = await SigningKey.generate();
+  const secret = await w.exportSecret();
+
+  const root = fakeRoot();
+  const session = makeSession();
+  // In-memory single-record store (what keyring.enroll persists into).
+  let record = null;
+  const store = {
+    get: async () => record,
+    put: async (rec) => {
+      record = rec;
+    },
+    delete: async () => {
+      record = null;
+    },
+  };
+  // Trust-ack already granted on this origin so the first persist proceeds.
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+
+  // win/doc omitted -> no auto-lock, makePasskey -> null.
+  init(root, { store, session, storage });
+
+  root.querySelector('#import-secret').value = secret;
+  root.querySelector('#import-passphrase').value = 'correct horse battery';
+  await root.querySelector('#import-btn').click();
+
+  // The real SigningKey.fromSecret + keyring.enroll ran via the glue: a
+  // ciphertext record was persisted at the source key's address.
+  assert.notEqual(record, null);
+  assert.equal(record.address, await w.address());
+  // The status reports success (the address), not an error.
+  assert.match(
+    root.querySelector('#import-status').textContent,
+    /imported and saved/i,
+  );
+  // The secret textarea was cleared after a successful import.
+  assert.equal(root.querySelector('#import-secret').value, '');
+});
+
+test('init: a blank gcsec secret reports the gcsec prompt, enrolls nothing', async () => {
+  const root = fakeRoot();
+  const session = makeSession();
+  let record = null;
+  const store = {
+    get: async () => record,
+    put: async (rec) => {
+      record = rec;
+    },
+    delete: async () => {
+      record = null;
+    },
+  };
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  init(root, { store, session, storage });
+
+  root.querySelector('#import-secret').value = '';
+  root.querySelector('#import-passphrase').value = 'pw';
+  await root.querySelector('#import-btn').click();
+
+  assert.equal(record, null);
+  assert.match(root.querySelector('#import-status').textContent, /gcsec1…/);
 });
