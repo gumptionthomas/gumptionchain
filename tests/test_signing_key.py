@@ -174,8 +174,11 @@ def test_mnemonic_round_trip():
 
 
 def test_from_mnemonic_rejects_bad_phrase():
+    # Consistent with the other from_* import paths: invalid key material is an
+    # InvalidKeyError, with the codec's specific reason preserved as the cause.
     sk = SigningKey()
     words = sk.mnemonic().split()
     words[-1] = 'zone' if words[-1] == 'zoo' else 'zoo'
-    with pytest.raises(ValueError, match='checksum'):
+    with pytest.raises(InvalidKeyError) as excinfo:
         SigningKey.from_mnemonic(' '.join(words))
+    assert 'checksum' in str(excinfo.value.__cause__)
