@@ -29,13 +29,19 @@ test('a tampered message yields bad-signature', async () => {
   assert.equal(r.reason, 'bad-signature');
 });
 
-test('an address not matching the public key yields address-mismatch', async () => {
+test('a tampered address is invalid', async () => {
+  const w = await SigningKey.generate();
+  const other = await SigningKey.generate();
+  const proof = await signMessage(w, 'hi', { timestamp: TS });
+  proof.address = await other.address();   // sig now reconstructs a different key
+  assert.equal((await verifyMessage(proof)).valid, false);
+});
+
+test('proof has no public_key and verifies via address', async () => {
   const w = await SigningKey.generate();
   const proof = await signMessage(w, 'hi', { timestamp: TS });
-  proof.address = `${proof.address}X`;
-  const r = await verifyMessage(proof);
-  assert.equal(r.valid, false);
-  assert.equal(r.reason, 'address-mismatch');
+  assert.equal(proof.public_key, undefined);
+  assert.equal((await verifyMessage(proof)).valid, true);
 });
 
 test('wrong scheme/version/missing fields throw BadProofError', async () => {

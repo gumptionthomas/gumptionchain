@@ -27,7 +27,6 @@ export async function signMessage(signing_key, message, { timestamp } = {}) {
     scheme: MSG_SCHEME,
     version: MSG_VERSION,
     address,
-    public_key: await signing_key.publicKeyB64(),
     timestamp: ts,
     message,
     signature: await signing_key.sign(bytes),
@@ -39,13 +38,12 @@ export async function verifyMessage(proof, { maxAge, now } = {}) {
     throw new BadProofError('not a proof object');
   }
   const {
-    scheme, version, address, public_key: publicKey, timestamp, message, signature,
+    scheme, version, address, timestamp, message, signature,
   } = proof;
   if (
     scheme !== MSG_SCHEME
     || version !== MSG_VERSION
     || typeof address !== 'string'
-    || typeof publicKey !== 'string'
     || typeof timestamp !== 'string'
     || !/^[0-9]+$/.test(timestamp)
     || typeof message !== 'string'
@@ -55,14 +53,11 @@ export async function verifyMessage(proof, { maxAge, now } = {}) {
   }
   let verifier;
   try {
-    verifier = await SigningKey.fromPublicKeyB64(publicKey);
+    verifier = await SigningKey.fromAddress(address);
   } catch {
-    throw new BadProofError('invalid public key');
+    throw new BadProofError('invalid address');
   }
   const result = { address, timestamp, message };
-  if ((await verifier.address()) !== address) {
-    return { ...result, valid: false, reason: 'address-mismatch' };
-  }
   const bytes = await messageCanonical({ address, timestamp, message });
   let signatureOk;
   try {
