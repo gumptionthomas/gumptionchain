@@ -440,7 +440,7 @@ def test_verify_binding_malformed_envelope_raises() -> None:
     w = _signing_key()
     proof = sign_social_binding(w, BINDING_CLAIM, timestamp=TS_BINDING)
     bad = dict(proof)
-    del bad['public_key']
+    del bad['signature']
     with pytest.raises(BadAttestationError):
         verify_binding(bad)
 
