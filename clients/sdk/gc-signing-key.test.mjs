@@ -63,3 +63,19 @@ test('fromMnemonic rejects a corrupted phrase', async () => {
   words[23] = words[23] === 'zoo' ? 'zone' : 'zoo';
   await assert.rejects(() => SigningKey.fromMnemonic(words.join(' ')), /checksum/);
 });
+
+test('fromAddress yields a verify-only key that verifies the address owner', async () => {
+  const w = await SigningKey.generate();
+  const addr = await w.address();
+  const pub = await SigningKey.fromAddress(addr);
+  assert.equal(await pub.address(), addr);
+  const msg = new TextEncoder().encode('x');
+  assert.equal(await pub.verify(msg, await w.sign(msg)), true);
+  await assert.rejects(() => pub.sign(msg)); // verify-only, no private key
+});
+
+test('fromAddress rejects a corrupted address', async () => {
+  const addr = await (await SigningKey.generate()).address();
+  const bad = addr.slice(0, -1) + (addr.at(-1) === 'q' ? 'p' : 'q');
+  await assert.rejects(() => SigningKey.fromAddress(bad), /address/);
+});

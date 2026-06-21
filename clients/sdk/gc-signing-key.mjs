@@ -2,7 +2,7 @@
 // address, gcsec secret, sign/verify. Pure Web Crypto + vanilla JS. No
 // dependencies. Browser + Node 20+.
 import { base64encode, base64decode, base64urlDecode } from './gc-crypto.mjs';
-import { encodeAddress, encodeSecret, decodeSecret } from './gc-bech32.mjs';
+import { encodeAddress, decodeAddress, encodeSecret, decodeSecret } from './gc-bech32.mjs';
 
 const ALG = 'Ed25519';
 // RFC 8410 Ed25519 PKCS8 prefix for a bare 32-byte seed (16 bytes); WebCrypto
@@ -82,6 +82,17 @@ export class SigningKey {
       true,
       ['verify'],
     );
+    return new SigningKey(null, pub);
+  }
+
+  static async fromAddress(address) {
+    const raw = decodeAddress(address);
+    if (raw === null) {
+      throw new Error('invalid gc1… address (bad checksum or HRP)');
+    }
+    const pub = await crypto.subtle.importKey('raw', raw, 'Ed25519', true, [
+      'verify',
+    ]);
     return new SigningKey(null, pub);
   }
 
