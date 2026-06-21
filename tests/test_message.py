@@ -41,12 +41,17 @@ def test_tampered_message_is_bad_signature() -> None:
     assert r['reason'] == 'bad-signature'
 
 
-def test_address_mismatch() -> None:
+def test_tampered_address_is_invalid() -> None:
     proof = sign_message(_signing_key(), 'hi', timestamp=int(TS))
-    proof['address'] = proof['address'] + 'X'
-    r = verify_message(proof)
-    assert r['valid'] is False
-    assert r['reason'] == 'address-mismatch'
+    other = SigningKey.from_ed25519_seed(bytes(range(40, 72)))
+    proof['address'] = other.address  # sig now verifies under a different key
+    assert verify_message(proof)['valid'] is False
+
+
+def test_proof_has_no_public_key() -> None:
+    proof = sign_message(_signing_key(), 'hi', timestamp=int(TS))
+    assert 'public_key' not in proof
+    assert verify_message(proof)['valid'] is True
 
 
 def test_malformed_proof_raises() -> None:
