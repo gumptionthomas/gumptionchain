@@ -270,7 +270,11 @@ export function init(
           ? els.importPassphrase.value
           : '';
         if (!secret) {
-          setStatus(els.importStatus, 'Paste a gcsec1… secret key.', 'error');
+          setStatus(
+            els.importStatus,
+            'Paste a gcsec1… secret or 24-word recovery phrase.',
+            'error',
+          );
           return;
         }
         if (!passphrase) {
@@ -283,7 +287,10 @@ export function init(
         }
         if (!trustGateOk(els.importStatus)) return;
         if (!(await ensureEd25519(els.importStatus))) return;
-        const signing_key = await SigningKey.fromSecret(secret);
+        const signing_key =
+          secret.split(/\s+/).length === 24
+            ? await SigningKey.fromMnemonic(secret)
+            : await SigningKey.fromSecret(secret);
         await keyring.enroll(signing_key, { store }, { passphrase });
         const address = await signing_key.address();
         if (els.importSecret) els.importSecret.value = '';

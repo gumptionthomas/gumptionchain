@@ -62,6 +62,18 @@ export class SigningKey {
     return new SigningKey(priv, pub);
   }
 
+  static async fromMnemonic(mnemonic) {
+    const { mnemonicToSeed } = await import('./gc-bip39.mjs');
+    const seed = await mnemonicToSeed(mnemonic);
+    return SigningKey.fromSecret(encodeSecret(seed));
+  }
+
+  async mnemonic() {
+    const { seedToMnemonic } = await import('./gc-bip39.mjs');
+    const gcsec = await this.exportSecret();
+    return seedToMnemonic(decodeSecret(gcsec));
+  }
+
   static async fromPublicKeyB64(b64) {
     const pub = await crypto.subtle.importKey(
       'spki',

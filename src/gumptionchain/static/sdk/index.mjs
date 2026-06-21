@@ -26,6 +26,10 @@ export {
   exportEncrypted, importEncrypted, exportPlain, importPlain,
 } from './gc-backup.mjs';
 
+// PRF derivation + BIP-39 recovery codec
+export { deriveSeed, deriveSigningKey } from './gc-derive.mjs';
+export { seedToMnemonic, mnemonicToSeed } from './gc-bip39.mjs';
+
 // Message signing (gc-msg-v1)
 export {
   signMessage, verifyMessage, toArmored, fromArmored,
