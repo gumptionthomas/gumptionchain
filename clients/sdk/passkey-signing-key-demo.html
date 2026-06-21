@@ -63,11 +63,11 @@
     <p>
       <input id="raw-key" type="text" readonly
              style="width: 100%; font-family: monospace"
-             placeholder="raw b58 private key appears here" />
+             placeholder="raw gcsec1… secret key appears here" />
     </p>
     <p>
       <textarea id="import-raw-text" rows="3" style="width: 100%"
-                placeholder="paste a raw b58 private key to import"></textarea>
+                placeholder="paste a raw gcsec1… secret key to import"></textarea>
     </p>
     <p>
       <button id="import-raw">Import raw key</button>
@@ -327,7 +327,7 @@
           try {
             const value = document.getElementById('import-raw-text').value.trim();
             if (!value) {
-              show('Nothing to import — paste a raw b58 private key first.');
+              show('Nothing to import — paste a raw gcsec1… secret key first.');
               return;
             }
             const recovered = await importPlain(value);

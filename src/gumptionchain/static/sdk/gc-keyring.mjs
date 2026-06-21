@@ -4,14 +4,14 @@
 // duplicated.
 //
 // Scheme:
-//   - A random 32-byte DEK (AES-GCM) encrypts the signing_key's b58 -> signing_key_ct.
+//   - A random 32-byte DEK (AES-GCM) encrypts the signing_key's gcsec -> signing_key_ct.
 //   - The DEK's raw bytes are wrapped SEPARATELY per method's KEK:
 //       passphrase -> deriveKey (PBKDF2 -> AES-GCM)        -> sealWithKey(KEK, dekRaw)
 //       passkey    -> deriveAesKey (WebAuthn-PRF -> HKDF)  -> sealWithKey(KEK, dekRaw)
 //   - unlock(method, secret): derive that KEK -> openWithKey the wrap -> dekRaw
-//     -> import DEK -> openWithKey(DEK, signing_key_ct) -> b58 -> SigningKey.
+//     -> import DEK -> openWithKey(DEK, signing_key_ct) -> gcsec -> SigningKey.
 //
-// The stored record is ALWAYS ciphertext; the plaintext b58/DEK exist only
+// The stored record is ALWAYS ciphertext; the plaintext gcsec/DEK exist only
 // transiently in function scope. A wrong secret fails closed via the AES-GCM
 // auth tag (openWithKey rejects) — never a partial/garbage signing_key.
 //
@@ -83,9 +83,9 @@ export async function hasSigningKey(store) {
 // Create the record + the mandatory passphrase wrap. The passphrase is the
 // universal floor; passkey is added later via addPasskey.
 export async function enroll(signing_key, { store }, { passphrase }) {
-  const b58 = await signing_key.exportPrivateKeyB58();
+  const secret = await signing_key.exportSecret();
   const { raw: dekRaw, key: dekKey } = await newDek();
-  const signing_key_ct = await sealWithKey(dekKey, te.encode(b58));
+  const signing_key_ct = await sealWithKey(dekKey, te.encode(secret));
   const wraps = { passphrase: await passphraseWrap(passphrase, dekRaw) };
   await store.put({
     version: VERSION,
@@ -137,8 +137,8 @@ export async function unlock({ store, passkey } = {}, { passphrase } = {}) {
   const rec = loadRecord(await store.get());
   const dekRaw = await unwrapDek(rec, { passkey }, { passphrase });
   const dekKey = await importDek(dekRaw);
-  const b58 = td.decode(new Uint8Array(await openWithKey(dekKey, rec.signing_key_ct)));
-  return SigningKey.fromPrivateKeyB58(b58);
+  const secret = td.decode(new Uint8Array(await openWithKey(dekKey, rec.signing_key_ct)));
+  return SigningKey.fromSecret(secret);
 }
 
 // Add a passkey wrap to an already-enrolled signing_key. Unwrap the DEK via the

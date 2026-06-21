@@ -35,13 +35,14 @@ TEST_SECRET_KEY = 'test-secret-key-for-phase-3-32bytes'
 # One self-consistent canonical Ed25519 key, derived from a FIXED seed so the
 # four SIGNING_KEY_* constants are deterministic and stable across runs and
 # machines — the txn parity vectors (tests/fixtures/gen_txn_fixtures.py) embed
-# this key's b58 and the JS parity test (re-enabled in #3) asserts it matches.
+# this key's secret and the JS parity test (re-enabled in #3) asserts it
+# matches.
 # (Pre-Ed25519 these were hardcoded RSA material coupled to KEY_SIZE; that
 # coupling is gone.) SIGNING_KEY_SIGNATURE is this key's signature over
 # SIGNING_KEY_SIGNATURE_DATA.
 _CANONICAL_SEED = b'gumptionchain canonical test key'  # 32 bytes
 _CANONICAL_SIGNING_KEY = SigningKey.from_ed25519_seed(_CANONICAL_SEED)
-SIGNING_KEY_PRIVATE_KEY_B58 = _CANONICAL_SIGNING_KEY.private_key_b58
+SIGNING_KEY_SECRET = _CANONICAL_SIGNING_KEY.secret
 SIGNING_KEY_PUBLIC_KEY_B64 = _CANONICAL_SIGNING_KEY.public_key_b64
 SIGNING_KEY_ADDRESS = _CANONICAL_SIGNING_KEY.address
 SIGNING_KEY_SIGNATURE_DATA = 'helloworld'
@@ -142,7 +143,7 @@ def txid():
 
 @pytest.fixture()
 def signing_key():
-    return SigningKey(b58ks=SIGNING_KEY_PRIVATE_KEY_B58)
+    return SigningKey(secret=SIGNING_KEY_SECRET)
 
 
 @pytest.fixture()
@@ -304,8 +305,8 @@ def add_chain_block(signing_key):
 
 
 @pytest.fixture()
-def signing_key_private_key_b58():
-    return SIGNING_KEY_PRIVATE_KEY_B58
+def signing_key_secret():
+    return SIGNING_KEY_SECRET
 
 
 @pytest.fixture()
@@ -320,7 +321,7 @@ def signing_key_address():
 
 @pytest.fixture()
 def signing_key_dict():
-    return {'private_key': SIGNING_KEY_PRIVATE_KEY_B58}
+    return {'private_key': SIGNING_KEY_SECRET}
 
 
 @pytest.fixture()

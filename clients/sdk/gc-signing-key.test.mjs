@@ -1,91 +1,50 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
 import { SigningKey } from './gc-signing-key.mjs';
-import { canonical, signHeaders } from './gc-sig.mjs';
-import { base58encode } from './gc-crypto.mjs';
 
-const V = JSON.parse(readFileSync(new URL('./testdata/gc-sig-vectors.json', import.meta.url)));
-
-test('fromPrivateKeyB58 rejects a non-2048 RSA key (node would reject it)', async () => {
-  // 3072 is freely generatable in Web Crypto; the node only accepts 2048.
-  const pair = await crypto.subtle.generateKey(
-    {
-      name: 'RSASSA-PKCS1-v1_5', modulusLength: 3072,
-      publicExponent: new Uint8Array([0x01, 0x00, 0x01]), hash: 'SHA-384',
-    },
-    true, ['sign', 'verify'],
-  );
-  const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
-  await assert.rejects(
-    () => SigningKey.fromPrivateKeyB58(base58encode(pkcs8)),
-    /modulus length/,
-  );
+test('isSupported() returns true on a runtime with WebCrypto Ed25519', async () => {
+  // Node 20+ (and current browsers) support Ed25519, so the probe succeeds.
+  assert.equal(await SigningKey.isSupported(), true);
 });
 
-test('imported fixed key derives the same address + public key as Python', async () => {
-  const w = await SigningKey.fromPrivateKeyB58(V.private_key_b58);
-  assert.equal(await w.address(), V.address);
-  assert.equal(await w.publicKeyB64(), V.public_key_b64);
-});
-
-test('canonical bytes match Python for every case', async () => {
-  const w = await SigningKey.fromPrivateKeyB58(V.private_key_b58);
+test('fresh keygen: address is gc1…, sign/verify round-trips', async () => {
+  const w = await SigningKey.generate();
   const addr = await w.address();
-  for (const c of V.cases) {
-    const bytes = await canonical({
-      method: c.method, path: c.path, query: c.query,
-      body: new TextEncoder().encode(c.body),
-      nodeHost: c.node_host, timestamp: c.timestamp, address: addr,
-    });
-    assert.equal(new TextDecoder().decode(bytes), c.canonical);
-  }
+  assert.ok(addr.startsWith('gc1'));
+  const msg = new TextEncoder().encode('hello');
+  const sig = await w.sign(msg);
+  assert.equal(await w.verify(msg, sig), true);
 });
 
-test('signatures match Python byte-for-byte (deterministic PKCS1v15)', async () => {
-  const w = await SigningKey.fromPrivateKeyB58(V.private_key_b58);
-  for (const c of V.cases) {
-    const sig = await w.sign(new TextEncoder().encode(c.canonical));
-    assert.equal(sig, c.signature);
-  }
-});
-
-test('fresh keygen round-trips and signHeaders has the GC-* shape', async () => {
+test('exportSecret round-trips through fromSecret', async () => {
   const w = await SigningKey.generate();
-  const headers = await signHeaders(w, {
-    method: 'GET', path: '/api/blocks', query: '',
-    body: new Uint8Array(), nodeHost: 'node.example', timestamp: '1700000000',
-  });
-  assert.equal(headers['GC-Sig-Version'], '1');
-  assert.equal(headers['GC-Address'], await w.address());
-  assert.equal(headers['GC-Public-Key'], await w.publicKeyB64());
-  assert.equal(headers['GC-Timestamp'], '1700000000');
-  assert.ok(headers['GC-Signature']);
+  const secret = await w.exportSecret();
+  assert.ok(secret.startsWith('gcsec1'));
+  const w2 = await SigningKey.fromSecret(secret);
+  assert.equal(await w2.address(), await w.address());
+  // Ed25519 is deterministic → identical signatures.
+  const msg = new TextEncoder().encode('hi');
+  assert.equal(await w2.sign(msg), await w.sign(msg));
 });
 
-test('exportPrivateKeyB58 round-trips through fromPrivateKeyB58', async () => {
-  const w = await SigningKey.fromPrivateKeyB58(V.private_key_b58);
-  assert.equal(await w.exportPrivateKeyB58(), V.private_key_b58);
-});
-
-test('fromPublicKeyB64 yields a verify-only signing_key with the same address', async () => {
+test('fromPublicKeyB64 yields a verify-only key with the same address', async () => {
   const w = await SigningKey.generate();
-  const v = await SigningKey.fromPublicKeyB64(await w.publicKeyB64());
-  assert.equal(await v.address(), await w.address());
+  const pub = await SigningKey.fromPublicKeyB64(await w.publicKeyB64());
+  assert.equal(await pub.address(), await w.address());
+  const msg = new TextEncoder().encode('x');
+  assert.equal(await pub.verify(msg, await w.sign(msg)), true);
 });
 
-test('verify-only signing_key verifies a good signature and rejects a bad one', async () => {
+test('verify-only key cannot sign or export the secret', async () => {
   const w = await SigningKey.generate();
-  const v = await SigningKey.fromPublicKeyB64(await w.publicKeyB64());
-  const bytes = new TextEncoder().encode('hello');
-  const sig = await w.sign(bytes);
-  assert.equal(await v.verify(bytes, sig), true);
-  const other = new TextEncoder().encode('tampered');
-  assert.equal(await v.verify(other, sig), false);
+  const pub = await SigningKey.fromPublicKeyB64(await w.publicKeyB64());
+  await assert.rejects(() => pub.sign(new Uint8Array([1])));
+  await assert.rejects(() => pub.exportSecret());
 });
 
-test('verify-only signing_key cannot sign or export the private key', async () => {
-  const v = await SigningKey.fromPublicKeyB64(await (await SigningKey.generate()).publicKeyB64());
-  await assert.rejects(() => v.sign(new Uint8Array([1])));
-  await assert.rejects(() => v.exportPrivateKeyB58());
+test('fromSecret rejects a corrupted secret', async () => {
+  const w = await SigningKey.generate();
+  const secret = await w.exportSecret();
+  const bad = secret.slice(0, -1) + (secret.at(-1) === 'q' ? 'p' : 'q');
+  await assert.rejects(() => SigningKey.fromSecret(bad));
 });

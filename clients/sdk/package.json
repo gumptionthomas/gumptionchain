@@ -1,7 +1,7 @@
 {
   "name": "@gumptionchain/sdk",
-  "version": "0.4.0",
-  "description": "GumptionChain browser SDK — gc-sig-v1 signing, passkey storage, backup, message signing.",
+  "version": "0.5.0",
+  "description": "GumptionChain browser SDK — gc-sig-v2 signing (Ed25519), bech32m addresses, passkey storage, backup, message signing.",
   "type": "module",
   "exports": {
     ".": "./index.mjs"

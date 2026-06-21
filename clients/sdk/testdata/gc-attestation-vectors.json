@@ -8,8 +8,8 @@
     },
     "timestamp": "1700002000",
     "message": "{\"txid\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"kind\":\"opposition\",\"subject\":\"goblins\",\"amount\":300}",
-    "signature": "U4VVMc7bdpGi9vpf04ZpJEcE1WFiHshk5BqSMX63vIcUSmfMn2/4lBDbZB3ehxG8ksaGRBSKxEAVpAVWceX/NlqVnSW3Va3HZcJ8fMakrrFI5Z5HuGBAP2+B7+Bb62i39u+/caCq0Q2r3um+v/sIvdfNSAEl+nt1VV0ezAEVNGLAn2AKXddUxM/4jngOZkotGAC3O9w5bH0L/KYaJsx3NNYeL2q+8/StoXPfo7fzCLlGH1z0Q8GYlDmEKBE6SLty8rhG1ke/he2Ue+mNDjhbw0tz9SvWNYY7dxYn81PpS7N2rNToXtQkVIPKTtVdPD+Y1s+m2YgFU3EKTsEhA6JhPw==",
-    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+    "signature": "ogAPnv4+nb6sy9u663dYGLW/QxjCjat5zNChD5Jea7I9wBfUwqrVWRk4iQF4nWtZz2twTJ8XhPmEJaLKeHWbBA==",
+    "address": "gc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3"
   },
   {
     "claim": {
@@ -21,8 +21,8 @@
     },
     "timestamp": "1700002001",
     "message": "{\"txid\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"kind\":\"support\",\"subject\":\"g\u00f6blins\",\"amount\":100,\"handle\":\"me.bsky.social\"}",
-    "signature": "V6Yot13eoFswSLLsKDpJuWvFZBXDqfgG4QO6qdzzpbFlh7yNEy2OUQU/xCJemabEYcDiUaBkaTGjbLd1QEhcKoIQbOCTmEa675S88qdeR2QdHFJd1u28SA4F0AJWEIMw2vU/cfJe6jUvDDZ7EkMDhL41qzbISlL/unxLahgvzkmBFMZBzFcen0D+LT30jXaQkIrqVcm7FNhGomqE0XPcR6qFwIusiW/GHrdX+9aW5g4rCf8OqsZIorkjLPnIVADQVWeyQ27h2Qu8h6SGm4saGaga2FFyN16bMPmqxTo82UoYnt6aXV69Wdge/XBoeJNlQJyK/dMRexWyrBwecOwFoQ==",
-    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+    "signature": "hRZenHKjv4qH1YzAjXVqnBdG+so9/exo5t3jlmM1QrKeD7KLTtPSxvfr6KaSinqdU4nWSwku1pZLXvqiV9NHDA==",
+    "address": "gc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3"
   },
   {
     "claim": {
@@ -33,7 +33,7 @@
     },
     "timestamp": "1700002002",
     "message": "{\"txid\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"kind\":\"transfer\",\"address\":\"GCxGC\",\"amount\":5}",
-    "signature": "hoiwmjqVlPBqb2arHcpijHfQBWfao44VZmoZApAXTvsRmWqeSmkLiqfzU3pZ0KftXHLZCWXPb4l5itFJKrkKeMpi+lki8kC8+9b7R1ik1gzLpXh1OxQruhpt8Xk18awUk2+rSSWZCVmfM+YpEqEzCwE7dPvg+quZgns4ew2ifKidYiY468ToPh1a1E9mIzeTles8RjHEoC51zEKtZfxSfLlYB9Et/Av0xNAwaSpo/JwdkeQkb3eda/aDg3tNdlhvIwy0vt/lcJm5MjhYpZUs1H4DEw/shuG08yKq313W8Ml4YtMYS8eawELBPJxmvsvDcXN6yI6a3N3kJ8ReGh/egw==",
-    "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC"
+    "signature": "a+m9Aec+lnHyWm6EP1igGZm1TH+gbhsDDpyKOf5zWe+/WNceT5yawBebsX97GDm6SGd9HB9iHrtigeVeus4KDw==",
+    "address": "gc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3"
   }
 ]

@@ -467,7 +467,7 @@ def verify_view() -> Any:
 def advanced_view() -> Any:
     # Static shell like /transact (#260): the relocated power tools
     # (broadcast pre-signed, sign attestation) sign their own API
-    # requests client-side; gc-sig-v1 is node-bound so NODE_HOST must
+    # requests client-side; gc-sig-v2 is node-bound so NODE_HOST must
     # reach the page.
     return render_template(
         'advanced.html',
@@ -481,7 +481,7 @@ def advanced_view() -> Any:
 def transact_view() -> Any:
     # Static shell — no chain/DB work. The page's client JS calls the authed
     # build/submit API itself, signing each request with the imported key.
-    # NODE_HOST must reach the page because gc-sig-v1 is node-bound: the
+    # NODE_HOST must reach the page because gc-sig-v2 is node-bound: the
     # signature canonical includes the node's host, so the glue has to sign for
     # *this* node.
     return render_template(

@@ -49,7 +49,7 @@ test('stored record holds only ciphertext + non-secrets', async () => {
   assert.equal(rec.address, await signing_key.address());
   assert.ok(rec.credentialId && rec.iv && rec.ciphertext);
   const blob = JSON.stringify(rec);
-  assert.ok(!blob.includes(await signing_key.exportPrivateKeyB58()));
+  assert.ok(!blob.includes(await signing_key.exportSecret()));
 });
 
 test('unlock with no stored signing_key throws NoSigningKeyError', async () => {

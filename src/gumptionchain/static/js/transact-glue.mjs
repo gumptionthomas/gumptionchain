@@ -5,7 +5,7 @@
 // signature + public key leave the browser). Two ways to obtain that signing_key:
 //   - Unlock the saved signing key — decrypt the gc-keyring record persisted on
 //     /signing-key (passphrase or, on a secure origin, passkey), OR
-//   - Advanced: use a one-session key — paste a base58 private key (ephemeral
+//   - Advanced: use a one-session key — paste a gcsec1… secret key (ephemeral
 //     import; nothing is saved).
 // Either way the unlocked key is subject to the same auto-lock policy (idle /
 // tab-hide / page-unload / manual lock) via signing-key-session.
@@ -126,7 +126,7 @@ async function readBody(resp) {
 // nowSeconds: gc-sig timestamps are epoch SECONDS (server allows +/-300s).
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-// Send a gc-sig-v1 authed request. path/query are signed separately so the
+// Send a gc-sig-v2 authed request. path/query are signed separately so the
 // canonical matches what the server reconstructs from the actual request.
 async function authedFetch(
   fetchImpl,
@@ -339,9 +339,24 @@ function setStatus(el, text, kind = 'info') {
   el.dataset.kind = kind;
 }
 
-// Import from a pasted b58 private key (primary path). PEM is a follow-up.
-async function importB58(b58) {
-  return SigningKey.fromPrivateKeyB58(b58.trim());
+// Shown when WebCrypto Ed25519 is unavailable (e.g. Chrome before v137, some
+// embedded webviews). Exported so tests can assert the exact message.
+export const UNSUPPORTED_MSG =
+  'This browser does not support Ed25519 keys. Please update to a current ' +
+  'version of Chrome, Firefox, or Safari.';
+
+// Guard a keygen/import handler: if Ed25519 is unsupported, show the friendly
+// message on the handler's status element and return false (so the caller
+// returns early, instead of letting the SDK throw an opaque NotSupportedError).
+async function ensureEd25519(statusEl) {
+  if (await SigningKey.isSupported()) return true;
+  setStatus(statusEl, UNSUPPORTED_MSG, 'error');
+  return false;
+}
+
+// Import from a pasted gcsec1… secret (primary path). PEM is a follow-up.
+async function importSecret(secret) {
+  return SigningKey.fromSecret(secret.trim());
 }
 
 // Render the parsed unsigned txn for explicit confirmation before submit.
@@ -413,9 +428,9 @@ export function init(
   // 'saved' | 'session' | null — which key source unlocked the page.
   let unlockSource = null;
 
-  // Key import (b58 textarea / .pem file) + forget.
+  // Key import (gcsec secret textarea / .pem file) + forget.
   const keyStatus = $('#key-status');
-  const b58Input = $('#key-b58');
+  const secretInput = $('#key-secret');
   const pemInput = $('#key-pem');
   const importBtn = $('#import-key-btn');
   const forgetBtn = $('#forget-key-btn');
@@ -577,6 +592,7 @@ export function init(
           return;
         }
       }
+      if (!(await ensureEd25519(createStatus))) return;
       createBtn.disabled = true; // no double-submit while enrolling
       try {
         const signing_key = await SigningKey.generate();
@@ -606,12 +622,13 @@ export function init(
   if (importBtn) {
     importBtn.addEventListener('click', async () => {
       try {
-        const b58 = b58Input ? b58Input.value : '';
-        if (!b58.trim()) {
-          setStatus(keyStatus, 'Paste a base58 private key first.', 'error');
+        const secret = secretInput ? secretInput.value : '';
+        if (!secret.trim()) {
+          setStatus(keyStatus, 'Paste a gcsec1… secret key first.', 'error');
           return;
         }
-        session.setSigningKey(await importB58(b58));
+        if (!(await ensureEd25519(keyStatus))) return;
+        session.setSigningKey(await importSecret(secret));
         unlockSource = 'session';
         await onUnlocked(keyStatus, 'Key imported');
         await renderKeyPanel();
@@ -623,11 +640,11 @@ export function init(
   }
   if (pemInput) {
     pemInput.addEventListener('change', async () => {
-      // PEM (.pem upload) import is a documented follow-up; b58 is the
-      // primary path this PR ships. Surface clearly rather than half-working.
+      // PEM (.pem upload) import is a documented follow-up; the gcsec
+      // secret is the primary path. Surface clearly rather than half-working.
       setStatus(
         keyStatus,
-        'PEM upload is not supported yet — paste the base58 private key ' +
+        'PEM upload is not supported yet — paste the gcsec1… secret key ' +
           'instead (a follow-up will add .pem import).',
         'error',
       );
@@ -640,7 +657,7 @@ export function init(
       // unlock or an ephemeral import); the persisted ciphertext is untouched.
       unlockSource = null;
       session.lock();
-      if (b58Input) b58Input.value = '';
+      if (secretInput) secretInput.value = '';
       clearSecrets();
       setStatus(keyStatus, 'Key forgotten — cleared from memory.', 'info');
     });

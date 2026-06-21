@@ -1,8 +1,8 @@
 # GumptionChain Browser SDK
 
 A dependency-free, vanilla-JS ([Web Crypto](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API))
-SDK for [GumptionChain](../../README.md): RSA-2048 key management,
-`gc-sig-v1` authenticated API requests, passkey-anchored at-rest storage,
+SDK for [GumptionChain](../../README.md): Ed25519 key management,
+`gc-sig-v2` authenticated API requests, passkey-anchored at-rest storage,
 self-custody backup/recovery, and generic `gc-msg-v1` message signing.
 
 The Python node verifies every signature this produces byte-for-byte.
@@ -16,8 +16,8 @@ The Python node verifies every signature this produces byte-for-byte.
   hybrid (QR), or a hardware key with `hmac-secret`. **The Bitwarden browser
   extension does _not_ export PRF to external relying parties** (it uses PRF
   only to unlock its own vault), so it cannot anchor signing_key storage. Backup via
-  the raw b58 string (below) _can_ be stored in any password manager, Bitwarden
-  included.
+  the raw `gcsec1…` secret string (below) _can_ be stored in any password
+  manager, Bitwarden included.
 - A modern browser, or Node 20+ to run the test suite.
 
 ## Importing
@@ -39,7 +39,7 @@ files (`gc-crypto.mjs`, `gc-envelope.mjs`, …) are internal and may change.
 
 ## Quickstart
 
-### 1. Sign an authenticated API request (`gc-sig-v1`)
+### 1. Sign an authenticated API request (`gc-sig-v2`)
 
 ```js
 import { SigningKey, signHeaders } from './index.mjs';
@@ -84,8 +84,8 @@ import { exportEncrypted, importEncrypted, exportPlain } from './index.mjs';
 const backup = await exportEncrypted(signing_key, passphrase);
 const restored = await importEncrypted(backup, passphrase);
 
-// Or the raw b58 string for a password manager:
-const b58 = await exportPlain(signing_key);
+// Or the raw `gcsec1…` secret string for a password manager:
+const secret = await exportPlain(signing_key);
 ```
 
 ### 4. Sign & verify a message (`gc-msg-v1`)
@@ -104,8 +104,8 @@ const result = await verifyMessage(fromArmored(armored));
 
 | Symbol | Purpose |
 | --- | --- |
-| `SigningKey` | keygen, key import/export, address, sign, verify-only via `fromPublicKeyB64` |
-| `canonical`, `signHeaders` | `gc-sig-v1` request signing |
+| `SigningKey` | Ed25519 keygen, `exportSecret`/`fromSecret` (`gcsec1…`), `gc1…` address, sign, verify-only via `fromPublicKeyB64` |
+| `canonical`, `signHeaders` | `gc-sig-v2` request signing |
 | `enroll`, `unlock`, `hasSigningKey`, `clear` | passkey-anchored storage orchestration |
 | `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters; the passkey adapter also exposes `discover({ mediation, signal })` / `isConditionalAvailable()` |
 | `exportEncrypted`, `importEncrypted`, `exportPlain`, `importPlain` | backup/recovery |
@@ -140,7 +140,7 @@ material itself still comes from the hub-served store or a user backup.
 
 `version` is the **package** semver (pre-1.0, pre-launch — the
 embedder API is not yet frozen). It is **independent** of the wire scheme ids
-`gc-sig-v1` and `gc-msg-v1`, which are protocol identifiers bound into
+`gc-sig-v2` and `gc-msg-v1`, which are protocol identifiers bound into
 signatures and change only on a protocol revision.
 
 ## Testing

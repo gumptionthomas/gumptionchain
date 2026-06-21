@@ -1,5 +1,5 @@
 // Generic gc-msg-v1 message signing: sign arbitrary text into a portable proof
-// that verifies off-chain in JS and Python. Domain-separated from gc-sig-v1.
+// that verifies off-chain in JS and Python. Domain-separated from gc-sig-v2.
 // Pure Web Crypto + vanilla JS. No dependencies. Knows nothing about the chain.
 import { sha256Hex, base64encode, base64decode } from './gc-crypto.mjs';
 import { BadProofError } from './gc-errors.mjs';
@@ -78,7 +78,7 @@ export async function verifyMessage(proof, { maxAge, now } = {}) {
   if (maxAge !== undefined) {
     const current = now ?? Math.floor(Date.now() / 1000);
     // Symmetric window: reject stale AND future timestamps (mirrors the
-    // server-side gc-sig-v1 freshness check) so maxAge can't be defeated by a
+    // server-side gc-sig-v2 freshness check) so maxAge can't be defeated by a
     // far-future signed timestamp.
     if (Math.abs(current - Number(timestamp)) > maxAge) {
       return { ...result, valid: false, reason: 'expired' };

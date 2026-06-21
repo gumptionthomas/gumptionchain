@@ -49,7 +49,7 @@ def test_transact_page_key_panel_states(app, test_client):
         assert 'id="session-key"' in body
         assert 'class="collapse' in body
         assert 'one-session key' in body
-        assert 'id="key-b58"' in body
+        assert 'id="key-secret"' in body
         assert 'id="import-key-btn"' in body
         # Key-first copy; self-explanatory, no glossary needed.
         assert 'Create your signing key' in body

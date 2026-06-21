@@ -2,8 +2,7 @@ import json
 import os
 from pathlib import Path
 
-import pytest
-from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
+from test_browser_signing_key_vectors import VECTOR_SECRET
 
 from gumptionchain.attestation import (
     build_binding_message,
@@ -13,10 +12,6 @@ from gumptionchain.attestation import (
     verify_binding,
 )
 from gumptionchain.signing_key import SigningKey
-
-pytestmark = pytest.mark.skip(
-    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
-)
 
 VECTORS_PATH = (
     Path(__file__).resolve().parent.parent
@@ -59,7 +54,7 @@ _CASES = [
 
 
 def _expected() -> list[dict]:
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     out = []
     for c in _CASES:
         proof = sign_stake_attestation(
@@ -122,7 +117,7 @@ _BINDING_CASES = [
 
 
 def _expected_binding() -> list[dict]:
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     out = []
     for c in _BINDING_CASES:
         proof = sign_social_binding(
@@ -147,7 +142,7 @@ def test_binding_vectors_match() -> None:
 
 
 def test_binding_vectors_verify() -> None:
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     vectors = json.loads(_BINDING_VECTORS_PATH.read_text())
     for v in vectors:
         claim = v['claim']

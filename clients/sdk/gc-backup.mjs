@@ -1,6 +1,6 @@
 // Self-custody signing_key backup/recovery. Converts a SigningKey <-> a portable
 // artifact: a passphrase-encrypted JSON blob (PBKDF2-SHA256 -> AES-GCM-256,
-// via the shared gc-envelope primitive) and a raw b58 string. Storage-
+// via the shared gc-envelope primitive) and a raw gcsec secret string. Storage-
 // decoupled and Node-testable: re-persist a recovered signing_key by composing with
 // gc-store.enroll. No dependencies.
 import { base64encode, base64decode } from './gc-crypto.mjs';
@@ -8,10 +8,10 @@ import { BadBackupError, BadPassphraseError } from './gc-errors.mjs';
 import { sealWithKey, openWithKey } from './gc-envelope.mjs';
 import { SigningKey } from './gc-signing-key.mjs';
 
-// VERSION 2: the signing-key rename changed BACKUP_KIND. Bumping
-// the format version makes any pre-rename backup fail loudly on import rather
-// than decode ambiguously against the new kind string.
-const BACKUP_VERSION = 2;
+// VERSION 3: the Ed25519 migration changed the wrapped secret format (gcsec).
+// Bumping the format version makes any pre-Ed25519 (RSA/b58) backup fail loudly
+// on import rather than decode ambiguously against the new secret encoding.
+const BACKUP_VERSION = 3;
 const BACKUP_KIND = 'gc-signing-key-backup';
 const DEFAULT_ITERATIONS = 600000;
 const SALT_BYTES = 16;
@@ -39,7 +39,7 @@ export async function exportEncrypted(signing_key, passphrase, opts = {}) {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const key = await deriveKey(passphrase, salt, iterations);
   const { iv, ciphertext } = await sealWithKey(
-    key, te.encode(await signing_key.exportPrivateKeyB58()),
+    key, te.encode(await signing_key.exportSecret()),
   );
   return {
     version: BACKUP_VERSION,
@@ -90,9 +90,9 @@ export async function importEncrypted(backup, passphrase) {
     throw new BadBackupError('malformed gc-signing-key-backup artifact');
   }
   const key = await deriveKey(passphrase, salt, kdf.iterations);
-  let b58Bytes;
+  let secretBytes;
   try {
-    b58Bytes = await openWithKey(key, { iv: ivBytes, ciphertext: ctBytes });
+    secretBytes = await openWithKey(key, { iv: ivBytes, ciphertext: ctBytes });
   } catch {
     // GCM tag mismatch: wrong passphrase or tampered backup. Fail closed.
     throw new BadPassphraseError('wrong passphrase or corrupt backup');
@@ -100,19 +100,19 @@ export async function importEncrypted(backup, passphrase) {
   try {
     // GCM already authenticated the plaintext, so this should always succeed;
     // map any residual decode/key failure to BadBackupError defensively.
-    return await SigningKey.fromPrivateKeyB58(td.decode(b58Bytes));
+    return await SigningKey.fromSecret(td.decode(secretBytes));
   } catch {
     throw new BadBackupError('decrypted payload is not a valid signing_key key');
   }
 }
 
-// Raw-string backup: the b58 private key itself. At-rest protection is the
+// Raw-string backup: the gcsec secret itself. At-rest protection is the
 // user's password manager. Thin, documented wrappers over the key seam so
 // all backup surface lives in one module.
 export async function exportPlain(signing_key) {
-  return signing_key.exportPrivateKeyB58();
+  return signing_key.exportSecret();
 }
 
-export async function importPlain(b58) {
-  return SigningKey.fromPrivateKeyB58(b58);
+export async function importPlain(secret) {
+  return SigningKey.fromSecret(secret);
 }

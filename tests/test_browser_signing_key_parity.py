@@ -4,14 +4,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from test_browser_signing_key_vectors import VECTOR_SIGNING_KEY_B58
+from test_browser_signing_key_vectors import VECTOR_SECRET
 
 from gumptionchain.signing import _canonical
 from gumptionchain.signing_key import SigningKey
-
-pytestmark = pytest.mark.skip(
-    reason='JS SDK is RSA; rebuilt for Ed25519 in #3 (#312). Re-enable then.'
-)
 
 CLI = (
     Path(__file__).resolve().parent.parent / 'clients' / 'sdk' / 'sign-cli.mjs'
@@ -21,7 +17,7 @@ CLI = (
 @pytest.mark.skipif(shutil.which('node') is None, reason='node not installed')
 def test_js_signature_verifies_in_python() -> None:
     req = {
-        'private_key_b58': VECTOR_SIGNING_KEY_B58,
+        'secret': VECTOR_SECRET,
         'method': 'POST',
         'path': '/api/transactions',
         'query': 'a=1',
@@ -37,7 +33,7 @@ def test_js_signature_verifies_in_python() -> None:
     )
     result = json.loads(out.stdout)
 
-    w = SigningKey(b58ks=VECTOR_SIGNING_KEY_B58)
+    w = SigningKey(secret=VECTOR_SECRET)
     assert result['address'] == w.address
     canonical = _canonical(
         method=req['method'],

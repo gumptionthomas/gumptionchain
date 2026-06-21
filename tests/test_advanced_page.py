@@ -21,7 +21,7 @@ def test_advanced_page_renders(app, test_client):
         # The shared key panel (#262) renders here too.
         assert 'data-key-state="none"' in body
         assert 'data-key-state="locked"' in body
-        assert 'id="key-b58"' in body
+        assert 'id="key-secret"' in body
         assert 'id="import-key-btn"' in body
         # The security framing travels with the key area.
         assert 'never leaves your browser' in body
@@ -55,7 +55,7 @@ def test_transact_page_no_longer_carries_advanced_sections(app, test_client):
         assert 'id="att-sign-btn"' not in body
         # The build & sign flow and its key area remain.
         assert 'id="txn-type"' in body
-        assert 'id="key-b58"' in body
+        assert 'id="key-secret"' in body
         # A quiet pointer to the relocated tools.
         assert '/advanced' in body
         assert 'Advanced tools' in body

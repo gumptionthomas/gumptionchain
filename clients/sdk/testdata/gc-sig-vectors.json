@@ -1,7 +1,7 @@
 {
-  "private_key_b58": "riiewRJm2wpE3rWTs1ikUc83so8ZXMX8vp9dUTnRgMC8GyfLr99LtkqK8gDNAd1VyihbjWopge9tGR3W9GCbpojrHtjpUqmmuEhHjpehtXGiMF1LqiZedaEE4V3X8X679uzitLTP3m8AzcNGgqbPKWtVEd7VWmVWQdan68EpojZFwqrY3LFLiRnaKSLoNryxLUEFFrxcBNjyTpjL943Rs6YXFRgBs5UDSazh6GLPwu26oAPfLy8NNPqKjPuNHcCXoywopkMUug4bXJaKc93PxdtR6kEWWxCaiNtsCe4JkukbRXNR6NpUrAtrgNgw8uM7Pg2tMP9ThbyaHxHLcaeYs8tfdPs2MX3qfkw37cPX6P5wkFUVqcZhrL4PMzqHF2Hkf79hWYU1c3xwit8Rx2gM8HAQZgq5CGuNjj9YAo3JcAbkVKtTqgFKJqmwY8jVLCtxKkzyBbxAAyuHtyioNQ5LFrxBs5qzoyRATTJwqVfhjoWNEvHNpT3g97htCjtkgMssbfSBq6fmSa7mFpE3vA7dHPUhmjdiwhsdDhDVLnekVk8yxELPEZzjCvKKZ1JW4oaXVcGvgkjFB2RquXCUFX272SYie7b2sEDbB61kC7rTxmrfanLX5Ah2X4PKZK9xCaUKhEcbQsMBMve9uniasFMYecu829v9ELWRaRCjhMDKqnHhsPvvd7xMdLyUcTyCPcbwphc76GhyULAvpqumAoxvsQqXTcWmh4AtFzjjURneezkVa1sA1yfCEvfyEjPynpYv7XWtymfciJ8NNS1SpuXBUrqdFSps2txaVD2F6JBwZE2VBA2SnVdd57cn5z7bcejheQB99mSC69UFqR2vgPQek1VGHEQFsmtQXBWR3jrCeiSKsvW4SLESB3W7vDvhN1es5mjBnQ1rExmpDPHQTAacJSVt1eiijvq8GccQcNsbLgHsJqXNBquvffYgWXTv3jY7kcZj7iCK1wjpLujhCzGXJ8mzTn7h6hu7ouAr3J54317eC4XeyZo7AQgiVSK7YrEyxw61fbsFdqMFMKi3ChmxfckTUk3gNrTK8bXyhNrWpGN4masjADciLRYS7UD5M96nquMJop8hyftXEd2vmJVwqnzsorbePGu7iAdFh26jKfYtDS1rNycLVCxKYR7nB9o6xDPVvEqnnTUUDrPNKf9wE8EbaHoysTeh5FqK7dHupxRJCNp4h46dUnQpUCGtp5QzEZfRa6MLMoecPQ5icwfMMZuzraLpbLfSVdniZyuomZwdW5rPDSqeZwaaWRTBizLaeeJKsfbb4gU27THHzCSxtd8S1pn4obmD5UHLXzBgi5nBCWuwmDduz8mVm2ytQnTYGkAq6LJig8eGtYFtXMzhWuHUfEsj4o6k6rP1hLvVr7bhpp8r59a6m9ZitUCsCiEKxJC1b1TAy2EGLHoC6bwyUXUQe69dPTR981QsuW2CNmUrgtCduFfuGhqwvavxpPNKPXuWVnuYYE2nzVNHZ7Bh2cicnQGF48iFnptWTWN7Nj6v8w6bHE4j9iosu13skYeN63y2j4swwegX36KuEEfbutTBLJ7hq9GpSAqMgACbMKKEVhE7Zz3uzDTEFWHFGobWUYT8hzA9iyfyhVv74B6CX4DS3biGzgPeBK81x6Yn83NSxXCh97wWTd1Q4ewdpwk",
-  "public_key_b64": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt239j0ePdOUAyRhhPoMgKDHE5ZoC67VnnmDVW1YbJ/iEeyneil7HVnHtO1nnS2hjbI4pDC1Z3620lxVSaXttrxV2eIMl9JzfiO6tr9aeIOxNZV81XKOsu5cwwYtepYV2SY8lH4+pSFngySFbmUf3GNdTmeBqzRbG+y5lEdmMHaTqLtCEvfWhY7+5jajPiYWABfKUjtcmTwAdsriEmEfG4MWg8ZKF1WIKzFk6saBbob+koXnoQ73axWryngO+Q/Iqjcqd0EPxoS3p1dsGMOLRcJ6E02cGzixq68jcDm+Ggs9aICL6MH5gCG0ntbcYCjn4NH9mh84P9ozpR5TkNnkwqwIDAQAB",
-  "address": "GCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC",
+  "secret": "gcsec1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5z5tpwxqergd3c8g7rusquhpjl5",
+  "public_key_b64": "MCowBQYDK2VwAyEAebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+  "address": "gc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3",
   "cases": [
     {
       "method": "GET",
@@ -10,8 +10,8 @@
       "body": "",
       "node_host": "node.example",
       "timestamp": "1700000000",
-      "canonical": "gc-sig-v1\nGET\n/api/blocks\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nnode.example\n1700000000\nGCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC",
-      "signature": "SpxIqkDOgjWatFyoF0jsvZlaZQw17jOi1+a/glX0Sd2frBDRHK1yIi5kD7Kw/pVD5//8zzqjHiZHpDhkdSOlhsIIoMA2dyQUVBpabQhyg4HGqXA+ip1qnbNEfUoihk4b5iEcgucT9kCyjIgJzyxUMWZByoujwEfZ6Wk6PWLbrxU/jFQQa1rLi//WG9ieL+ex21aVrhRKjCaILpKBn2dQ4Sfd6erB9eWckJwI8+GZmXA8/jqgRSk9BGovj5QJG9xNZMwmu2GGCWs4M7GLLsQWb3TxN/ttmXsGeKsiUbMPyo64+9ovFBUJXybShwCAulRqw/U5z8Tfukr7LxD9CDAy2w=="
+      "canonical": "gc-sig-v2\nGET\n/api/blocks\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nnode.example\n1700000000\ngc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3",
+      "signature": "3ttw0SJnMf6qBcROaE4rcZskpH8HCN8XXGbAOX0vR4TaI00wsfShUWT5so/tLO39i44T1/iwIcOV1IPJ7R5QBg=="
     },
     {
       "method": "POST",
@@ -20,8 +20,8 @@
       "body": "{\"hello\":\"world\"}",
       "node_host": "node.example",
       "timestamp": "1700000001",
-      "canonical": "gc-sig-v1\nPOST\n/api/transactions\nfoo=bar\n93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588\nnode.example\n1700000001\nGCFZ3Ce1Nt9nTppJBqUFqeqqKHepfJnbRY5qeCN9RNV6sCGC",
-      "signature": "GSTE2+t4ZJPjYOaFT9TwpHEM6RWiI40SbF04Cx5WJGU62PoriyAwArvKe/XbAxgUU30vtkxqUz3qqgrtXQWWrumqG86ysNNU+5mybBH541b2vJZ0KYOSUJrDo7mptn4ijNnrtgeZ1vpXAvHZvXZcZ203Fp6BrK9iTRbUBp5I0kb3HjlCjWOeBxFUNV9UjdM2+5/FALBngd+s624hG6wIMaDLpvu2c2naBsirIGN0cJVt1O3pnHxoZPe+SE7pp9D58WYTVkh1LS+5VeciTYP6Ix5JYszT8/EArHGFohAgj3v0r/h22ig7NpwpJZ250B9YqhmhBcdLjirS/0gDPjxLMw=="
+      "canonical": "gc-sig-v2\nPOST\n/api/transactions\nfoo=bar\n93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588\nnode.example\n1700000001\ngc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3",
+      "signature": "TV6pF81x43ig+UWHnAOEFznpqcAXtXcgNLLfZrWG+aIRhzpoYiTJWy3Jf29WWG6vcF60SAFMpyCrIIh/Q1H2CA=="
     }
   ]
 }

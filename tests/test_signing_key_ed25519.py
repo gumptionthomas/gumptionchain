@@ -100,3 +100,25 @@ def test_corrupt_address_rejected():
     bad = addr[:-1] + ('q' if addr[-1] != 'q' else 'p')
     with pytest.raises(InvalidKeyError):
         public_key_from_address(bad)
+
+
+def test_secret_round_trips_and_no_base58():
+    sk = SigningKey()
+    secret = sk.secret
+    assert secret.startswith('gcsec1')
+    restored = SigningKey(secret=secret)
+    assert restored.address == sk.address
+    assert restored.sign(b'hi') == sk.sign(b'hi')  # Ed25519 is deterministic
+
+
+def test_to_dict_uses_gcsec_and_round_trips():
+    sk = SigningKey()
+    d = sk.to_dict()
+    assert d['private_key'].startswith('gcsec1')
+    assert SigningKey.from_dict(d).address == sk.address
+
+
+def test_no_base58_in_signing_key_module():
+    src = __import__('inspect').getsource(signing_key_module)
+    assert 'base58' not in src.lower()
+    assert 'b58' not in src

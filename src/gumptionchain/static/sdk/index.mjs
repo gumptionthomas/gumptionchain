@@ -4,8 +4,8 @@
 // is internal and may change without notice.
 //
 // The package `version` is the embedder-API semver; it is INDEPENDENT of the
-// wire scheme ids gc-sig-v1 / gc-msg-v1 bound into signatures.
-export const version = '0.4.0';
+// wire scheme ids gc-sig-v2 / gc-msg-v1 bound into signatures.
+export const version = '0.5.0';
 
 // Identity / keys
 export { SigningKey } from './gc-signing-key.mjs';
@@ -13,7 +13,7 @@ export { SigningKey } from './gc-signing-key.mjs';
 // Onboarding controller (headless create / back up / restore / unlock / sign-login)
 export { makeOnboarding } from './gc-onboarding.mjs';
 
-// API request signing (gc-sig-v1)
+// API request signing (gc-sig-v2)
 export { canonical, signHeaders } from './gc-sig.mjs';
 
 // Passkey-anchored storage

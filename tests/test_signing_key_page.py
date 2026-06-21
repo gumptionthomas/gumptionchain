@@ -15,7 +15,7 @@ def test_signing_key_page_renders(app, test_client):
         assert 'id="no-signing_key"' in body
         assert 'id="create-btn"' in body
         assert 'id="create-passphrase"' in body
-        assert 'id="import-b58"' in body
+        assert 'id="import-secret"' in body
         assert 'id="import-passphrase"' in body
         assert 'id="import-btn"' in body
         # .pem is deferred-with-message (like /transact), but the input is here.

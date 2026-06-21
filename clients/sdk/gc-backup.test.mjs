@@ -32,7 +32,7 @@ test('exportEncrypted -> importEncrypted recovers a signing_key that signs ident
   const signing_key = await SigningKey.generate();
   const backup = await exportEncrypted(signing_key, PASS, FAST);
   assert.equal(backup.kind, 'gc-signing-key-backup');
-  assert.equal(backup.version, 2);
+  assert.equal(backup.version, 3);
   assert.equal(backup.address, await signing_key.address());
 
   const recovered = await importEncrypted(backup, PASS);
@@ -47,7 +47,7 @@ test('the backup artifact holds only ciphertext + non-secrets', async () => {
   assert.ok(backup.kdf.salt && backup.iv && backup.ciphertext);
   assert.equal(backup.kdf.name, 'PBKDF2');
   const blob = JSON.stringify(backup);
-  assert.ok(!blob.includes(await signing_key.exportPrivateKeyB58()));
+  assert.ok(!blob.includes(await signing_key.exportSecret()));
 });
 
 test('importEncrypted with a wrong passphrase throws BadPassphraseError', async () => {
@@ -94,7 +94,7 @@ test('importEncrypted rejects an unknown version', async () => {
 
 test('importEncrypted rejects a malformed artifact (missing fields)', async () => {
   await assert.rejects(
-    () => importEncrypted({ kind: 'gc-signing-key-backup', version: 2 }, PASS),
+    () => importEncrypted({ kind: 'gc-signing-key-backup', version: 3 }, PASS),
     BadBackupError,
   );
 });
@@ -122,15 +122,15 @@ test('importEncrypted maps un-decodable base64 to BadBackupError', async () => {
 
 import { exportPlain, importPlain } from './gc-backup.mjs';
 
-test('exportPlain equals the signing_key b58 private key', async () => {
+test('exportPlain equals the signing_key gcsec secret', async () => {
   const signing_key = await SigningKey.generate();
-  assert.equal(await exportPlain(signing_key), await signing_key.exportPrivateKeyB58());
+  assert.equal(await exportPlain(signing_key), await signing_key.exportSecret());
 });
 
 test('exportPlain -> importPlain recovers a signing_key that signs identically', async () => {
   const signing_key = await SigningKey.generate();
-  const b58 = await exportPlain(signing_key);
-  const recovered = await importPlain(b58);
+  const secret = await exportPlain(signing_key);
+  const recovered = await importPlain(secret);
   assert.equal(await recovered.address(), await signing_key.address());
   const msg = new TextEncoder().encode('prove-it');
   assert.equal(await recovered.sign(msg), await signing_key.sign(msg));

@@ -27,7 +27,6 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "base58check>=1.0.2",
   "blinker>=1.8",
   "celery>=5.4",
   "cryptography>=44",
@@ -170,7 +169,7 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["base58check", "pymerkle", "pymerkle.*"]
+module = ["pymerkle", "pymerkle.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
