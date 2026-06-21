@@ -1,8 +1,9 @@
 """Regression tests for the schema validator try/except guards.
 
-`validate_signature` reconstructs a key from an address and raises
-`InvalidKeyError` on malformed input. Without the try/except guards, that
-exception would propagate through the validation pipeline and surface as a
+`validate_signature` reconstructs a key from an address via
+`public_key_from_address`, which raises `InvalidKeyError` on a malformed
+address. The function guards that call and returns `False`; without the guard
+the exception would propagate through the validation pipeline and surface as a
 500 instead of a structured 400.
 """
 
