@@ -45,6 +45,17 @@ def test_signing_key_page_renders(app, test_client):
         assert 'bootstrap' in body
 
 
+def test_signing_key_page_offers_derive_and_recognize(app, test_client):
+    with app.app_context():
+        resp = test_client.get('/signing-key')
+        assert resp.status_code == httpx.codes.OK
+        body = str(resp.data)
+        assert 'create-derive-btn' in body
+        assert 'recognize-btn' in body
+        assert 'rp-words' in body  # recovery-phrase surface present
+        assert 'create-passphrase' in body  # passphrase fallback kept
+
+
 def test_signing_key_page_passes_rp_name(app, test_client):
     with app.app_context():
         resp = test_client.get('/signing-key')

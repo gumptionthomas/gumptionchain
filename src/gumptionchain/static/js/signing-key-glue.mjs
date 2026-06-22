@@ -13,6 +13,10 @@ import { makeIdbStore } from '../sdk/gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from '../sdk/gc-backup.mjs';
 import { session as defaultSession } from './signing-key-session.mjs';
 import { makePasskey } from './signing-key-passkey.mjs';
+import { decodeAddress } from '../sdk/gc-bech32.mjs';
+import { makeDerivedIdentity } from '../sdk/gc-derived-identity.mjs';
+import { deriveSigningKey } from '../sdk/gc-derive.mjs';
+import * as recoveryPhrase from './signing-key-recovery-phrase.mjs';
 
 // Re-exported so existing importers (and tests) of signing-key-glue keep working;
 // the implementation now lives in the shared signing-key-passkey module so /transact
@@ -44,7 +48,37 @@ export function whichControls({
     showAddPasskey: !!hasSigningKey && !!unlocked && passkeyOk,
     showBackup: !!hasSigningKey,
     showForget: !!hasSigningKey,
+    // Keyless device with a usable passkey leads with the seamless derive
+    // create + recognize affordances; without a passkey it falls back to the
+    // passphrase create/import controls above.
+    showCreateDerive: !hasSigningKey && passkeyOk,
+    showRecognize: !hasSigningKey && passkeyOk,
   };
+}
+
+// Which create affordance a keyless device leads with: derive (seamless) when
+// passkeys work, else the passphrase wrap fallback.
+export function createPathFor(status) {
+  return status && status.passkeySupported ? 'derive' : 'wrap';
+}
+
+// Map a recognize verdict to the page action.
+export function recognitionOutcome(r) {
+  if (r && r.recognized && r.kind === 'derived') return 'rehydrated';
+  if (r && r.recognized && r.kind === 'wrap') return 'restore';
+  return 'none';
+}
+
+// The phantom guard (pure): a discovered passkey is a WRAP identity's passkey
+// iff its userHandle is a real gc address that disagrees with the PRF-derived
+// address (the PRF isn't this identity's seed). Otherwise it's DERIVED — adopt
+// the derived address. Mirrors onb.recognize()'s discriminator.
+export function classifyRecognition({ userHandle, derivedAddress }) {
+  if (userHandle != null && decodeAddress(userHandle) !== null
+      && userHandle !== derivedAddress) {
+    return 'wrap';
+  }
+  return 'derived';
 }
 
 // A stable, address-tagged filename for the downloaded encrypted backup.
@@ -127,6 +161,8 @@ export function init(
     win = typeof window !== 'undefined' ? window : undefined,
     doc = typeof document !== 'undefined' ? document : undefined,
     storage = typeof localStorage !== 'undefined' ? localStorage : undefined,
+    // Injectable for tests; when omitted it's resolved from makePasskey below.
+    passkey: injectedPasskey,
   } = {},
 ) {
   const $ = (sel) => root.querySelector(sel);
@@ -171,11 +207,20 @@ export function init(
     // forget
     forgetBtn: $('#forget-btn'),
     forgetStatus: $('#forget-status'),
+    // derive create + recognize (seamless, passkey-first)
+    createDeriveSection: $('#create-derive-section'),
+    createDeriveBtn: $('#create-derive-btn'),
+    createDeriveStatus: $('#create-derive-status'),
+    recognizeBtn: $('#recognize-btn'),
+    recognizeStatus: $('#recognize-status'),
+    // recovery-phrase surface (derived identity's only seed-bearing backup)
+    recoveryPhraseSection: $('#recovery-phrase-section'),
+    rpDoneBtn: $('#rp-done-btn'),
   };
 
   // Cached passkey capability (resolved once). Drives control visibility.
   let passkeyState = { secureContext: !!win?.isSecureContext, supported: false };
-  let passkey = null;
+  let passkey = injectedPasskey ?? null;
 
   function show(el, visible) {
     if (el) el.hidden = !visible;
@@ -200,6 +245,8 @@ export function init(
     show(els.addPasskeyBtn, c.showAddPasskey);
     show(els.addPasskeyPassphrase, c.showAddPasskey);
     show(els.backupBtn, c.showBackup);
+    show(els.createDeriveSection, c.showCreateDerive);
+    show(els.recognizeBtn, c.showRecognize);
     if (hasSigningKey && els.addressOut) {
       const rec = await store.get();
       els.addressOut.textContent = rec?.address ?? '';
@@ -229,6 +276,124 @@ export function init(
       'error',
     );
     return false;
+  }
+
+  // Reveal the recovery-phrase surface for a derived identity's seed-bearing
+  // backup, gating the "done" affordance on the saved-confirm.
+  function showRecoveryPhrase(mnemonic) {
+    show(els.recoveryPhraseSection, true);
+    if (els.rpDoneBtn) els.rpDoneBtn.hidden = true;
+    recoveryPhrase.init({
+      mnemonic,
+      onConfirm: () => {
+        if (els.rpDoneBtn) els.rpDoneBtn.hidden = false;
+      },
+      root: doc || document,
+    });
+  }
+  if (els.rpDoneBtn) {
+    els.rpDoneBtn.addEventListener('click', async () => {
+      show(els.recoveryPhraseSection, false);
+      await render();
+    });
+  }
+
+  // --- create (derived: seamless passkey, no passphrase) ---
+  if (els.createDeriveBtn) {
+    els.createDeriveBtn.addEventListener('click', async () => {
+      try {
+        if (!passkey) {
+          setStatus(
+            els.createDeriveStatus,
+            'Passkeys are not available here.',
+            'error',
+          );
+          return;
+        }
+        if (!trustGateOk(els.createDeriveStatus)) return;
+        if (!(await ensureEd25519(els.createDeriveStatus))) return;
+        const derived = makeDerivedIdentity({ passkey });
+        const { signing_key, address, mnemonic, credentialId } =
+          await derived.enroll({ userName: 'GumptionChain identity' });
+        await store.put({
+          version: keyring.VERSION,
+          kind: 'derived',
+          address,
+          credentialId,
+        });
+        session.setSigningKey(signing_key);
+        showRecoveryPhrase(mnemonic);
+        await render();
+      } catch (e) {
+        setStatus(
+          els.createDeriveStatus,
+          `Could not create with a passkey: ${msgOf(e)}. ` +
+            'Use a passphrase instead.',
+          'error',
+        );
+      }
+    });
+  }
+
+  // --- recognize (discover an existing passkey on this device) ---
+  if (els.recognizeBtn) {
+    els.recognizeBtn.addEventListener('click', async () => {
+      try {
+        if (!passkey) {
+          setStatus(
+            els.recognizeStatus,
+            'Passkeys are not available here.',
+            'error',
+          );
+          return;
+        }
+        const found = await passkey.discover();
+        if (!found) {
+          setStatus(
+            els.recognizeStatus,
+            'No Gumption passkey found on this device.',
+            'info',
+          );
+          return;
+        }
+        const sk = await deriveSigningKey(found.prfOutput);
+        const derivedAddress = await sk.address();
+        if (
+          classifyRecognition({
+            userHandle: found.userHandle,
+            derivedAddress,
+          }) === 'wrap'
+        ) {
+          setStatus(
+            els.recognizeStatus,
+            `Found ${found.userHandle.slice(0, 16)}… — it lives on its ` +
+              'original device. Restore it from your backup below.',
+            'info',
+          );
+          return;
+        }
+        if (!trustGateOk(els.recognizeStatus)) return;
+        await store.put({
+          version: keyring.VERSION,
+          kind: 'derived',
+          address: derivedAddress,
+          credentialId: found.credentialId,
+        });
+        session.setSigningKey(sk);
+        setStatus(
+          els.recognizeStatus,
+          `Signed in as ${derivedAddress}.`,
+          'ok',
+        );
+        await render();
+      } catch (e) {
+        setStatus(
+          els.recognizeStatus,
+          `Could not check for a passkey: ${msgOf(e)}`,
+          'error',
+        );
+      }
+    });
   }
 
   // --- create ---
@@ -485,6 +650,28 @@ export function init(
   if (els.backupBtn) {
     els.backupBtn.addEventListener('click', async () => {
       try {
+        // A derived identity has no encrypted artifact: its only seed-bearing
+        // backup is the recovery phrase, re-derived from the live passkey PRF.
+        const rec = await store.get();
+        if (rec?.kind === 'derived') {
+          if (!passkey) {
+            setStatus(
+              els.backupStatus,
+              'Connect your passkey to view the recovery phrase.',
+              'error',
+            );
+            return;
+          }
+          const found = await passkey.discover();
+          if (!found) {
+            setStatus(els.backupStatus, 'No passkey found.', 'error');
+            return;
+          }
+          const sk = await deriveSigningKey(found.prfOutput);
+          const mnemonic = await sk.mnemonic();
+          showRecoveryPhrase(mnemonic);
+          return;
+        }
         const passphrase = els.backupPassphrase
           ? els.backupPassphrase.value
           : '';
@@ -548,9 +735,9 @@ export function init(
   // Resolve passkey capability, install auto-lock, then render. Auto-lock
   // re-renders on lock so the controls reflect the locked state.
   (async () => {
-    passkey = await makePasskey({ window: win, rpName });
+    if (!passkey) passkey = await makePasskey({ window: win, rpName });
     passkeyState = {
-      secureContext: !!win?.isSecureContext,
+      secureContext: injectedPasskey ? true : !!win?.isSecureContext,
       supported: passkey != null,
     };
     session.onLock(() => {
