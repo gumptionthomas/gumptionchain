@@ -3,6 +3,7 @@
 // dependencies. Browser + Node 20+.
 import { base64encode, base64decode, base64urlDecode } from './gc-crypto.mjs';
 import { encodeAddress, decodeAddress, encodeSecret, decodeSecret } from './gc-bech32.mjs';
+import { NoSeedError } from './gc-errors.mjs';
 
 const ALG = 'Ed25519';
 // RFC 8410 Ed25519 PKCS8 prefix for a bare 32-byte seed (16 bytes); WebCrypto
@@ -11,6 +12,13 @@ const PKCS8_PREFIX = Uint8Array.of(
   0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
   0x04, 0x22, 0x04, 0x20,
 );
+
+function pkcs8FromSeed(seed) {
+  const pkcs8 = new Uint8Array(PKCS8_PREFIX.length + 32);
+  pkcs8.set(PKCS8_PREFIX, 0);
+  pkcs8.set(seed, PKCS8_PREFIX.length);
+  return pkcs8;
+}
 
 export class SigningKey {
   #privateKey;
@@ -44,9 +52,7 @@ export class SigningKey {
     if (seed === null) {
       throw new Error('invalid gcsec secret (bad checksum or HRP)');
     }
-    const pkcs8 = new Uint8Array(PKCS8_PREFIX.length + 32);
-    pkcs8.set(PKCS8_PREFIX, 0);
-    pkcs8.set(seed, PKCS8_PREFIX.length);
+    const pkcs8 = pkcs8FromSeed(seed);
     const priv = await crypto.subtle.importKey('pkcs8', pkcs8, ALG, true, [
       'sign',
     ]);
@@ -58,6 +64,24 @@ export class SigningKey {
       ALG,
       true,
       ['verify'],
+    );
+    return new SigningKey(priv, pub);
+  }
+
+  // A non-extractable, sign-only key: the private CryptoKey can sign but cannot be
+  // exported, so exportSecret()/mnemonic() throw NoSeedError. The public key is
+  // derived via a transient extractable import (the seed is in hand here anyway).
+  static async fromSecretSignOnly(gcsec) {
+    const seed = decodeSecret(gcsec);
+    if (seed === null) {
+      throw new Error('invalid gcsec secret (bad checksum or HRP)');
+    }
+    const pkcs8 = pkcs8FromSeed(seed);
+    const priv = await crypto.subtle.importKey('pkcs8', pkcs8, ALG, false, ['sign']);
+    const tmp = await crypto.subtle.importKey('pkcs8', pkcs8, ALG, true, ['sign']);
+    const jwk = await crypto.subtle.exportKey('jwk', tmp);
+    const pub = await crypto.subtle.importKey(
+      'jwk', { kty: 'OKP', crv: 'Ed25519', x: jwk.x, ext: true }, ALG, true, ['verify'],
     );
     return new SigningKey(priv, pub);
   }
@@ -98,8 +122,35 @@ export class SigningKey {
 
   async exportSecret() {
     if (!this.#privateKey) throw new Error('no private key');
+    if (!this.#privateKey.extractable) {
+      throw new NoSeedError('sign-only key: the seed is not extractable');
+    }
     const jwk = await crypto.subtle.exportKey('jwk', this.#privateKey);
     return encodeSecret(base64urlDecode(jwk.d));
+  }
+
+  // A structured-cloneable, NON-EXTRACTABLE handle for cross-document session reuse
+  // (persist via IndexedDB). Always sign-only: if this key is extractable, re-import
+  // its seed non-extractable first, so the persisted handle can never leak the seed.
+  async toSignOnlyHandle() {
+    if (!this.#privateKey) throw new Error('no private key');
+    if (this.#privateKey.extractable) {
+      const signOnly = await SigningKey.fromSecretSignOnly(await this.exportSecret());
+      return {
+        address: await this.address(),
+        privateKey: signOnly.#privateKey,
+        publicKey: signOnly.#publicKey,
+      };
+    }
+    return {
+      address: await this.address(),
+      privateKey: this.#privateKey,
+      publicKey: this.#publicKey,
+    };
+  }
+
+  static fromSignOnlyHandle({ privateKey, publicKey }) {
+    return new SigningKey(privateKey, publicKey);
   }
 
   async #rawPublic() {

@@ -24,3 +24,7 @@ export class BadProofError extends Error {}
 // Input is not a structurally valid stake attestation (bad claim shape or a
 // proof whose message is not a parseable claim).
 export class BadAttestationError extends Error {}
+
+// A sign-only key (non-extractable private key, e.g. a session-signer handle):
+// it can sign but cannot produce the seed. Thrown by exportSecret()/mnemonic().
+export class NoSeedError extends Error {}

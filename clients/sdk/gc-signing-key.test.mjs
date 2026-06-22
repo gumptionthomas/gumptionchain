@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SigningKey } from './gc-signing-key.mjs';
+import { NoSeedError } from './gc-errors.mjs';
+import { signMessage } from './gc-message.mjs';
 
 test('isSupported() returns true on a runtime with WebCrypto Ed25519', async () => {
   // Node 20+ (and current browsers) support Ed25519, so the probe succeeds.
@@ -78,4 +80,34 @@ test('fromAddress rejects a corrupted address', async () => {
   const addr = await (await SigningKey.generate()).address();
   const bad = addr.slice(0, -1) + (addr.at(-1) === 'q' ? 'p' : 'q');
   await assert.rejects(() => SigningKey.fromAddress(bad), /address/);
+});
+
+test('fromSecretSignOnly: signs + correct address, but the seed is non-extractable', async () => {
+  const full = await SigningKey.generate();
+  const gcsec = await full.exportSecret();
+  const addr = await full.address();
+  const signOnly = await SigningKey.fromSecretSignOnly(gcsec);
+  assert.equal(await signOnly.address(), addr);
+  const sig = await signOnly.sign(new TextEncoder().encode('hi'));
+  assert.equal(await full.verify(new TextEncoder().encode('hi'), sig), true);
+  await assert.rejects(() => signOnly.exportSecret(), NoSeedError);
+  await assert.rejects(() => signOnly.mnemonic(), NoSeedError);
+});
+
+test('signMessage works with a sign-only key', async () => {
+  const full = await SigningKey.generate();
+  const signOnly = await SigningKey.fromSecretSignOnly(await full.exportSecret());
+  const proof = await signMessage(signOnly, 'login:abc');
+  assert.equal(proof.scheme, 'gc-msg-v1');
+  assert.equal(proof.address, await full.address());
+});
+
+test('toSignOnlyHandle round-trips and is non-extractable; a normal key still exports', async () => {
+  const full = await SigningKey.generate();
+  const handle = await full.toSignOnlyHandle();
+  assert.equal(handle.privateKey.extractable, false);
+  const rehydrated = SigningKey.fromSignOnlyHandle(handle);
+  assert.equal(await rehydrated.address(), handle.address);
+  await assert.rejects(() => rehydrated.exportSecret(), NoSeedError);
+  assert.ok((await full.exportSecret()).startsWith('gcsec1'));
 });
