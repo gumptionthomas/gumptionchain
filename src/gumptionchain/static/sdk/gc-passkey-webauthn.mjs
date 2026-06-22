@@ -156,12 +156,23 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
 // userHandle (the enrolled userId; the EGU convention is that this is the GC
 // address) — generic at the SDK layer. rpName is unused by discover(), so rpId
 // is passed as a harmless placeholder.
+//
+// IMPORTANT: the returned address equals the GC address ONLY for ENROLLED
+// (wrap-keyring) identities, where user.id === address. DERIVED (passkey-PRF)
+// identities have a NON-address userHandle — their address isn't known at
+// create() time, before the PRF exists — so recognize() would report a
+// confidently wrong address for them. Recognize derived identities via
+// makeDerivedIdentity.resolve() (which re-derives the real address from the
+// PRF), not this helper. The member-kit guide routes the two kinds accordingly.
 export async function recognize({ rpId, mediation = 'optional', signal } = {}) {
   const pk = makeWebauthnPasskey({ rpId, rpName: rpId });
   let found;
   try {
     found = await pk.discover({ mediation, signal });
   } catch {
+    // Deliberate fail-open: a signal abort or any unexpected error maps to
+    // "not recognized" (this is a UX hint, never an auth gate) — do NOT
+    // "fix" this into a throw.
     return { recognized: false, address: null };
   }
   if (!found || !found.userHandle) {

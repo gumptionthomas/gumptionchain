@@ -210,6 +210,29 @@ test('recognize() is false+null when the assertion has no PRF (UnsupportedError)
   );
 });
 
+test('recognize() is false+null when discovery is aborted (AbortError)', async () => {
+  await withFakeWebauthn(
+    { getImpl: async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; } },
+    async () => {
+      const ac = new AbortController();
+      ac.abort();
+      assert.deepEqual(
+        await recognize({ rpId: 'gumption.com', signal: ac.signal }),
+        { recognized: false, address: null },
+      );
+    },
+  );
+});
+
+test('recognize() called with no arguments is false+null (unsupported navigator)', async () => {
+  const restore = setGlobal('navigator', undefined);
+  try {
+    assert.deepEqual(await recognize(), { recognized: false, address: null });
+  } finally {
+    restore();
+  }
+});
+
 test('isConditionalAvailable() reflects platform support and never throws', async () => {
   await withFakeWebauthn({ getImpl: async () => null, conditional: true }, async () => {
     const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
