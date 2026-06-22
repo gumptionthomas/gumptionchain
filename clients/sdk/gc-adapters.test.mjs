@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeWebauthnPasskey, recognize } from './gc-passkey-webauthn.mjs';
 import { makeIdbStore } from './gc-store-idb.mjs';
+import { makeSessionStore } from './gc-session-store-idb.mjs';
 
 test('webauthn passkey adapter exposes the passkey interface', async () => {
   const pk = makeWebauthnPasskey({ rpId: 'example.com', rpName: 'Demo' });
@@ -14,6 +15,13 @@ test('webauthn passkey adapter exposes the passkey interface', async () => {
 
 test('idb store adapter exposes the store interface', () => {
   const store = makeIdbStore({ dbName: 'gc-signing-key-test' });
+  for (const m of ['get', 'put', 'delete']) {
+    assert.equal(typeof store[m], 'function');
+  }
+});
+
+test('session store adapter exposes the store interface', () => {
+  const store = makeSessionStore({ dbName: 'gc-session-signer-test' });
   for (const m of ['get', 'put', 'delete']) {
     assert.equal(typeof store[m], 'function');
   }
