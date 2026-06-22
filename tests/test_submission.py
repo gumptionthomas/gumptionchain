@@ -60,3 +60,78 @@ def test_transactor_leaderboard_ranks_by_count(app):
         assert by_addr['GCquietGC'].count == 1
         assert rows[0].address == 'GCbusyGC'
         assert by_addr['GCbusyGC'].last_submit_at is not None
+
+
+def _seed_sortable(app):
+    # Distinct counts so count ordering is unambiguous; addresses chosen so
+    # their lexical order (alpha < bravo < charlie) differs from BOTH the
+    # count-desc (bravo:3, alpha:2, charlie:1) and count-asc orders, making
+    # the address sort a meaningful, independent assertion.
+    counts = {'GCalphaGC': 2, 'GCbravoGC': 3, 'GCcharlieGC': 1}
+    n = 0
+    for address, ct in counts.items():
+        for _ in range(ct):
+            n += 1
+            SubmissionDAO.record(f'tx{n}', address)
+
+
+def test_transactor_leaderboard_sort_by_count_desc(app):
+    with app.app_context():
+        _seed_sortable(app)
+        rows = db.session.execute(
+            SubmissionDAO.transactor_leaderboard(
+                sort_by='count', direction='desc'
+            )
+        ).all()
+        assert [r.address for r in rows] == [
+            'GCbravoGC',
+            'GCalphaGC',
+            'GCcharlieGC',
+        ]
+        assert rows[0].count == 3
+
+
+def test_transactor_leaderboard_sort_by_count_asc(app):
+    with app.app_context():
+        _seed_sortable(app)
+        rows = db.session.execute(
+            SubmissionDAO.transactor_leaderboard(
+                sort_by='count', direction='asc'
+            )
+        ).all()
+        assert [r.address for r in rows] == [
+            'GCcharlieGC',
+            'GCalphaGC',
+            'GCbravoGC',
+        ]
+        assert rows[0].count == 1
+
+
+def test_transactor_leaderboard_sort_by_address_asc(app):
+    with app.app_context():
+        _seed_sortable(app)
+        rows = db.session.execute(
+            SubmissionDAO.transactor_leaderboard(
+                sort_by='address', direction='asc'
+            )
+        ).all()
+        assert [r.address for r in rows] == [
+            'GCalphaGC',
+            'GCbravoGC',
+            'GCcharlieGC',
+        ]
+
+
+def test_transactor_leaderboard_bogus_sort_falls_back_to_count_desc(app):
+    with app.app_context():
+        _seed_sortable(app)
+        rows = db.session.execute(
+            SubmissionDAO.transactor_leaderboard(
+                sort_by='bogus', direction='desc'
+            )
+        ).all()
+        assert [r.address for r in rows] == [
+            'GCbravoGC',
+            'GCalphaGC',
+            'GCcharlieGC',
+        ]

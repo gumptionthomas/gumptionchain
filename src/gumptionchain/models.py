@@ -1507,14 +1507,25 @@ class SubmissionDAO(Base):
         return db.session.scalar(stmt) or 0
 
     @classmethod
-    def transactor_leaderboard(cls) -> Select[Any]:
+    def transactor_leaderboard(
+        cls, sort_by: str = 'count', direction: str = 'desc'
+    ) -> Select[Any]:
+        count_expr = db.func.count()
+        last_expr = db.func.max(cls.submitted_at)
         stmt = db.select(
             cls.transactor_address.label('address'),
-            db.func.count().label('count'),
-            db.func.max(cls.submitted_at).label('last_submit_at'),
+            count_expr.label('count'),
+            last_expr.label('last_submit_at'),
         )
         stmt = stmt.group_by(cls.transactor_address)
-        stmt = stmt.order_by(db.desc('count'), cls.transactor_address)
+        order_map: dict[str, Any] = {
+            'address': cls.transactor_address,
+            'count': count_expr,
+            'last': last_expr,
+        }
+        col = order_map.get(sort_by, count_expr)
+        col = col.asc() if direction == 'asc' else col.desc()
+        stmt = stmt.order_by(col, cls.transactor_address)
         return stmt  # type: ignore[no-any-return]
 
 
