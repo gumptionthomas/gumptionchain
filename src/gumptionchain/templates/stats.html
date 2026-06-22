@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_pagination.html" import render_pagination %}
+{% from "_sort.html" import sort_header %}
 
 {% block content -%}
 <div class="container-fluid">
@@ -8,7 +9,11 @@
       <div class="card-title h5">Submission stats</div>
       {%- if stats_page and stats_page.total %}
       <table class="table table-hover">
-        <thead><tr><th>#</th><th>Transactor</th><th>Submissions</th><th>Last submit</th></tr></thead>
+        <thead><tr><th>#</th>
+          {{ sort_header('Transactor', 'address', sort, 'browser.stats_view') }}
+          {{ sort_header('Submissions', 'count', sort, 'browser.stats_view') }}
+          {{ sort_header('Last submit', 'last', sort, 'browser.stats_view') }}
+        </tr></thead>
         <tbody>
         {%- for row in stats_page.items %}
           <tr>

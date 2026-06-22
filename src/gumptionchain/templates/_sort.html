@@ -1,0 +1,10 @@
+{# A sortable column header: a link that toggles sort/direction, preserving
+   every other query arg; `page` is dropped so a re-sort returns to page 1.
+   `spec` is a sortable.SortSpec; `endpoint` the view's url_for target. #}
+{% macro sort_header(label, key, spec, endpoint) -%}
+{%- set args = request.args.to_dict() -%}
+{%- set _ = args.pop('page', none) -%}
+{%- set _ = args.update(request.view_args | default({}, true)) -%}
+{%- set _ = args.update({'sort': key, 'dir': spec.toggled(key)}) -%}
+<th><a class="text-dark text-decoration-none" href="{{ url_for(endpoint, **args) }}">{{ label }} {{ spec.indicator(key) }}</a></th>
+{%- endmacro %}
