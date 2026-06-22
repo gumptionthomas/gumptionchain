@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeSessionSigner } from './gc-session-signer.mjs';
+import { makeSessionSigner, DEFAULT_IDLE_MS } from './gc-session-signer.mjs';
 import { SigningKey } from './gc-signing-key.mjs';
 import { verifyMessage } from './gc-message.mjs';
 import { deriveSigningKey } from './gc-derive.mjs';
@@ -8,6 +8,28 @@ import { deriveSigningKey } from './gc-derive.mjs';
 function fakeStore() {
   let rec = null;
   return { get: async () => rec, put: async (r) => { rec = r; }, delete: async () => { rec = null; } };
+}
+
+// A connected fake BroadcastChannel pair: postMessage on A delivers to B.onmessage
+// (as a MessageEvent-shaped { data }) and vice versa.
+function fakeChannelPair() {
+  const a = { onmessage: null, postMessage: (m) => b.onmessage && b.onmessage({ data: m }) };
+  const b = { onmessage: null, postMessage: (m) => a.onmessage && a.onmessage({ data: m }) };
+  return [a, b];
+}
+
+// A fake injectable clock that captures the most recent armed timer callback so
+// tests can fire it deterministically and count set/clear invocations.
+function fakeClock() {
+  let cb = null;
+  const calls = { set: 0, clear: 0 };
+  return {
+    now: () => 0,
+    setTimer: (fn) => { cb = fn; calls.set++; return 1; },
+    clearTimer: () => { calls.clear++; },
+    fire: () => cb && cb(),
+    calls,
+  };
 }
 
 test('adopt persists a sign-only handle; a FRESH signer on the same store is signed in', async () => {
@@ -107,4 +129,99 @@ test('unlock(): a wrap identity in the keyring signs in', async () => {
   const r = await s.unlock({ passphrase: 'pw' });
   assert.equal(r.address, await w.address());
   assert.deepEqual(await s.status(), { signedIn: true, address: await w.address() });
+});
+
+test('idle timeout fires lock: signed out + store cleared', async () => {
+  const store = fakeStore();
+  const clock = fakeClock();
+  const s = makeSessionSigner({ store, clock });
+  let locked = false;
+  s.onLock(() => { locked = true; });
+  const key = await SigningKey.generate();
+  await s.adopt(key);
+  // Auto-lock is off until installAutoLock; it arms with the injected fake clock
+  // (so no real setTimeout leaks and keeps the process alive). adopt() before
+  // this is a no-op for the timer.
+  s.installAutoLock({});
+  assert.equal(clock.calls.set > 0, true);
+  assert.deepEqual(await s.status(), { signedIn: true, address: await key.address() });
+  clock.fire(); // simulate the idle deadline elapsing
+  assert.equal(locked, true);
+  assert.equal(await store.get(), null);
+  assert.deepEqual(await s.status(), { signedIn: false, address: null });
+});
+
+test('installAutoLock: visibilitychange -> hidden locks', async () => {
+  const store = fakeStore();
+  const clock = fakeClock();
+  const s = makeSessionSigner({ store, clock });
+  await s.adopt(await SigningKey.generate());
+  let locked = false;
+  s.onLock(() => { locked = true; });
+
+  const docListeners = {};
+  const winListeners = {};
+  const document = {
+    visibilityState: 'visible',
+    addEventListener: (type, fn) => { docListeners[type] = fn; },
+  };
+  const window = {
+    addEventListener: (type, fn) => { winListeners[type] = fn; },
+  };
+  s.installAutoLock({ document, window });
+  document.visibilityState = 'hidden';
+  docListeners.visibilitychange();
+  assert.equal(locked, true);
+  assert.equal(await store.get(), null);
+});
+
+test('installAutoLock: pagehide locks', async () => {
+  const store = fakeStore();
+  const clock = fakeClock();
+  const s = makeSessionSigner({ store, clock });
+  await s.adopt(await SigningKey.generate());
+  let locked = false;
+  s.onLock(() => { locked = true; });
+
+  const docListeners = {};
+  const winListeners = {};
+  const document = { visibilityState: 'visible', addEventListener: (type, fn) => { docListeners[type] = fn; } };
+  const window = { addEventListener: (type, fn) => { winListeners[type] = fn; } };
+  s.installAutoLock({ document, window });
+  winListeners.pagehide();
+  assert.equal(locked, true);
+  assert.equal(await store.get(), null);
+});
+
+test('cross-tab: lock in tab A clears tab B in-memory cache + fires B onLock', async () => {
+  const store = fakeStore();
+  const [chA, chB] = fakeChannelPair();
+  const A = makeSessionSigner({ store, broadcast: chA });
+  const B = makeSessionSigner({ store, broadcast: chB });
+  await A.adopt(await SigningKey.generate());
+  // adopt on B first to give B a live in-memory cache (so we can assert it clears)
+  await B.status(); // hydrate B's cache from the shared store
+  assert.equal((await B.status()).signedIn, true);
+  let bLocked = false;
+  B.onLock(() => { bLocked = true; });
+  await A.lock();
+  assert.equal(bLocked, true); // B fired onLock from the broadcast
+  assert.deepEqual(await B.status(), { signedIn: false, address: null });
+});
+
+test('touch re-arms the idle timer (clear + set)', async () => {
+  const store = fakeStore();
+  const clock = fakeClock();
+  const s = makeSessionSigner({ store, clock });
+  await s.adopt(await SigningKey.generate());
+  s.installAutoLock({}); // arm auto-lock (touch is a no-op until then)
+  const setAfterArm = clock.calls.set;
+  const clearAfterArm = clock.calls.clear;
+  s.touch();
+  assert.equal(clock.calls.clear > clearAfterArm, true);
+  assert.equal(clock.calls.set > setAfterArm, true);
+});
+
+test('DEFAULT_IDLE_MS is 15 minutes', () => {
+  assert.equal(DEFAULT_IDLE_MS, 15 * 60 * 1000);
 });
