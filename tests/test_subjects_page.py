@@ -83,6 +83,54 @@ def test_subjects_index_paginates_across_pages(
         assert f'/subject/{mid}'.encode() not in page2.data
 
 
+# ---- sortable headers --------------------------------------------------
+
+
+def test_subjects_sort_support_asc_orders_low_before_high(
+    app, host, mill_block, requests_proxy, signing_key
+):
+    high = encode_subject('high-support')
+    low = encode_subject('low-support')
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        _stake_support(host, m.longest_chain, signing_key, 300, high)
+        mill_block(signing_key)
+        _stake_support(host, m.longest_chain, signing_key, 100, low)
+        mill_block(signing_key)
+
+        resp = app.test_client().get('/subjects?sort=support&dir=asc')
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert body.index(low) < body.index(high)
+
+
+def test_subjects_sort_bogus_key_falls_back_to_default(
+    app, host, mill_block, requests_proxy, subject, signing_key
+):
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        _stake_support(host, m.longest_chain, signing_key, 100, subject)
+        mill_block(signing_key)
+
+        resp = app.test_client().get('/subjects?sort=bogus')
+        assert resp.status_code == 200
+
+
+def test_subjects_active_total_header_toggles_and_indicates(
+    app, host, mill_block, requests_proxy, subject, signing_key
+):
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        _stake_support(host, m.longest_chain, signing_key, 100, subject)
+        mill_block(signing_key)
+
+        resp = app.test_client().get('/subjects?sort=total&dir=desc')
+        assert resp.status_code == 200
+        body = resp.data.decode()
+        assert 'sort=total&amp;dir=asc' in body or 'sort=total&dir=asc' in body
+        assert '▼' in body
+
+
 # ---- subject detail ----------------------------------------------------
 
 

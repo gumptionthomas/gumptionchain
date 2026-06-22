@@ -1649,8 +1649,8 @@ def test_antijoin_equivalence_all_methods(
         wl = db.session.execute(dao_a.signing_key_leaderboard()).all()
         assert wl == [(signing_key.address, reward + mint)]
         sl = db.session.execute(dao_a.subject_leaderboard()).all()
-        # (subject, opposition, support, total)
-        assert sl == [(subject, cb_1_amount, 0, cb_1_amount)]
+        # (subject, opposition, support, net, total); net = support - opposition
+        assert sl == [(subject, cb_1_amount, 0, -cb_1_amount, cb_1_amount)]
 
         # On chain_b (ancestry routing): t_2a is NOT in chain_b, so cb_1 is
         # UNSPENT; block_2b's coinbase is a single unspent reward (no stake →

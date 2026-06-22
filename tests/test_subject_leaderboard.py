@@ -160,3 +160,45 @@ def test_stake_stats_empty_chain(
         count, staked = m.longest_chain.stake_stats()
         assert count == 0
         assert staked == 0
+
+
+def test_subject_leaderboard_net_column_and_sorting(
+    app, host, mill_block, requests_proxy, signing_key
+):
+    a = encode_subject('alpha')
+    b = encode_subject('bravo')
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        lc = m.longest_chain
+        # alpha: 300 opp + 150 sup -> net -150, total 450
+        _stake(host, lc, signing_key, oppose=(a, 300))
+        mill_block(signing_key)
+        lc = m.longest_chain
+        _stake(host, lc, signing_key, support=(a, 150))
+        mill_block(signing_key)
+        lc = m.longest_chain
+        # bravo: 50 opp + 250 sup -> net +200, total 300
+        _stake(host, lc, signing_key, oppose=(b, 50))
+        mill_block(signing_key)
+        lc = m.longest_chain
+        _stake(host, lc, signing_key, support=(b, 250))
+        mill_block(signing_key)
+
+        dao = m.longest_chain.to_dao()
+
+        def order(sort_by, direction):
+            rows = db.session.execute(
+                dao.subject_leaderboard(sort_by=sort_by, direction=direction)
+            ).all()
+            return [r.subject for r in rows]
+
+        rows = db.session.execute(dao.subject_leaderboard()).all()
+        by = {r.subject: r for r in rows}
+        assert by[a].net == -150
+        assert by[b].net == 200
+
+        assert order('total', 'desc') == [a, b]
+        assert order('net', 'desc') == [b, a]
+        assert order('support', 'asc') == [a, b]
+        assert order('opposition', 'desc') == [a, b]
+        assert order('bogus', 'desc') == [a, b]

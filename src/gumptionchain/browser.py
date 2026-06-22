@@ -27,6 +27,7 @@ from gumptionchain.models import (
 from gumptionchain.node import Node
 from gumptionchain.payload import decode_subject
 from gumptionchain.provenance import lookup_provenance
+from gumptionchain.sortable import parse_sort
 from gumptionchain.transaction import Transaction
 from gumptionchain.util import now
 
@@ -161,10 +162,21 @@ def blocks_view() -> Any:
 
 @blueprint.route('/subjects')
 def subjects_view() -> Any:
+    spec = parse_sort(
+        request.args,
+        allowed={'subject', 'opposition', 'support', 'net', 'total'},
+        default_key='total',
+    )
     try:
         lc = longest_chain()
         subjects_page = (
-            paginate_rows(lc.subject_leaderboard()) if lc is not None else None
+            paginate_rows(
+                lc.subject_leaderboard(
+                    sort_by=spec.key, direction=spec.direction
+                )
+            )
+            if lc is not None
+            else None
         )
     except HTTPException as e:
         return e
@@ -176,21 +188,36 @@ def subjects_view() -> Any:
         current_app.logger.exception(e)
         abort(500)
     return render_template(
-        'subjects.html', title='Subjects', subjects_page=subjects_page
+        'subjects.html',
+        title='Subjects',
+        subjects_page=subjects_page,
+        sort=spec,
     )
 
 
 @blueprint.route('/stats')
 def stats_view() -> Any:
+    spec = parse_sort(
+        request.args,
+        allowed={'address', 'count', 'last'},
+        default_key='count',
+    )
     try:
-        stats_page = paginate_rows(SubmissionDAO.transactor_leaderboard())
+        stats_page = paginate_rows(
+            SubmissionDAO.transactor_leaderboard(
+                sort_by=spec.key, direction=spec.direction
+            )
+        )
     except HTTPException as e:
         return e
     except Exception as e:
         current_app.logger.exception(e)
         abort(500)
     return render_template(
-        'stats.html', title='Submission stats', stats_page=stats_page
+        'stats.html',
+        title='Submission stats',
+        stats_page=stats_page,
+        sort=spec,
     )
 
 
