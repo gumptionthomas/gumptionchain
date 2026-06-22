@@ -43,6 +43,16 @@
           &mdash; to receive grit and spend later. Download an encrypted backup
           afterward: it is your only recovery.
         </p>
+        <!-- Passkey-primary create (derived = seamless across EGU apps) -->
+        <div id="create-derive-section" hidden>
+          <button id="create-derive-btn" class="btn btn-primary">Create with a passkey (recommended)</button>
+          <div class="form-text">A passkey makes a seamless identity — sign in on any Gumption app with one tap. Nothing to remember, nothing stored on this node.</div>
+          <div id="create-derive-status" class="mt-2 small"></div>
+          <button id="recognize-btn" class="btn btn-outline-primary mt-2" hidden>Sign in with your Gumption passkey</button>
+          <div id="recognize-status" class="mt-2 small"></div>
+          <hr>
+          <div class="text-muted small">or use a passphrase (this device only):</div>
+        </div>
         <div class="mb-2">
           <label for="create-passphrase" class="form-label">Passphrase</label>
           <input id="create-passphrase" type="password"
@@ -193,6 +203,22 @@
         </button>
         <div id="forget-status" class="mt-2 small"></div>
       </div>
+    </div></div>
+  </div></section>
+
+  <!-- Shared recovery-phrase surface (shown after derive-create / derived-backup). -->
+  <section id="recovery-phrase-section" class="row my-3" hidden><div class="col">
+    <div class="card"><div class="card-body">
+      <div class="card-title h5">Your recovery phrase</div>
+      <p class="small text-muted">These 24 words are the ONLY backup of a passkey identity. Write them down in order and keep them offline. Anyone with them controls the key.</p>
+      <div id="rp-words" class="mb-2"></div>
+      <button id="rp-copy" class="btn btn-sm btn-outline-secondary">Copy</button>
+      <div id="rp-status" class="mt-2 small"></div>
+      <div class="form-check mt-3">
+        <input id="rp-confirm" type="checkbox" class="form-check-input">
+        <label for="rp-confirm" class="form-check-label">I've saved my recovery phrase.</label>
+      </div>
+      <button id="rp-done-btn" class="btn btn-primary mt-2" hidden>Done</button>
     </div></div>
   </div></section>
 
