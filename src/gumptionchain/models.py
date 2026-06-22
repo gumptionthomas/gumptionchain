@@ -889,6 +889,8 @@ class ChainDAO(Base):
 
     def subject_leaderboard(
         self,
+        sort_by: str = 'total',
+        direction: str = 'desc',
         limit: int | None = None,
     ) -> Select[Any]:
         def _leg(column: Any, kind: StakeKind) -> Select[Any]:
@@ -907,18 +909,38 @@ class ChainDAO(Base):
         opp = _leg(OutflowDAO.opposition, 'opposition')
         sup = _leg(OutflowDAO.support, 'support')
         union = opp.union_all(sup).subquery()
+        # Build the aggregate expressions once and reuse them in BOTH the
+        # SELECT and the ORDER BY map, so ordering never relies on label-name
+        # resolution (SQLite-safe) and net is a real column.
+        opp_sum = db.func.sum(
+            db.case((union.c.kind == 'opposition', union.c.amount), else_=0)
+        )
+        sup_sum = db.func.sum(
+            db.case((union.c.kind == 'support', union.c.amount), else_=0)
+        )
+        tot_sum = db.func.sum(union.c.amount)
+        net_expr = sup_sum - opp_sum
         stmt = db.select(
             union.c.subject,
-            db.func.sum(
-                db.case((union.c.kind == 'opposition', union.c.amount), else_=0)
-            ).label('opposition'),
-            db.func.sum(
-                db.case((union.c.kind == 'support', union.c.amount), else_=0)
-            ).label('support'),
-            db.func.sum(union.c.amount).label('total'),
+            opp_sum.label('opposition'),
+            sup_sum.label('support'),
+            net_expr.label('net'),
+            tot_sum.label('total'),
         )
         stmt = stmt.group_by(union.c.subject)
-        stmt = stmt.order_by(db.desc('total'), union.c.subject)
+        # Allowlist: a validated key -> the real column expression. Never
+        # interpolate ORDER BY from raw input.
+        order_map: dict[str, Any] = {
+            'subject': union.c.subject,
+            'opposition': opp_sum,
+            'support': sup_sum,
+            'net': net_expr,
+            'total': tot_sum,
+        }
+        col = order_map.get(sort_by, tot_sum)
+        col = col.asc() if direction == 'asc' else col.desc()
+        # Stable tiebreak by subject so pagination is deterministic.
+        stmt = stmt.order_by(col, union.c.subject)
         if limit is not None:
             stmt = stmt.limit(limit)
             return db.select(db.aliased(stmt.subquery()))  # type: ignore[no-any-return]

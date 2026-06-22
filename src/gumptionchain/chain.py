@@ -556,8 +556,13 @@ class Chain:
     def support_balance(self, subject: str) -> int:
         return int(self.to_dao().support_balance(subject))
 
-    def subject_leaderboard(self, limit: int | None = None) -> Select[Any]:
-        return self.to_dao().subject_leaderboard(limit)
+    def subject_leaderboard(
+        self,
+        sort_by: str = 'total',
+        direction: str = 'desc',
+        limit: int | None = None,
+    ) -> Select[Any]:
+        return self.to_dao().subject_leaderboard(sort_by, direction, limit)
 
     def search_subjects(
         self, query: str, limit: int | None = None
