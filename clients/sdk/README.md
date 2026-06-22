@@ -148,6 +148,7 @@ mapping, *not* BIP-39's PBKDF2 seed-stretching — the words **are** the seed.)
 | `canonical`, `signHeaders` | `gc-sig-v1` request signing |
 | `enroll`, `unlock`, `hasSigningKey`, `clear` | passkey-anchored storage orchestration |
 | `makeWebauthnPasskey`, `makeIdbStore` | real WebAuthn + IndexedDB adapters; the passkey adapter also exposes `discover({ mediation, signal })` / `isConditionalAvailable()` |
+| `recognize` | `recognize({ rpId })` → `{ recognized, address }` — a "who's here?" hint over `discover()` (enrolled identities only; see caveat) |
 | `deriveSeed`, `deriveSigningKey` | passkey-PRF → 32-byte seed / `SigningKey` (no stored key; optional `passphrase` 2FA) |
 | `seedToMnemonic`, `mnemonicToSeed` | BIP-39 24-word recovery-phrase codec over the raw seed |
 | `exportEncrypted`, `importEncrypted`, `exportPlain`, `importPlain` | backup/recovery |
@@ -179,6 +180,24 @@ the *wrap* model the encrypted key blob is origin-scoped and not re-derivable
 from the PRF, so the material itself still comes from the hub-served store or a
 user backup. (In the *derive* model below, the PRF **is** the key — see the
 federation boundary.)
+
+### `recognize()` — the "who's here?" hint
+
+`recognize({ rpId, mediation = 'optional', signal })` is a thin convenience over
+`discover()` for the member-kit: it answers "is a returning EGU user here, and who
+are they?" in one call, resolving `{ recognized: true, address }` when a passkey is
+picked, or `{ recognized: false, address: null }` on every absent / cancelled /
+unsupported / no-`userHandle` path. It **never throws** for those cases, so a caller
+always falls through to "create".
+
+> **Caveat — enrolled identities only.** The returned `address` is the credential's
+> decoded `userHandle`, which equals the GC address **only for enrolled (wrap-keyring)
+> identities**, where `user.id === address`. A **derived** identity (`create({ withPasskey })`
+> / `makeDerivedIdentity`) has a **random** `userHandle` — its address isn't known at
+> `create()` time, before the PRF exists — so `recognize()` would report a confidently
+> **wrong** address for it. Recognize/rehydrate derived identities with
+> `makeDerivedIdentity.resolve({ expectedAddress })` (which re-derives the real address
+> from the PRF), **not** `recognize()`. Route the two identity kinds accordingly.
 
 ### Derived-identity flow (`gc-derived-identity.mjs`)
 
