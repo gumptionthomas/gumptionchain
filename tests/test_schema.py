@@ -1,9 +1,10 @@
 """Regression tests for the schema validator try/except guards.
 
-`validate_public_key` makes a `SigningKey(b64ks=...)` and `validate_signature`
-reconstructs a key from an address; both raise `InvalidKeyError` on malformed
-input. Without the try/except guards, that exception would propagate through
-the validation pipeline and surface as a 500 instead of a structured 400.
+`validate_signature` reconstructs a key from an address via
+`public_key_from_address`, which raises `InvalidKeyError` on a malformed
+address. The function guards that call and returns `False`; without the guard
+the exception would propagate through the validation pipeline and surface as a
+500 instead of a structured 400.
 """
 
 from base64 import b64encode
@@ -16,21 +17,11 @@ from gumptionchain.schema import (
     AddressType,
     Base64Type,
     MillHashType,
-    PublicKeyType,
     TimestampType,
     pydantic_errors_to_messages,
-    validate_public_key,
     validate_signature,
 )
 from gumptionchain.util import now_iso
-
-
-def test_validate_public_key_returns_false_on_malformed_key():
-    assert validate_public_key('not-a-valid-base64-key') is False
-
-
-def test_validate_public_key_returns_false_on_empty_key():
-    assert validate_public_key('') is False
 
 
 def test_validate_signature_returns_false_on_malformed_address():
@@ -229,22 +220,6 @@ def test_timestamp_type_rejects_invalid():
 
     with pytest.raises(PydanticValidationError):
         M(t='not-a-timestamp')
-
-
-def test_public_key_type_accepts_valid(signing_key):
-    class M(BaseModel):
-        pk: PublicKeyType
-
-    m = M(pk=signing_key.public_key_b64)
-    assert m.pk == signing_key.public_key_b64
-
-
-def test_public_key_type_rejects_invalid():
-    class M(BaseModel):
-        pk: PublicKeyType
-
-    with pytest.raises(PydanticValidationError):
-        M(pk='not-a-key')
 
 
 def test_base64_type_truncates_long_invalid_input_in_message():

@@ -48,7 +48,6 @@ from gumptionchain.payload import (
 )
 from gumptionchain.schema import (
     AddressType,
-    PublicKeyType,
     pydantic_errors_to_messages,
     truncate,
     validate_address_format,
@@ -527,7 +526,7 @@ blueprint.add_url_rule(
 class TransferTxnQueryModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    public_key: PublicKeyType
+    signer: AddressType
     amount: int = Field(ge=1)
     address: AddressType
 
@@ -542,10 +541,9 @@ class TransferTxnView(MethodView):
             return make_error_response(_pydantic_validation_error(e))
         try:
             args = model.model_dump(exclude_none=True)
-            public_key_b64 = args['public_key']
             amount = args['amount']
             dest_address = args['address']
-            signing_key = SigningKey(b64ks=public_key_b64)
+            signing_key = SigningKey.from_address(args['signer'])
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
@@ -570,7 +568,7 @@ blueprint.add_url_rule(
 class SplitTxnQueryModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    public_key: PublicKeyType
+    signer: AddressType
     denomination: int = Field(ge=1)
     count: int = Field(ge=1, le=MAX_FLOWS - 1)
 
@@ -585,7 +583,7 @@ class SplitTxnView(MethodView):
             return make_error_response(_pydantic_validation_error(e))
         try:
             args = model.model_dump(exclude_none=True)
-            signing_key = SigningKey(b64ks=args['public_key'])
+            signing_key = SigningKey.from_address(args['signer'])
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
@@ -622,7 +620,7 @@ _RawSubjectField = Annotated[str, AfterValidator(_check_raw_subject)]
 class SubjectTxnQueryModel(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    public_key: PublicKeyType
+    signer: AddressType
     amount: int = Field(ge=1)
     subject: _RawSubjectField
 
@@ -641,10 +639,9 @@ class OppositionTxnView(MethodView):
             return make_error_response(_pydantic_validation_error(e))
         try:
             args = model.model_dump(exclude_none=True)
-            public_key_b64 = args['public_key']
             amount = args['amount']
             subject = encode_subject(args['subject'])
-            signing_key = SigningKey(b64ks=public_key_b64)
+            signing_key = SigningKey.from_address(args['signer'])
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
@@ -676,11 +673,10 @@ class RescindTxnView(MethodView):
             return make_error_response(_pydantic_validation_error(e))
         try:
             args = model.model_dump(exclude_none=True)
-            public_key_b64 = args['public_key']
             amount = args['amount']
             subject = encode_subject(args['subject'])
             kind = args['kind']
-            signing_key = SigningKey(b64ks=public_key_b64)
+            signing_key = SigningKey.from_address(args['signer'])
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()
@@ -712,10 +708,9 @@ class SupportTxnView(MethodView):
             return make_error_response(_pydantic_validation_error(e))
         try:
             args = model.model_dump(exclude_none=True)
-            public_key_b64 = args['public_key']
             amount = args['amount']
             subject = encode_subject(args['subject'])
-            signing_key = SigningKey(b64ks=public_key_b64)
+            signing_key = SigningKey.from_address(args['signer'])
             _, lc, _ = node_lc_dao()
             if lc is None:
                 raise EmptyChainError()

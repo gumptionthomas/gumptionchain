@@ -1,7 +1,7 @@
 {
   "name": "@gumptionchain/sdk",
-  "version": "0.6.0",
-  "description": "GumptionChain browser SDK — Ed25519 signing (gc-sig-v2), bech32m addresses, passkey PRF key derivation, BIP-39 recovery, backup, message signing.",
+  "version": "0.7.0",
+  "description": "GumptionChain browser SDK — Ed25519 signing (gc-sig-v1), bech32m addresses, passkey PRF key derivation, BIP-39 recovery, backup, message signing.",
   "type": "module",
   "exports": {
     ".": "./index.mjs"

@@ -153,15 +153,23 @@ def node_proxy_blueprint(
         ]
         return jsonify({'subjects': subjects})
 
+    def _signer(data: dict[str, object]) -> str:
+        # Self-certifying addresses: the build endpoints derive the signer's
+        # verify-only key straight from the address, so the relay forwards the
+        # signer address (not a carried public key). Validated here for a clean
+        # 400; the node re-validates it as AddressType.
+        signer = data.get('signer')
+        if not isinstance(signer, str) or not validate_address_format(signer):
+            raise _ProxyError(400, 'invalid signer')
+        return signer
+
     def _build(method_name: str) -> Response:
         data = request.get_json(silent=True) or {}
-        public_key = data.get('public_key')
-        if not isinstance(public_key, str) or not public_key:
-            raise _ProxyError(400, 'public_key required')
+        signer = _signer(data)
         subject = _require_subject(data.get('subject'))
         grains = _grit_to_grains(data.get('amount_grit'))
         method = getattr(make_client(), method_name)
-        return jsonify(_ok(_call(method, public_key, grains, subject)).json())
+        return jsonify(_ok(_call(method, signer, grains, subject)).json())
 
     @bp.post('/txn/support')
     def txn_support() -> Response:
@@ -177,9 +185,7 @@ def node_proxy_blueprint(
         # support/oppose build, but the destination is an address (validated
         # here for a clean 400; the node validates it as AddressType too).
         data = request.get_json(silent=True) or {}
-        public_key = data.get('public_key')
-        if not isinstance(public_key, str) or not public_key:
-            raise _ProxyError(400, 'public_key required')
+        signer = _signer(data)
         to_address = data.get('to_address')
         if not isinstance(to_address, str) or not validate_address_format(
             to_address
@@ -190,7 +196,7 @@ def node_proxy_blueprint(
             _ok(
                 _call(
                     make_client().get_transfer_transaction,
-                    public_key,
+                    signer,
                     grains,
                     to_address,
                 )
@@ -202,9 +208,7 @@ def node_proxy_blueprint(
         # Build an unsigned self-split: mint `count` chips of denomination_grit
         # each (back to the signer's own address). Client signs + submits.
         data = request.get_json(silent=True) or {}
-        public_key = data.get('public_key')
-        if not isinstance(public_key, str) or not public_key:
-            raise _ProxyError(400, 'public_key required')
+        signer = _signer(data)
         denomination = _grit_to_grains(
             data.get('denomination_grit'), field='denomination_grit'
         )
@@ -217,7 +221,7 @@ def node_proxy_blueprint(
             _ok(
                 _call(
                     make_client().get_split_transaction,
-                    public_key,
+                    signer,
                     denomination,
                     count,
                 )

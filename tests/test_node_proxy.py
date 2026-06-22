@@ -3,6 +3,10 @@ from flask import Flask
 
 from gumptionchain import node_proxy_blueprint
 
+# A valid bech32m gc1… address — the relay validates the `signer` field as an
+# address (self-certifying: the build endpoints derive the verify key from it).
+SIGNER = 'gc13sqcx509fwu3mkceq4hmll0xcufszhzajp8seuvdy22z872tn6sqxlqndc'
+
 
 class FakeResponse:
     def __init__(self, status_code, body=None, text=''):
@@ -44,24 +48,24 @@ class FakeClient:
         return self._resp('search', query, limit)
 
     def get_support_transaction(
-        self, pk, amount, subject, *, raise_for_status=True
+        self, signer, amount, subject, *, raise_for_status=True
     ):
-        return self._resp('build_support', pk, amount, subject)
+        return self._resp('build_support', signer, amount, subject)
 
     def get_opposition_transaction(
-        self, pk, amount, subject, *, raise_for_status=True
+        self, signer, amount, subject, *, raise_for_status=True
     ):
-        return self._resp('build_oppose', pk, amount, subject)
+        return self._resp('build_oppose', signer, amount, subject)
 
     def get_transfer_transaction(
-        self, pk, amount, address, *, raise_for_status=True
+        self, signer, amount, address, *, raise_for_status=True
     ):
-        return self._resp('build_transfer', pk, amount, address)
+        return self._resp('build_transfer', signer, amount, address)
 
     def get_split_transaction(
-        self, pk, denomination, count, *, raise_for_status=True
+        self, signer, denomination, count, *, raise_for_status=True
     ):
-        return self._resp('build_split', pk, denomination, count)
+        return self._resp('build_split', signer, denomination, count)
 
     def get(self, path, *, raise_for_status=True):
         return self._resp('status', path)
@@ -163,13 +167,28 @@ def test_build_support_converts_grit_and_passes_raw_subject():
     client = FakeClient(build_support=FakeResponse(200, unsigned))
     resp = _app(client).post(
         '/api/node/txn/support',
-        json={'public_key': 'PUB', 'amount_grit': 7, 'subject': 'goblins'},
+        json={'signer': SIGNER, 'amount_grit': 7, 'subject': 'goblins'},
     )
     assert resp.status_code == 200
     assert resp.get_json() == unsigned
     name, args, _ = client.calls[0]
     assert name == 'build_support'
-    assert args == ('PUB', 700, 'goblins')
+    assert args == (SIGNER, 700, 'goblins')
+
+
+def test_build_rejects_invalid_signer():
+    # The relay validates `signer` as a bech32m address (self-certifying) —
+    # a missing or malformed value is a clean 400 before the node is called.
+    client = FakeClient()
+    c = _app(client)
+    for bad in ({}, {'signer': ''}, {'signer': 'not-an-address'}):
+        resp = c.post(
+            '/api/node/txn/support',
+            json={**bad, 'amount_grit': 1, 'subject': 'x'},
+        )
+        assert resp.status_code == 400, bad
+        assert 'signer' in resp.get_json()['error']
+    assert client.calls == []
 
 
 def test_build_transfer_converts_grit_and_passes_address():
@@ -178,20 +197,20 @@ def test_build_transfer_converts_grit_and_passes_address():
     client = FakeClient(build_transfer=FakeResponse(200, unsigned))
     resp = _app(client).post(
         '/api/node/txn/transfer',
-        json={'public_key': 'PUB', 'amount_grit': 20, 'to_address': addr},
+        json={'signer': SIGNER, 'amount_grit': 20, 'to_address': addr},
     )
     assert resp.status_code == 200
     assert resp.get_json() == unsigned
     name, args, _ = client.calls[0]
     assert name == 'build_transfer'
-    assert args == ('PUB', 2000, addr)
+    assert args == (SIGNER, 2000, addr)
 
 
 def test_build_transfer_rejects_bad_address():
     client = FakeClient()
     resp = _app(client).post(
         '/api/node/txn/transfer',
-        json={'public_key': 'P', 'amount_grit': 20, 'to_address': 'nope'},
+        json={'signer': SIGNER, 'amount_grit': 20, 'to_address': 'nope'},
     )
     assert resp.status_code == 400
 
@@ -201,20 +220,20 @@ def test_build_split_converts_grit_and_passes_count():
     client = FakeClient(build_split=FakeResponse(200, unsigned))
     resp = _app(client).post(
         '/api/node/txn/split',
-        json={'public_key': 'PUB', 'denomination_grit': 2, 'count': 30},
+        json={'signer': SIGNER, 'denomination_grit': 2, 'count': 30},
     )
     assert resp.status_code == 200
     assert resp.get_json() == unsigned
     name, args, _ = client.calls[0]
     assert name == 'build_split'
-    assert args == ('PUB', 200, 30)  # 2 GRIT -> 200 grains; count passthrough
+    assert args == (SIGNER, 200, 30)  # 2 GRIT -> 200 grains; count passthrough
 
 
 def test_build_split_rejects_bad_amount():
     client = FakeClient()
     resp = _app(client).post(
         '/api/node/txn/split',
-        json={'public_key': 'P', 'denomination_grit': 0, 'count': 5},
+        json={'signer': SIGNER, 'denomination_grit': 0, 'count': 5},
     )
     assert resp.status_code == 400
     # the error names the split field, not the transfer 'amount_grit'
@@ -227,7 +246,7 @@ def test_build_split_rejects_non_positive_or_bool_count():
     for bad in (0, -1, True):  # bool is an int subclass; must be rejected
         resp = c.post(
             '/api/node/txn/split',
-            json={'public_key': 'P', 'denomination_grit': 2, 'count': bad},
+            json={'signer': SIGNER, 'denomination_grit': 2, 'count': bad},
         )
         assert resp.status_code == 400, bad
 
@@ -238,7 +257,7 @@ def test_build_rejects_non_positive_and_sub_grain_amounts():
     for bad in (0, -5, 0.001, 'x'):
         resp = c.post(
             '/api/node/txn/oppose',
-            json={'public_key': 'P', 'amount_grit': bad, 'subject': 'x'},
+            json={'signer': SIGNER, 'amount_grit': bad, 'subject': 'x'},
         )
         assert resp.status_code == 400, bad
 
@@ -310,7 +329,7 @@ def test_node_4xx_is_passed_through_as_400():
     )
     resp = _app(client).post(
         '/api/node/txn/support',
-        json={'public_key': 'P', 'amount_grit': 1, 'subject': 'x'},
+        json={'signer': SIGNER, 'amount_grit': 1, 'subject': 'x'},
     )
     assert resp.status_code == 400
     assert resp.get_json()['error'] == 'insufficient funds'
@@ -330,6 +349,6 @@ def test_oversized_body_is_413():
     c = _app(client, max_body_bytes=8)
     resp = c.post(
         '/api/node/txn/support',
-        json={'public_key': 'P', 'amount_grit': 1, 'subject': 'x'},
+        json={'signer': SIGNER, 'amount_grit': 1, 'subject': 'x'},
     )
     assert resp.status_code == 413

@@ -716,7 +716,7 @@ def create_transfer(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_transfer_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             to_address,
         )
@@ -795,7 +795,7 @@ def create_split(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_split_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(denomination_grit),
             count,
         )
@@ -872,7 +872,7 @@ def create_opposition(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_opposition_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             subject,
         )
@@ -958,7 +958,7 @@ def create_rescind(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_rescind_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             subject,
             cast(StakeKind, kind),
@@ -1036,7 +1036,7 @@ def create_support(
         )
         client = host_api_client(host=host, signing_key_file=signing_key)
         r = client.get_support_transaction(
-            txn_signing_key_obj.public_key_b64,
+            txn_signing_key_obj.address,
             grit_to_grains(amount),
             subject,
         )
@@ -1072,18 +1072,11 @@ signing_key_cli = AppGroup(
     default=None,
     help='Parent directory for the signing-key file (default from app config).',
 )
-@click.option(
-    '--ed25519',
-    'ed25519',
-    is_flag=True,
-    default=False,
-    help='Create an Ed25519 signing key instead of RSA.',
-)
 @with_appcontext
-def create_signing_key(signing_keydir: str | None, ed25519: bool) -> None:  # noqa: FBT001
+def create_signing_key(signing_keydir: str | None) -> None:
     """Create a new signing_key file."""
     signing_keydir = signing_keydir or current_app.config.get('SIGNING_KEY_DIR')
-    w = SigningKey.generate_ed25519() if ed25519 else SigningKey()
+    w = SigningKey()
     filename = w.to_file(signing_keydir=signing_keydir)
     console.print(f'Created {filename}', style='success')
 

@@ -1,9 +1,9 @@
-// GumptionChain gc-sig-v2 canonical string + GC-* signing headers.
+// GumptionChain gc-sig-v1 canonical string + GC-* signing headers.
 // Pure Web Crypto + vanilla JS. No dependencies. Browser + Node 20+.
 import { sha256Hex } from './gc-crypto.mjs';
 
-const SIG_SCHEME = 'gc-sig-v2';
-const SIG_VERSION = '2';
+const SIG_SCHEME = 'gc-sig-v1';
+const SIG_VERSION = '1';
 
 export async function canonical({
   method,

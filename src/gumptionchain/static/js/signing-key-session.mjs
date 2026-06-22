@@ -8,7 +8,7 @@
 //   - an idle timeout (default ~15 min, reset on user activity via touch()),
 //   - the page being hidden (visibilitychange -> hidden) or unloaded (pagehide).
 //
-// On lock the reference is released. An RSA CryptoKey can't be zeroed in JS, so
+// On lock the reference is released. An Ed25519 CryptoKey can't be zeroed in JS, so
 // this is best-effort: dropping the reference is the strongest available
 // guarantee. The page reload that follows a navigation away clears it fully.
 //

@@ -41,7 +41,6 @@ def sign_message(
         'scheme': MSG_SCHEME,
         'version': MSG_VERSION,
         'address': signing_key.address,
-        'public_key': signing_key.public_key_b64,
         'timestamp': ts,
         'message': message,
         'signature': signing_key.sign(canonical),
@@ -57,21 +56,17 @@ def verify_message(
     scheme = proof.get('scheme')
     version = proof.get('version')
     address = proof.get('address')
-    pubkey = proof.get('public_key')
     ts = proof.get('timestamp')
     message = proof.get('message')
     sig = proof.get('signature')
     if (
         scheme != MSG_SCHEME
         or version != MSG_VERSION
-        or not all(
-            isinstance(v, str) for v in (address, pubkey, ts, message, sig)
-        )
+        or not all(isinstance(v, str) for v in (address, ts, message, sig))
     ):
         msg = 'malformed gc-msg-v1 proof'
         raise BadProofError(msg)
     assert isinstance(address, str)
-    assert isinstance(pubkey, str)
     assert isinstance(ts, str)
     assert isinstance(message, str)
     assert isinstance(sig, str)
@@ -81,17 +76,15 @@ def verify_message(
         msg = 'malformed gc-msg-v1 proof'
         raise BadProofError(msg)
     try:
-        signing_key = SigningKey(b64ks=pubkey)
+        signing_key = SigningKey.from_address(address)
     except InvalidKeyError as e:
-        msg = 'invalid public key'
+        msg = 'invalid address'
         raise BadProofError(msg) from e
     result: dict[str, Any] = {
         'address': address,
         'timestamp': ts,
         'message': message,
     }
-    if signing_key.address != address:
-        return {**result, 'valid': False, 'reason': 'address-mismatch'}
     canonical = _message_canonical(
         address=address, timestamp=ts, message=message
     )

@@ -10,8 +10,8 @@
       "body": "",
       "node_host": "node.example",
       "timestamp": "1700000000",
-      "canonical": "gc-sig-v2\nGET\n/api/blocks\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nnode.example\n1700000000\ngc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3",
-      "signature": "3ttw0SJnMf6qBcROaE4rcZskpH8HCN8XXGbAOX0vR4TaI00wsfShUWT5so/tLO39i44T1/iwIcOV1IPJ7R5QBg=="
+      "canonical": "gc-sig-v1\nGET\n/api/blocks\n\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nnode.example\n1700000000\ngc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3",
+      "signature": "moCXfWW1wPLQwIleu/X28cGZsDi06yxcy9bgdQqXSo+cBWHaNmIYdzhRMjX9IVrQeE9UHi7ueWdjLo+HgD5YDg=="
     },
     {
       "method": "POST",
@@ -20,8 +20,8 @@
       "body": "{\"hello\":\"world\"}",
       "node_host": "node.example",
       "timestamp": "1700000001",
-      "canonical": "gc-sig-v2\nPOST\n/api/transactions\nfoo=bar\n93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588\nnode.example\n1700000001\ngc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3",
-      "signature": "TV6pF81x43ig+UWHnAOEFznpqcAXtXcgNLLfZrWG+aIRhzpoYiTJWy3Jf29WWG6vcF60SAFMpyCrIIh/Q1H2CA=="
+      "canonical": "gc-sig-v1\nPOST\n/api/transactions\nfoo=bar\n93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588\nnode.example\n1700000001\ngc10x64vt50ue20jsrckyfw32vt57gplpf6u62ma4lquwgshtgyjejqfua3x3",
+      "signature": "PU/94Lk4dxbMofjI+/8cKKzJKG/tkMztSo7qKqkgCJpT+L9bjhfIvrExYkfAr1OoGO07o/0yvCR+kCopgb1HDg=="
     }
   ]
 }

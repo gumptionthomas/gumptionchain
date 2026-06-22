@@ -142,19 +142,17 @@ def test_binding_vectors_match() -> None:
 
 
 def test_binding_vectors_verify() -> None:
-    w = SigningKey(secret=VECTOR_SECRET)
     vectors = json.loads(_BINDING_VECTORS_PATH.read_text())
     for v in vectors:
         claim = v['claim']
         assert v['message'] == build_binding_message(claim)
-        # Reconstruct a full gc-msg-v1 proof from stored fields + the known
-        # public key (vectors store only the claim-side fields; the public key
-        # is derivable from the known vector signing_key).
+        # Reconstruct a full gc-msg-v1 proof from stored fields (vectors store
+        # only the claim-side fields; verify reconstructs the public key from
+        # the address).
         proof = {
             'scheme': 'gc-msg-v1',
             'version': '1',
             'address': v['address'],
-            'public_key': w.public_key_b64,
             'timestamp': v['timestamp'],
             'message': v['message'],
             'signature': v['signature'],
