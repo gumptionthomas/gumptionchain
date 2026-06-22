@@ -5,7 +5,7 @@
 //
 // The package `version` is the embedder-API semver; it is INDEPENDENT of the
 // wire scheme ids gc-sig-v1 / gc-msg-v1 bound into signatures.
-export const version = '0.7.0';
+export const version = '0.8.0';
 
 // Identity / keys
 export { SigningKey } from './gc-signing-key.mjs';
@@ -18,7 +18,7 @@ export { canonical, signHeaders } from './gc-sig.mjs';
 
 // Passkey-anchored storage
 export { enroll, unlock, hasSigningKey, clear } from './gc-store.mjs';
-export { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
+export { makeWebauthnPasskey, recognize } from './gc-passkey-webauthn.mjs';
 export { makeIdbStore } from './gc-store-idb.mjs';
 
 // Backup / recovery

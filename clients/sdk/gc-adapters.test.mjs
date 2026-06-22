@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
+import { makeWebauthnPasskey, recognize } from './gc-passkey-webauthn.mjs';
 import { makeIdbStore } from './gc-store-idb.mjs';
 
 test('webauthn passkey adapter exposes the passkey interface', async () => {
@@ -135,6 +135,102 @@ test('discover() throws UnsupportedError when the assertion has no PRF', async (
     const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
     await assert.rejects(() => pk.discover(), /PRF/);
   });
+});
+
+// --- recognize(): thin wrapper over discover() → { recognized, address } (#315)
+
+test('recognize() returns recognized+address when a passkey carries a userHandle', async () => {
+  await withFakeWebauthn(
+    { getImpl: async () => fakeAssertion({ userHandle: 'gc1alice' }) },
+    async () => {
+      const r = await recognize({ rpId: 'gumption.com' });
+      assert.deepEqual(r, { recognized: true, address: 'gc1alice' });
+    },
+  );
+});
+
+test('recognize() forwards mediation and signal to the discovery call', async () => {
+  let seen = null;
+  await withFakeWebauthn(
+    { getImpl: async (opts) => { seen = opts; return fakeAssertion({ userHandle: 'gc1bob' }); } },
+    async () => {
+      const signal = new AbortController().signal;
+      const r = await recognize({ rpId: 'gumption.com', mediation: 'conditional', signal });
+      assert.equal(r.recognized, true);
+      assert.equal(seen.mediation, 'conditional');
+      assert.equal(seen.signal, signal);
+    },
+  );
+});
+
+test('recognize() is false+null when the user dismisses (NotAllowedError)', async () => {
+  await withFakeWebauthn(
+    { getImpl: async () => { const e = new Error('no'); e.name = 'NotAllowedError'; throw e; } },
+    async () => {
+      assert.deepEqual(await recognize({ rpId: 'gumption.com' }), { recognized: false, address: null });
+    },
+  );
+});
+
+test('recognize() is false+null when navigator is unavailable', async () => {
+  const restore = setGlobal('navigator', undefined);
+  try {
+    assert.deepEqual(await recognize({ rpId: 'gumption.com' }), { recognized: false, address: null });
+  } finally {
+    restore();
+  }
+});
+
+test('recognize() is false+null when a credential carries no userHandle', async () => {
+  await withFakeWebauthn(
+    { getImpl: async () => fakeAssertion({ userHandle: null }) },
+    async () => {
+      assert.deepEqual(await recognize({ rpId: 'gumption.com' }), { recognized: false, address: null });
+    },
+  );
+});
+
+test('recognize() defaults mediation to "optional"', async () => {
+  let seen = null;
+  await withFakeWebauthn(
+    { getImpl: async (opts) => { seen = opts; return fakeAssertion({ userHandle: 'gc1dave' }); } },
+    async () => {
+      await recognize({ rpId: 'gumption.com' });
+      assert.equal(seen.mediation, 'optional');
+    },
+  );
+});
+
+test('recognize() is false+null when the assertion has no PRF (UnsupportedError)', async () => {
+  await withFakeWebauthn(
+    { getImpl: async () => fakeAssertion({ prf: null }) },
+    async () => {
+      assert.deepEqual(await recognize({ rpId: 'gumption.com' }), { recognized: false, address: null });
+    },
+  );
+});
+
+test('recognize() is false+null when discovery is aborted (AbortError)', async () => {
+  await withFakeWebauthn(
+    { getImpl: async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; } },
+    async () => {
+      const ac = new AbortController();
+      ac.abort();
+      assert.deepEqual(
+        await recognize({ rpId: 'gumption.com', signal: ac.signal }),
+        { recognized: false, address: null },
+      );
+    },
+  );
+});
+
+test('recognize() called with no arguments is false+null (unsupported navigator)', async () => {
+  const restore = setGlobal('navigator', undefined);
+  try {
+    assert.deepEqual(await recognize(), { recognized: false, address: null });
+  } finally {
+    restore();
+  }
 });
 
 test('isConditionalAvailable() reflects platform support and never throws', async () => {
