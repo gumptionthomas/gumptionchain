@@ -36,8 +36,11 @@ import { SigningKey } from './gc-signing-key.mjs';
 
 // VERSION 2: the encrypted-key field name changed in the signing-key rename.
 // Bumping the record version makes any pre-rename record fail
-// loudly on read rather than silently miss the renamed field.
-const VERSION = 2;
+// loudly on read rather than silently miss the renamed field. Exported so the
+// onboarding controller stamps the same record-schema version on derived
+// records (which don't go through this module), keeping both kinds' record
+// shapes forward-compatible for a future schema bump.
+export const VERSION = 2;
 const SALT_BYTES = 16;
 const DEK_BYTES = 32;
 const PBKDF2_ITERATIONS = 600000;
@@ -89,6 +92,7 @@ export async function enroll(signing_key, { store }, { passphrase }) {
   const wraps = { passphrase: await passphraseWrap(passphrase, dekRaw) };
   await store.put({
     version: VERSION,
+    kind: 'wrap',
     address: await signing_key.address(),
     signing_key_ct,
     wraps,

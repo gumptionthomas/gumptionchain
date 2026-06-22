@@ -63,6 +63,7 @@ test('the stored record is always ciphertext (no plaintext secret/DEK leaks)', a
   );
   assert.ok(!blob.includes(secret), 'plaintext secret must not appear in the record');
   assert.equal(rec.version, 2);
+  assert.equal(rec.kind, 'wrap');
   assert.equal(rec.address, await w.address());
   assert.ok(rec.signing_key_ct && rec.signing_key_ct.iv && rec.signing_key_ct.ciphertext);
   assert.ok(rec.wraps.passphrase.salt && rec.wraps.passphrase.iterations);

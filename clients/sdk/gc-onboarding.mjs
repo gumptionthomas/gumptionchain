@@ -2,11 +2,19 @@
 // low-level gc-* modules into create / back up / restore / unlock / sign-login
 // over a single in-memory unlocked-key holder. NO DOM, NO CSS, NO framework:
 // the consuming app owns all markup and renders from status() + onChange().
+//
+// Kind-aware (two identity kinds behind one surface):
+//   - 'derived' — a passkey identity whose seed = KDF(passkey-PRF) (No-2FA). The
+//     record holds { kind, address, credentialId } and NO key material; the key
+//     is re-derived from the passkey on demand (makeDerivedIdentity.resolve).
+//   - 'wrap'    — a random key encrypted in the keyring, unlockable by passphrase
+//     (and optionally a non-resident convenience passkey).
 import { SigningKey } from './gc-signing-key.mjs';
 import * as keyring from './gc-keyring.mjs';
 import { makeIdbStore } from './gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from './gc-backup.mjs';
 import { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
+import { makeDerivedIdentity } from './gc-derived-identity.mjs';
 import { signMessage } from './gc-message.mjs';
 import { signUnsignedTxn } from './gc-transaction.mjs';
 import {
@@ -38,15 +46,14 @@ export function makeOnboarding({
   // A passkey adapter is built from rpId/rpName unless one is injected; absent
   // both, passkey features stay unavailable (status reports passkeySupported:false).
   const pk = passkey ?? ((rpId && rpName) ? makeWebauthnPasskey({ rpId, rpName }) : null);
+  // The derive flow (enroll/resolve) composes the same passkey adapter.
+  const derived = pk ? makeDerivedIdentity({ passkey: pk }) : null;
 
   let key = null; // the in-memory unlocked SigningKey, or null when locked
   const listeners = new Set();
 
   const secureContext = () => Boolean(win && win.isSecureContext);
 
-  // Feature-detect passkey support: an adapter must exist, the context must be
-  // secure, and the adapter must report support (guarded — a throwing adapter
-  // counts as unsupported). Reused by status() and create().
   async function passkeySupported() {
     if (!(pk && secureContext())) return false;
     try {
@@ -56,8 +63,16 @@ export function makeOnboarding({
     }
   }
 
-  // Which unlock methods the STORED record is enrolled under, read from its
-  // wraps without unlocking. Stable order: passphrase, then passkey.
+  // The stored record's identity kind. New records always carry `kind`; a stale
+  // record with keyring `wraps` and no `kind` reads as 'wrap' (a non-crashing
+  // default, NOT a migration path — greenfield recreates the dev DB).
+  function recordKind(rec) {
+    if (!rec) return null;
+    return rec.kind ?? (rec.wraps ? 'wrap' : null);
+  }
+
+  // Which unlock methods a WRAP record is enrolled under, read from its wraps
+  // without unlocking. Derived records have no wraps -> []. Stable order.
   function enrolledMethods(rec) {
     const wraps = (rec && rec.wraps) || {};
     return ['passphrase', 'passkey'].filter((m) => Boolean(wraps[m]));
@@ -65,16 +80,19 @@ export function makeOnboarding({
 
   async function status() {
     const rec = await store.get();
+    const kind = recordKind(rec);
     const address = key ? await key.address() : (rec ? rec.address : null);
     const methods = enrolledMethods(rec);
     return {
       hasKey: Boolean(rec),
       unlocked: Boolean(key),
+      kind,
       address,
       // passkeySupported = device capability; passkeyEnrolled = stored state.
-      // Gate an "add a passkey" affordance on supported && !enrolled.
+      // A derived identity IS a passkey; a wrap identity is passkey-enrolled
+      // when it carries a passkey wrap.
       passkeySupported: await passkeySupported(),
-      passkeyEnrolled: methods.includes('passkey'),
+      passkeyEnrolled: kind === 'derived' || methods.includes('passkey'),
       methods,
       secureContext: secureContext(),
     };
@@ -97,25 +115,55 @@ export function makeOnboarding({
     return () => listeners.delete(fn);
   }
 
-  function passkeyIds(userName, address) {
-    return { userId: address, userName: userName || address };
+  // userId/userName + an optional residentKey preference for passkey enrollment.
+  function passkeyIds(userName, address, residentKey) {
+    return {
+      userId: address,
+      userName: userName || address,
+      ...(residentKey ? { residentKey } : {}),
+    };
   }
 
+  // A passkey at create time means DERIVE (seed = KDF(PRF), No-2FA). Without a
+  // (supported) passkey it's a passphrase-WRAP identity. An unsupported passkey
+  // falls back to wrap rather than throwing.
   async function create({ passphrase, withPasskey = false, userName } = {}) {
+    if (withPasskey && (await passkeySupported())) {
+      const { signing_key, address, mnemonic, credentialId } =
+        await derived.enroll({ userName });
+      await store.put({
+        version: keyring.VERSION, kind: 'derived', address, credentialId,
+      });
+      key = signing_key;
+      await notify();
+      return { kind: 'derived', address, mnemonic };
+    }
     const sk = await SigningKey.generate();
     await keyring.enroll(sk, { store }, { passphrase });
-    const address = await sk.address();
-    if (withPasskey && (await passkeySupported())) {
-      await keyring.addPasskey(
-        { store, passkey: pk }, { passphrase }, passkeyIds(userName, address),
-      );
-    }
     key = sk;
     await notify();
-    return { address };
+    return { kind: 'wrap', address: await sk.address() };
   }
 
   async function unlock({ passphrase, passkey: usePasskey } = {}) {
+    const rec = await store.get();
+    if (recordKind(rec) === 'derived') {
+      if (!derived) {
+        throw new NoSigningKeyError(
+          'no passkey adapter to rehydrate a derived identity',
+        );
+      }
+      // No-2FA: re-derive from the passkey PRF and match the stored address.
+      const r = await derived.resolve({ expectedAddress: rec.address });
+      if (r.status !== 'ok') {
+        // no-passkey / needs-passphrase / mismatch — can't rehydrate here. The
+        // hub treats this as "offer import", never a passphrase prompt.
+        throw new NoSigningKeyError('could not rehydrate this passkey identity');
+      }
+      key = r.signing_key;
+      await notify();
+      return { address: await key.address() };
+    }
     key = await keyring.unlock(
       { store, passkey: usePasskey ? pk : undefined },
       { passphrase },
@@ -124,16 +172,56 @@ export function makeOnboarding({
     return { address: await key.address() };
   }
 
-  async function restore({ backup, passphrase } = {}) {
-    const artifact = typeof backup === 'string' ? JSON.parse(backup) : backup;
-    const sk = await importEncrypted(artifact, passphrase);
+  // A recovery phrase OR an encrypted backup both land as a WRAP identity —
+  // seamlessness can't follow a phrase (no new passkey reproduces an old
+  // passkey's PRF). Derived identities don't "restore"; a synced passkey just
+  // unlock()s them.
+  async function restore({ mnemonic, backup, passphrase } = {}) {
+    let sk;
+    if (mnemonic != null) {
+      sk = await SigningKey.fromMnemonic(mnemonic);
+    } else if (backup != null) {
+      const artifact = typeof backup === 'string' ? JSON.parse(backup) : backup;
+      sk = await importEncrypted(artifact, passphrase);
+    } else {
+      throw new BadBackupError('restore requires a mnemonic or a backup');
+    }
+    if (passphrase == null || passphrase === '') {
+      throw new BadPassphraseError(
+        'a passphrase is required to store a restored identity',
+      );
+    }
     await keyring.enroll(sk, { store }, { passphrase });
     key = sk;
     await notify();
-    return { address: await sk.address() };
+    return { kind: 'wrap', address: await sk.address() };
   }
 
   async function backup({ passphrase } = {}) {
+    const rec = await store.get();
+    if (recordKind(rec) === 'derived') {
+      // Return the recovery phrase. Use the held key if unlocked, else tap the
+      // passkey to re-derive — without leaving a previously-locked id unlocked.
+      const wasLocked = !key;
+      let sk = key;
+      if (wasLocked) {
+        if (!derived) {
+          throw new NoSigningKeyError(
+            'no passkey adapter to back up a derived identity',
+          );
+        }
+        const r = await derived.resolve({ expectedAddress: rec.address });
+        if (r.status !== 'ok') {
+          throw new NoSigningKeyError(
+            'could not rehydrate this passkey identity',
+          );
+        }
+        sk = r.signing_key;
+      }
+      const mnemonic = await sk.mnemonic();
+      await notify();
+      return { kind: 'derived', mnemonic };
+    }
     const wasLocked = !key;
     if (wasLocked) {
       key = await keyring.unlock({ store }, { passphrase });
@@ -144,15 +232,19 @@ export function makeOnboarding({
       key = null; // a backup is a read; don't leave the key unlocked
     }
     await notify();
-    return { artifact, filename };
+    return { kind: 'wrap', artifact, filename };
   }
 
+  // Add a NON-RESIDENT convenience passkey to a wrap identity. Non-resident
+  // (residentKey:'discouraged') keeps it out of other origins' discover(), so it
+  // can't produce hollow cross-app recognition. (A preference, not a guarantee —
+  // some authenticators make it discoverable anyway; a strong mitigation.)
   async function addPasskey({ passphrase, userName } = {}) {
     const rec = await store.get();
     const address = await keyring.addPasskey(
       { store, passkey: pk },
       { passphrase },
-      passkeyIds(userName, rec ? rec.address : undefined),
+      passkeyIds(userName, rec ? rec.address : undefined, 'discouraged'),
     );
     await notify();
     return { address };

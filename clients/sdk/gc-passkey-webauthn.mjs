@@ -111,7 +111,7 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
       );
     },
 
-    async enroll({ userId, userName } = {}) {
+    async enroll({ userId, userName, residentKey = 'required' } = {}) {
       const idBytes =
         typeof userId === 'string'
           ? new TextEncoder().encode(userId)
@@ -125,7 +125,7 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
             { type: 'public-key', alg: -7 },
             { type: 'public-key', alg: -257 },
           ],
-          authenticatorSelection: { residentKey: 'required', userVerification },
+          authenticatorSelection: { residentKey, userVerification },
           extensions: { prf: { eval: { first: PRF_SALT } } },
         },
       });
