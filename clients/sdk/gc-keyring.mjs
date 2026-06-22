@@ -89,6 +89,7 @@ export async function enroll(signing_key, { store }, { passphrase }) {
   const wraps = { passphrase: await passphraseWrap(passphrase, dekRaw) };
   await store.put({
     version: VERSION,
+    kind: 'wrap',
     address: await signing_key.address(),
     signing_key_ct,
     wraps,
