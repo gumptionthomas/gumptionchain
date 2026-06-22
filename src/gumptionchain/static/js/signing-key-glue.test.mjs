@@ -473,3 +473,188 @@ test('whichControls shows derive + recognize only when a passkey is usable and n
   assert.equal(has.showCreateDerive, false);
   assert.equal(has.showRecognize, false);
 });
+
+// --- derive-create / recognize / kind-aware backup via init (#330) --------
+// These exercise the DOM wiring added to init(). They reuse the fakeElement /
+// memStorage helpers above, but extend the fake DOM with a getElementById()
+// (the recovery-phrase partial addresses its nodes by bare id) and a
+// createElement() so recoveryPhrase.init can render the words into the fake
+// #rp-words container. The same fake is passed as both `root` and `doc`.
+
+// A richer fake DOM: querySelector('#x') and getElementById('x') resolve to the
+// SAME cached node, so the glue ($('#rp-words')) and the recovery-phrase partial
+// ($('rp-words')) see one element. createElement returns append-able stubs.
+function fakeDom() {
+  const nodes = {};
+  const node = (key) => (nodes[key] ??= fakeElement());
+  const makeNode = () => {
+    const el = fakeElement();
+    el.className = '';
+    el.append = () => {};
+    el.replaceChildren = () => {};
+    return el;
+  };
+  return {
+    querySelector(sel) {
+      return node(sel.startsWith('#') ? sel.slice(1) : sel);
+    },
+    getElementById(id) {
+      return node(id);
+    },
+    querySelectorAll() {
+      return [];
+    },
+    createElement() {
+      return makeNode();
+    },
+    get body() {
+      return node('body');
+    },
+  };
+}
+
+function memStore(seed = null) {
+  let record = seed;
+  return {
+    get: async () => record,
+    put: async (rec) => {
+      record = rec;
+    },
+    delete: async () => {
+      record = null;
+    },
+  };
+}
+
+// A fake passkey matching the gc-passkey-webauthn surface the new flows need:
+// enroll()->{credentialId, prfOutput}, discover()->{credentialId, prfOutput,
+// userHandle}, isSupported()->true. prfOutput is a deterministic seed so the
+// derived address is reproducible across enroll/discover.
+function fakePasskey({ prfOutput, userHandle = null, credentialId = 'cred-1' } = {}) {
+  const prf = prfOutput ?? new Uint8Array(32).fill(7);
+  return {
+    isSupported: () => true,
+    enroll: async () => ({ credentialId, prfOutput: prf }),
+    discover: async () => ({ credentialId, prfOutput: prf, userHandle }),
+  };
+}
+
+test('init: derive-create persists a derived record (no ciphertext) + shows the recovery phrase', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const store = memStore();
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  const prfOutput = new Uint8Array(32).fill(3);
+  const passkey = fakePasskey({ prfOutput });
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+
+  dom.querySelector('#create-derive-btn');
+  await dom.querySelector('#create-derive-btn').click();
+
+  const rec = await store.get();
+  assert.notEqual(rec, null);
+  assert.equal(rec.kind, 'derived');
+  assert.equal(rec.version, 2);
+  // The derived address matches the seed-derived key's address.
+  const { deriveSigningKey } = await import('../sdk/gc-derive.mjs');
+  const sk = await deriveSigningKey(prfOutput);
+  assert.equal(rec.address, await sk.address());
+  assert.equal(rec.credentialId, 'cred-1');
+  // A derived record holds NO wrap ciphertext.
+  assert.equal(rec.signing_key_ct, undefined);
+  assert.equal(rec.wraps, undefined);
+  // The live key was handed to the session and the recovery section revealed.
+  assert.equal(session.isUnlocked(), true);
+  assert.equal(dom.querySelector('#recovery-phrase-section').hidden, false);
+});
+
+test('init: derive-create is blocked by the trust gate (no record, error status)', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const store = memStore();
+  // No trust-ack written and the checkbox is unchecked -> gate fails.
+  const storage = memStorage();
+  const passkey = fakePasskey();
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  // Ensure the trust-ack checkbox is unchecked.
+  dom.querySelector('#trust-ack').checked = false;
+  await dom.querySelector('#create-derive-btn').click();
+
+  assert.equal(await store.get(), null);
+  assert.equal(session.isUnlocked(), false);
+  assert.equal(dom.querySelector('#create-derive-status').dataset.kind, 'error');
+});
+
+test('init: recognize adopts a DERIVED passkey (random userHandle) into the session', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const store = memStore();
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  const prfOutput = new Uint8Array(32).fill(9);
+  // A non-address userHandle -> classifyRecognition returns 'derived' -> adopt.
+  const passkey = fakePasskey({ prfOutput, userHandle: 'random-handle-xyz' });
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  await dom.querySelector('#recognize-btn').click();
+
+  const { deriveSigningKey } = await import('../sdk/gc-derive.mjs');
+  const expected = await (await deriveSigningKey(prfOutput)).address();
+  const rec = await store.get();
+  assert.notEqual(rec, null);
+  assert.equal(rec.kind, 'derived');
+  assert.equal(rec.address, expected);
+  assert.equal(session.isUnlocked(), true);
+  assert.match(dom.querySelector('#recognize-status').textContent, /Signed in as/);
+});
+
+test('init: recognize on a WRAP passkey (phantom guard) routes to restore, persists nothing', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const store = memStore();
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  const prfOutput = new Uint8Array(32).fill(11);
+  // A real gc address as userHandle that DIFFERS from the PRF-derived address:
+  // this is a wrap identity's passkey discovered on a foreign device.
+  const otherAddress = await (await SigningKey.generate()).address();
+  const passkey = fakePasskey({ prfOutput, userHandle: otherAddress });
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  await dom.querySelector('#recognize-btn').click();
+
+  assert.equal(await store.get(), null);
+  assert.equal(session.isUnlocked(), false);
+  assert.match(dom.querySelector('#recognize-status').textContent, /restore/i);
+});
+
+test('init: backup on a DERIVED record shows the recovery phrase (no download)', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const prfOutput = new Uint8Array(32).fill(5);
+  const { deriveSigningKey } = await import('../sdk/gc-derive.mjs');
+  const derivedAddress = await (await deriveSigningKey(prfOutput)).address();
+  const store = memStore({
+    version: 2,
+    kind: 'derived',
+    address: derivedAddress,
+    credentialId: 'cred-1',
+  });
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  const passkey = fakePasskey({ prfOutput });
+
+  // A doc whose createElement counts download attempts (there must be none).
+  let anchorsCreated = 0;
+  const baseCreate = dom.createElement.bind(dom);
+  dom.createElement = (tag) => {
+    if (tag === 'a') anchorsCreated += 1;
+    return baseCreate(tag);
+  };
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  await dom.querySelector('#backup-btn').click();
+
+  // The derived branch reveals the recovery section and does NOT download.
+  assert.equal(dom.querySelector('#recovery-phrase-section').hidden, false);
+  assert.equal(anchorsCreated, 0);
+});
