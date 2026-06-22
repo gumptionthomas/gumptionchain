@@ -145,3 +145,27 @@ export function makeWebauthnPasskey({ rpId, rpName, userVerification = 'preferre
     isConditionalAvailable,
   };
 }
+
+// Member-kit recognition: "is a returning EGU user here, and who are they?"
+// A thin convenience over discover() — build a discover-only adapter for rpId,
+// run discovery, and map to { recognized, address }. NEVER throws for the
+// absent / cancelled / unsupported paths (discover() returns null for dismissal
+// and an unsupported navigator; PRF-absent throws UnsupportedError, caught here);
+// any unexpected error also resolves to { recognized: false } so a "who's here?"
+// hint always lets the caller fall through to "create". address is the decoded
+// userHandle (the enrolled userId; the EGU convention is that this is the GC
+// address) — generic at the SDK layer. rpName is unused by discover(), so rpId
+// is passed as a harmless placeholder.
+export async function recognize({ rpId, mediation = 'optional', signal } = {}) {
+  const pk = makeWebauthnPasskey({ rpId, rpName: rpId });
+  let found;
+  try {
+    found = await pk.discover({ mediation, signal });
+  } catch {
+    return { recognized: false, address: null };
+  }
+  if (!found || !found.userHandle) {
+    return { recognized: false, address: null };
+  }
+  return { recognized: true, address: found.userHandle };
+}
