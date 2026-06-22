@@ -13,10 +13,16 @@ import { makeIdbStore } from '../sdk/gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from '../sdk/gc-backup.mjs';
 import { session as defaultSession } from './signing-key-session.mjs';
 import { makePasskey } from './signing-key-passkey.mjs';
-import { decodeAddress } from '../sdk/gc-bech32.mjs';
-import { makeDerivedIdentity } from '../sdk/gc-derived-identity.mjs';
+import {
+  classifyRecognition, makeDerivedIdentity,
+} from '../sdk/gc-derived-identity.mjs';
 import { deriveSigningKey } from '../sdk/gc-derive.mjs';
 import * as recoveryPhrase from './signing-key-recovery-phrase.mjs';
+
+// Re-exported so the page glue + existing tests import the phantom guard from
+// here, while the implementation is single-sourced in the SDK (shared with
+// makeOnboarding.recognize() — the security-critical check can't drift).
+export { classifyRecognition };
 
 // Re-exported so existing importers (and tests) of signing-key-glue keep working;
 // the implementation now lives in the shared signing-key-passkey module so /transact
@@ -67,18 +73,6 @@ export function recognitionOutcome(r) {
   if (r && r.recognized && r.kind === 'derived') return 'rehydrated';
   if (r && r.recognized && r.kind === 'wrap') return 'restore';
   return 'none';
-}
-
-// The phantom guard (pure): a discovered passkey is a WRAP identity's passkey
-// iff its userHandle is a real gc address that disagrees with the PRF-derived
-// address (the PRF isn't this identity's seed). Otherwise it's DERIVED — adopt
-// the derived address. Mirrors onb.recognize()'s discriminator.
-export function classifyRecognition({ userHandle, derivedAddress }) {
-  if (userHandle != null && decodeAddress(userHandle) !== null
-      && userHandle !== derivedAddress) {
-    return 'wrap';
-  }
-  return 'derived';
 }
 
 // A stable, address-tagged filename for the downloaded encrypted backup.
