@@ -131,7 +131,9 @@ export function makeOnboarding({
     if (withPasskey && (await passkeySupported())) {
       const { signing_key, address, mnemonic, credentialId } =
         await derived.enroll({ userName });
-      await store.put({ kind: 'derived', address, credentialId });
+      await store.put({
+        version: keyring.VERSION, kind: 'derived', address, credentialId,
+      });
       key = signing_key;
       await notify();
       return { kind: 'derived', address, mnemonic };

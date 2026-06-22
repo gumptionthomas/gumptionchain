@@ -145,8 +145,9 @@ test('create({withPasskey}) derives a passkey identity: returns kind+mnemonic, n
   assert.equal(kind, 'derived');
   assert.ok(address.startsWith('gc1'));
   assert.equal(mnemonic.split(' ').length, 24);
-  // record carries kind + credentialId, NO signing_key_ct / wraps
+  // record carries version + kind + credentialId, NO signing_key_ct / wraps
   const rec = await store.get();
+  assert.equal(rec.version, 2);
   assert.equal(rec.kind, 'derived');
   assert.equal(rec.credentialId, 'cred1');
   assert.equal(rec.signing_key_ct, undefined);
@@ -217,6 +218,11 @@ test('wrap backup yields an encrypted artifact (no raw key) + filename; restore 
   assert.equal(kind, 'wrap');
   assert.equal(artifact.kind, 'gc-signing-key-backup');
   assert.match(filename, /^gc-signing-key-backup-.*\.json$/);
+  // the artifact is exactly the encrypted envelope — no plaintext / extra fields
+  assert.deepEqual(
+    Object.keys(artifact).sort(),
+    ['address', 'ciphertext', 'iv', 'kdf', 'kind', 'version'],
+  );
 
   const onb2 = makeOnboarding({ store: fakeStore(), window: SECURE });
   const r = await onb2.restore({ backup: JSON.stringify(artifact), passphrase: 'pw' });
@@ -242,6 +248,7 @@ test('signLogin requires unlocked and produces a verifiable gc-msg-v1 proof', as
   await onb.unlock({ passphrase: 'pw' });
   const proof = await onb.signLogin('login:abc');
   assert.equal(proof.scheme, 'gc-msg-v1');
+  assert.equal(proof.message, 'login:abc');
   const v = await verifyMessage(proof, { maxAge: Number.MAX_SAFE_INTEGER });
   assert.equal(v.valid, true);
 });
@@ -252,6 +259,7 @@ test('forget deletes the device record', async () => {
   await onb.forget();
   const s = await onb.status();
   assert.equal(s.hasKey, false);
+  assert.equal(s.unlocked, false);
 });
 
 test('signTransaction: throws when locked; signs a node-built unsigned txn when unlocked', async () => {
