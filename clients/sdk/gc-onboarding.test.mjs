@@ -292,3 +292,79 @@ test('discover() delegates to the passkey adapter; null without one', async () =
   const onb2 = makeOnboarding({ store: fakeStore(), window: SECURE });
   assert.equal(await onb2.discover(), null);
 });
+
+// --- onb.recognize(): discover -> derive -> adopt on entry (#328) ----------
+
+// A passkey fake whose discover() returns a chosen userHandle. enroll/unlock
+// return the same PRF so the derived address is deterministic.
+function recognizePasskey({ prfFill = 7, credentialId = 'credR', userHandle = null } = {}) {
+  const PRF = new Uint8Array(32).fill(prfFill);
+  return {
+    PRF,
+    isSupported: async () => true,
+    enroll: async () => ({ credentialId, prfOutput: PRF }),
+    unlock: async () => PRF,
+    discover: async () => ({ credentialId, prfOutput: PRF, userHandle }),
+  };
+}
+
+test('recognize() adopts a derived passkey (random non-address userHandle)', async () => {
+  const pk = recognizePasskey({ prfFill: 11, credentialId: 'credD', userHandle: 'not-an-address' });
+  const store = fakeStore();
+  const onb = makeOnboarding({ store, window: SECURE, passkey: pk });
+  const D = await (await deriveSigningKey(pk.PRF)).address();
+  const r = await onb.recognize();
+  assert.deepEqual(r, { recognized: true, kind: 'derived', address: D });
+  const rec = await store.get();
+  assert.equal(rec.version, 2);
+  assert.equal(rec.kind, 'derived');
+  assert.equal(rec.address, D);
+  assert.equal(rec.credentialId, 'credD');
+  assert.equal(rec.signing_key_ct, undefined);
+  assert.equal(rec.wraps, undefined);
+  assert.equal((await onb.status()).unlocked, true);
+});
+
+test('recognize() adopts when the userHandle equals the derived address', async () => {
+  const PRF_FILL = 13;
+  const D = await (await deriveSigningKey(new Uint8Array(32).fill(PRF_FILL))).address();
+  const pk = recognizePasskey({ prfFill: PRF_FILL, credentialId: 'credE', userHandle: D });
+  const store = fakeStore();
+  const onb = makeOnboarding({ store, window: SECURE, passkey: pk });
+  const r = await onb.recognize();
+  assert.deepEqual(r, { recognized: true, kind: 'derived', address: D });
+  assert.equal((await store.get()).kind, 'derived');
+});
+
+test('recognize() does NOT adopt a wrap passkey — phantom guard', async () => {
+  const wrapAddr = await (await SigningKey.generate()).address(); // a real address
+  const pk = recognizePasskey({ prfFill: 17, credentialId: 'credW', userHandle: wrapAddr });
+  const D = await (await deriveSigningKey(pk.PRF)).address();
+  assert.notEqual(wrapAddr, D); // sanity: the address claim differs from the derived one
+  const store = fakeStore();
+  const onb = makeOnboarding({ store, window: SECURE, passkey: pk });
+  const r = await onb.recognize();
+  assert.deepEqual(r, { recognized: true, kind: 'wrap', address: wrapAddr });
+  assert.equal(await store.get(), null);              // nothing persisted
+  assert.equal((await onb.status()).unlocked, false); // key not held
+});
+
+test('recognize() is recognized:false when discover finds nothing', async () => {
+  const pk = { isSupported: async () => true, discover: async () => null };
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: pk });
+  assert.deepEqual(await onb.recognize(), { recognized: false });
+});
+
+test('recognize() is recognized:false with no passkey adapter', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
+  assert.deepEqual(await onb.recognize(), { recognized: false });
+});
+
+test('recognize() is recognized:false when discover throws (PRF absent / unsupported)', async () => {
+  const pk = {
+    isSupported: async () => true,
+    discover: async () => { throw new Error('passkey PRF not available'); },
+  };
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: pk });
+  assert.deepEqual(await onb.recognize(), { recognized: false });
+});

@@ -15,6 +15,8 @@ import { makeIdbStore } from './gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from './gc-backup.mjs';
 import { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
 import { makeDerivedIdentity } from './gc-derived-identity.mjs';
+import { deriveSigningKey } from './gc-derive.mjs';
+import { decodeAddress } from './gc-bech32.mjs';
 import { signMessage } from './gc-message.mjs';
 import { signUnsignedTxn } from './gc-transaction.mjs';
 import {
@@ -273,6 +275,45 @@ export function makeOnboarding({
     return pk.discover(opts);
   }
 
+  // Recognition on entry: discover an existing Gumption passkey on the rpId,
+  // derive its address, and ADOPT a derived identity (persist the record +
+  // hold the key) — or report a recognized wrap identity without adopting.
+  // For a device with NO local identity: adopting OVERWRITES the singleton
+  // store record, so callers must invoke this only when status().hasKey is
+  // false (the hub gates on exactly that). Never throws for the absent /
+  // cancel / unsupported / PRF-absent paths — they resolve to recognized:false.
+  async function recognize() {
+    let found;
+    try {
+      found = await discover();
+    } catch {
+      return { recognized: false };
+    }
+    if (!found) {
+      return { recognized: false };
+    }
+    const sk = await deriveSigningKey(found.prfOutput);
+    const derivedAddress = await sk.address();
+    const uh = found.userHandle;
+    if (uh != null && decodeAddress(uh) !== null && uh !== derivedAddress) {
+      // WRAP passkey: its PRF unlocks a keyring — it is NOT the signing seed,
+      // so deriving it yields a phantom address. Recognize WHO (the userHandle
+      // address), but adopt nothing (the real key isn't derivable here).
+      return { recognized: true, kind: 'wrap', address: uh };
+    }
+    // DERIVED passkey: userHandle is random (not an address), or it backs the
+    // derived address — adopt it (the same record create({withPasskey}) writes).
+    await store.put({
+      version: keyring.VERSION,
+      kind: 'derived',
+      address: derivedAddress,
+      credentialId: found.credentialId,
+    });
+    key = sk;
+    await notify();
+    return { recognized: true, kind: 'derived', address: derivedAddress };
+  }
+
   async function lock() {
     key = null;
     await notify();
@@ -286,6 +327,6 @@ export function makeOnboarding({
 
   return {
     status, onChange, create, unlock, restore, backup, addPasskey, discover,
-    signLogin, signTransaction, lock, forget,
+    recognize, signLogin, signTransaction, lock, forget,
   };
 }
