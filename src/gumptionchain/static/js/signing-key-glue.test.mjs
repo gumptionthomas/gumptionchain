@@ -9,6 +9,11 @@ import {
   init,
   UNSUPPORTED_MSG,
 } from './signing-key-glue.mjs';
+import {
+  createPathFor,
+  recognitionOutcome,
+  classifyRecognition,
+} from './signing-key-glue.mjs';
 import { SigningKey } from '../sdk/gc-signing-key.mjs';
 import { makeSession } from './signing-key-session.mjs';
 
@@ -430,4 +435,41 @@ test('init: backup restore on an Ed25519-unsupported browser shows the update me
   } finally {
     SigningKey.isSupported = orig;
   }
+});
+
+// --- derive create + recognize phantom guard (#330) ----------------------
+
+test('createPathFor picks derive when passkeys are supported, else wrap', () => {
+  assert.equal(createPathFor({ passkeySupported: true }), 'derive');
+  assert.equal(createPathFor({ passkeySupported: false }), 'wrap');
+});
+
+test('recognitionOutcome maps the recognize verdict to a hub-style action', () => {
+  assert.equal(recognitionOutcome({ recognized: true, kind: 'derived' }), 'rehydrated');
+  assert.equal(recognitionOutcome({ recognized: true, kind: 'wrap' }), 'restore');
+  assert.equal(recognitionOutcome({ recognized: false }), 'none');
+  assert.equal(recognitionOutcome(null), 'none');
+});
+
+test('classifyRecognition is the phantom guard: wrap iff userHandle is a real address != D', async () => {
+  const { SigningKey } = await import('../sdk/gc-signing-key.mjs');
+  const D = await (await SigningKey.generate()).address();
+  const other = await (await SigningKey.generate()).address();
+  assert.equal(classifyRecognition({ userHandle: 'not-an-address', derivedAddress: D }), 'derived');
+  assert.equal(classifyRecognition({ userHandle: null, derivedAddress: D }), 'derived');
+  assert.equal(classifyRecognition({ userHandle: D, derivedAddress: D }), 'derived');
+  assert.equal(classifyRecognition({ userHandle: other, derivedAddress: D }), 'wrap');
+});
+
+test('whichControls shows derive + recognize only when a passkey is usable and no key', () => {
+  const keyless = whichControls({ hasSigningKey: false, unlocked: false, secureContext: true, passkeySupported: true });
+  assert.equal(keyless.showCreateDerive, true);
+  assert.equal(keyless.showRecognize, true);
+  const noPasskey = whichControls({ hasSigningKey: false, unlocked: false, secureContext: false, passkeySupported: false });
+  assert.equal(noPasskey.showCreateDerive, false);
+  assert.equal(noPasskey.showRecognize, false);
+  assert.equal(noPasskey.showCreate, true);
+  const has = whichControls({ hasSigningKey: true, unlocked: false, secureContext: true, passkeySupported: true });
+  assert.equal(has.showCreateDerive, false);
+  assert.equal(has.showRecognize, false);
 });

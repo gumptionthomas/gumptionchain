@@ -13,6 +13,7 @@ import { makeIdbStore } from '../sdk/gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from '../sdk/gc-backup.mjs';
 import { session as defaultSession } from './signing-key-session.mjs';
 import { makePasskey } from './signing-key-passkey.mjs';
+import { decodeAddress } from '../sdk/gc-bech32.mjs';
 
 // Re-exported so existing importers (and tests) of signing-key-glue keep working;
 // the implementation now lives in the shared signing-key-passkey module so /transact
@@ -44,7 +45,37 @@ export function whichControls({
     showAddPasskey: !!hasSigningKey && !!unlocked && passkeyOk,
     showBackup: !!hasSigningKey,
     showForget: !!hasSigningKey,
+    // Keyless device with a usable passkey leads with the seamless derive
+    // create + recognize affordances; without a passkey it falls back to the
+    // passphrase create/import controls above.
+    showCreateDerive: !hasSigningKey && passkeyOk,
+    showRecognize: !hasSigningKey && passkeyOk,
   };
+}
+
+// Which create affordance a keyless device leads with: derive (seamless) when
+// passkeys work, else the passphrase wrap fallback.
+export function createPathFor(status) {
+  return status && status.passkeySupported ? 'derive' : 'wrap';
+}
+
+// Map a recognize verdict to the page action.
+export function recognitionOutcome(r) {
+  if (r && r.recognized && r.kind === 'derived') return 'rehydrated';
+  if (r && r.recognized && r.kind === 'wrap') return 'restore';
+  return 'none';
+}
+
+// The phantom guard (pure): a discovered passkey is a WRAP identity's passkey
+// iff its userHandle is a real gc address that disagrees with the PRF-derived
+// address (the PRF isn't this identity's seed). Otherwise it's DERIVED — adopt
+// the derived address. Mirrors onb.recognize()'s discriminator.
+export function classifyRecognition({ userHandle, derivedAddress }) {
+  if (userHandle != null && decodeAddress(userHandle) !== null
+      && userHandle !== derivedAddress) {
+    return 'wrap';
+  }
+  return 'derived';
 }
 
 // A stable, address-tagged filename for the downloaded encrypted backup.
