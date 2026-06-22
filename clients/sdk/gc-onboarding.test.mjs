@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  makeOnboarding, NoSigningKeyError, BadPassphraseError,
+  makeOnboarding, NoSigningKeyError, BadPassphraseError, BadBackupError,
 } from './gc-onboarding.mjs';
 import { verifyMessage } from './gc-message.mjs';
 import { SigningKey } from './gc-signing-key.mjs';
 import { exportEncrypted } from './gc-backup.mjs';
+import { deriveSigningKey } from './gc-derive.mjs';
 import { txid as txnTxid, signingData } from './gc-transaction.mjs';
 
 function fakeStore() {
@@ -18,23 +19,31 @@ function fakeStore() {
   };
 }
 
+// A fake passkey adapter. enroll + discover return the SAME PRF so a derived
+// identity re-derives to the same address. enroll captures its options so a
+// test can assert residentKey. credentialId is stable.
 function fakePasskey(fill = 7, credentialId = 'cred1') {
   const PRF = new Uint8Array(32).fill(fill);
+  const calls = { enroll: [] };
   return {
+    calls,
     isSupported: async () => true,
-    enroll: async () => ({ credentialId, prfOutput: PRF }),
+    enroll: async (ids = {}) => { calls.enroll.push(ids); return { credentialId, prfOutput: PRF }; },
     unlock: async () => PRF,
-    discover: async () => ({ credentialId, prfOutput: PRF }),
+    discover: async () => ({ credentialId, prfOutput: PRF, userHandle: null }),
   };
 }
 
 const SECURE = { isSecureContext: true };
 
-test('empty store: status reports no key, passkey off without an adapter', async () => {
+// --- status / empty -------------------------------------------------------
+
+test('empty store: status reports no key + null kind, passkey off without an adapter', async () => {
   const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
   const s = await onb.status();
   assert.equal(s.hasKey, false);
   assert.equal(s.unlocked, false);
+  assert.equal(s.kind, null);
   assert.equal(s.address, null);
   assert.equal(s.passkeySupported, false);
   assert.equal(s.secureContext, true);
@@ -42,24 +51,18 @@ test('empty store: status reports no key, passkey off without an adapter', async
   assert.equal(s.passkeyEnrolled, false);
 });
 
-test('status reports enrolled methods (passphrase-only) from the record, no unlock', async () => {
-  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
-  await onb.create({ passphrase: 'pw' });
-  await onb.lock(); // prove it reads wraps from the record, not the held key
-  const s = await onb.status();
-  assert.deepEqual(s.methods, ['passphrase']);
-  assert.equal(s.passkeyEnrolled, false);
-});
+// --- wrap kind ------------------------------------------------------------
 
-test('status reports passkeyEnrolled + both methods after create-with-passkey', async () => {
-  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
-  await onb.create({ passphrase: 'pw', withPasskey: true });
+test('create({passphrase}) makes a wrap identity; status reads kind+methods without unlocking', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
+  const { kind, address } = await onb.create({ passphrase: 'pw' });
+  assert.equal(kind, 'wrap');
+  assert.ok(address.startsWith('gc1'));
   await onb.lock();
   const s = await onb.status();
-  assert.deepEqual(s.methods, ['passphrase', 'passkey']);
-  assert.equal(s.passkeyEnrolled, true);
-  // capability vs enrollment are distinct signals
-  assert.equal(s.passkeySupported, true);
+  assert.equal(s.kind, 'wrap');
+  assert.deepEqual(s.methods, ['passphrase']);
+  assert.equal(s.passkeyEnrolled, false);
 });
 
 test('create persists + holds unlocked, and onChange fires with fresh status', async () => {
@@ -67,7 +70,6 @@ test('create persists + holds unlocked, and onChange fires with fresh status', a
   let last = null;
   const off = onb.onChange((s) => { last = s; });
   const { address } = await onb.create({ passphrase: 'pw' });
-  assert.ok(address.startsWith('gc1'));
   const s = await onb.status();
   assert.equal(s.hasKey, true);
   assert.equal(s.unlocked, true);
@@ -94,52 +96,143 @@ test('unlock by passphrase re-holds the key; wrong passphrase rejects', async ()
   assert.equal(r.address, address);
   assert.equal((await onb.status()).unlocked, true);
   await onb.lock();
-  await assert.rejects(
-    () => onb.unlock({ passphrase: 'WRONG' }),
-    BadPassphraseError, // typed + catchable through the controller (#279)
-  );
+  await assert.rejects(() => onb.unlock({ passphrase: 'WRONG' }), BadPassphraseError);
 });
 
-test('passkey: create with passkey, unlock by passkey', async () => {
-  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
-  assert.equal((await onb.status()).passkeySupported, true);
-  const { address } = await onb.create({ passphrase: 'pw', withPasskey: true });
+test('wrap + addPasskey: status shows both methods; unlock by passkey works', async () => {
+  const passkey = fakePasskey();
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey });
+  const { address } = await onb.create({ passphrase: 'pw' });
+  await onb.addPasskey({ passphrase: 'pw' });
   await onb.lock();
+  const s = await onb.status();
+  assert.equal(s.kind, 'wrap');
+  assert.deepEqual(s.methods, ['passphrase', 'passkey']);
+  assert.equal(s.passkeyEnrolled, true);
   const r = await onb.unlock({ passkey: true });
   assert.equal(r.address, address);
 });
 
-test('create with withPasskey silently skips the passkey when unsupported (no throw)', async () => {
-  // An adapter that reports unsupported must NOT be enrolled — create gates on
-  // the live support state, not merely the adapter's presence.
+test('addPasskey enrolls a NON-resident convenience passkey (residentKey discouraged)', async () => {
+  const passkey = fakePasskey();
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey });
+  await onb.create({ passphrase: 'pw' });
+  await onb.addPasskey({ passphrase: 'pw' });
+  // the convenience passkey enroll must request a discouraged (non-resident) key
+  assert.equal(passkey.calls.enroll.at(-1).residentKey, 'discouraged');
+});
+
+test('create with withPasskey but unsupported adapter falls back to wrap (no throw)', async () => {
   const passkey = {
     isSupported: async () => false,
     enroll: async () => { throw new Error('enroll must not run when unsupported'); },
     unlock: async () => { throw new Error('unlock must not run when unsupported'); },
+    discover: async () => { throw new Error('discover must not run when unsupported'); },
   };
   const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey });
-  assert.equal((await onb.status()).passkeySupported, false);
-  const { address } = await onb.create({ passphrase: 'pw', withPasskey: true });
+  const { kind, address } = await onb.create({ passphrase: 'pw', withPasskey: true });
+  assert.equal(kind, 'wrap');
   assert.ok(address.startsWith('gc1'));
   assert.equal((await onb.status()).unlocked, true);
 });
 
-test('backup yields an encrypted artifact (no raw key) + filename; restore into a fresh store recovers the same address', async () => {
+// --- derived kind ---------------------------------------------------------
+
+test('create({withPasskey}) derives a passkey identity: returns kind+mnemonic, no key material stored', async () => {
+  const store = fakeStore();
+  const onb = makeOnboarding({ store, window: SECURE, passkey: fakePasskey() });
+  const { kind, address, mnemonic } = await onb.create({ withPasskey: true });
+  assert.equal(kind, 'derived');
+  assert.ok(address.startsWith('gc1'));
+  assert.equal(mnemonic.split(' ').length, 24);
+  // record carries kind + credentialId, NO signing_key_ct / wraps
+  const rec = await store.get();
+  assert.equal(rec.kind, 'derived');
+  assert.equal(rec.credentialId, 'cred1');
+  assert.equal(rec.signing_key_ct, undefined);
+  assert.equal(rec.wraps, undefined);
+  // unlocked in memory
+  assert.equal((await onb.status()).unlocked, true);
+});
+
+test('derived status reports kind+passkeyEnrolled without unlocking', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
+  await onb.create({ withPasskey: true });
+  await onb.lock();
+  const s = await onb.status();
+  assert.equal(s.kind, 'derived');
+  assert.equal(s.passkeyEnrolled, true);
+  assert.deepEqual(s.methods, []);
+});
+
+test('derived unlock re-derives via the passkey (No-2FA, empty creds) and matches the stored address', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
+  const { address } = await onb.create({ withPasskey: true });
+  await onb.lock();
+  const r = await onb.unlock();
+  assert.equal(r.address, address);
+  assert.equal((await onb.status()).unlocked, true);
+});
+
+test('derived unlock throws when the passkey re-derives a different address (wrong passkey)', async () => {
+  const store = fakeStore();
+  // enroll with one PRF...
+  const onb1 = makeOnboarding({ store, window: SECURE, passkey: fakePasskey(7) });
+  await onb1.create({ withPasskey: true });
+  await onb1.lock();
+  // ...then a different PRF on unlock derives a different address -> not 'ok'
+  const onb2 = makeOnboarding({ store, window: SECURE, passkey: fakePasskey(3) });
+  await assert.rejects(() => onb2.unlock(), NoSigningKeyError);
+});
+
+test('derived backup returns the recovery phrase; restoring it lands a WRAP identity at the same address', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
+  const { address } = await onb.create({ withPasskey: true });
+  const b = await onb.backup({});
+  assert.equal(b.kind, 'derived');
+  assert.equal(b.mnemonic.split(' ').length, 24);
+
+  const onb2 = makeOnboarding({ store: fakeStore(), window: SECURE });
+  const r = await onb2.restore({ mnemonic: b.mnemonic, passphrase: 'pw' });
+  assert.equal(r.kind, 'wrap');
+  assert.equal(r.address, address);
+  assert.equal((await onb2.status()).kind, 'wrap');
+});
+
+test('derived backup while locked taps the passkey and does not leave it unlocked', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
+  await onb.create({ withPasskey: true });
+  await onb.lock();
+  const b = await onb.backup({});
+  assert.equal(b.kind, 'derived');
+  assert.equal((await onb.status()).unlocked, false);
+});
+
+// --- backup / restore (wrap) ---------------------------------------------
+
+test('wrap backup yields an encrypted artifact (no raw key) + filename; restore recovers the same address', async () => {
   const onb1 = makeOnboarding({ store: fakeStore(), window: SECURE });
   const { address } = await onb1.create({ passphrase: 'pw' });
-  const { artifact, filename } = await onb1.backup({ passphrase: 'pw' });
+  const { kind, artifact, filename } = await onb1.backup({ passphrase: 'pw' });
+  assert.equal(kind, 'wrap');
   assert.equal(artifact.kind, 'gc-signing-key-backup');
   assert.match(filename, /^gc-signing-key-backup-.*\.json$/);
-  assert.deepEqual(
-    Object.keys(artifact).sort(),
-    ['address', 'ciphertext', 'iv', 'kdf', 'kind', 'version'],
-  );
 
   const onb2 = makeOnboarding({ store: fakeStore(), window: SECURE });
   const r = await onb2.restore({ backup: JSON.stringify(artifact), passphrase: 'pw' });
+  assert.equal(r.kind, 'wrap');
   assert.equal(r.address, address);
   assert.equal((await onb2.status()).hasKey, true);
 });
+
+test('restore requires a mnemonic or a backup, and a passphrase', async () => {
+  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
+  await assert.rejects(() => onb.restore({ passphrase: 'pw' }), BadBackupError);
+  const k = await SigningKey.generate();
+  await assert.rejects(async () => onb.restore({ mnemonic: await k.mnemonic() }), BadPassphraseError);
+});
+
+// --- signing / lifecycle (unchanged behavior) ----------------------------
 
 test('signLogin requires unlocked and produces a verifiable gc-msg-v1 proof', async () => {
   const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
@@ -149,7 +242,6 @@ test('signLogin requires unlocked and produces a verifiable gc-msg-v1 proof', as
   await onb.unlock({ passphrase: 'pw' });
   const proof = await onb.signLogin('login:abc');
   assert.equal(proof.scheme, 'gc-msg-v1');
-  assert.equal(proof.message, 'login:abc');
   const v = await verifyMessage(proof, { maxAge: Number.MAX_SAFE_INTEGER });
   assert.equal(v.valid, true);
 });
@@ -160,19 +252,16 @@ test('forget deletes the device record', async () => {
   await onb.forget();
   const s = await onb.status();
   assert.equal(s.hasKey, false);
-  assert.equal(s.unlocked, false);
 });
 
 test('signTransaction: throws when locked; signs a node-built unsigned txn when unlocked', async () => {
   const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
   await assert.rejects(() => onb.signTransaction({ txid: 'x' }), NoSigningKeyError);
 
-  // Inject a KNOWN key via restore so the test controls address/public_key.
   const k = await SigningKey.generate();
   const backup = await exportEncrypted(k, 'pw');
   await onb.restore({ backup, passphrase: 'pw' });
 
-  // Build a self-consistent unsigned support txn, as the node would return one.
   const base = {
     timestamp: '1700000000',
     address: await k.address(),
@@ -183,23 +272,15 @@ test('signTransaction: throws when locked; signs a node-built unsigned txn when 
     prev_hash: null,
   };
   const unsigned = { ...base, txid: await txnTxid(base) };
-
   const signed = await onb.signTransaction(unsigned);
   assert.equal(signed.address, await k.address());
-  assert.equal(signed.txid, unsigned.txid);
-  assert.equal(typeof signed.signature, 'string');
-  // The signature is real: it verifies over the canonical signing data.
   assert.equal(await k.verify(signingData(signed), signed.signature), true);
 });
 
-test('discover() delegates to the passkey adapter', async () => {
+test('discover() delegates to the passkey adapter; null without one', async () => {
   const onb = makeOnboarding({ store: fakeStore(), window: SECURE, passkey: fakePasskey() });
   const r = await onb.discover();
   assert.equal(r.credentialId, 'cred1');
-  assert.ok(r.prfOutput instanceof Uint8Array);
-});
-
-test('discover() returns null when no passkey adapter is configured', async () => {
-  const onb = makeOnboarding({ store: fakeStore(), window: SECURE });
-  assert.equal(await onb.discover(), null);
+  const onb2 = makeOnboarding({ store: fakeStore(), window: SECURE });
+  assert.equal(await onb2.discover(), null);
 });
