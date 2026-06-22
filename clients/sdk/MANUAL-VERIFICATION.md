@@ -193,3 +193,26 @@ path by hand:
    (not a throw).
 5. On a browser exposing `PublicKeyCredential.isConditionalMediationAvailable`,
    confirm `isConditionalAvailable()` resolves `true`; on one without it, `false`.
+
+## Session-signer cross-document reuse + cross-tab lock (#332)
+
+`makeSessionSigner` persists a **non-extractable** Ed25519 signing handle in
+IndexedDB so the identity is reusable across a multi-document app's pages without
+re-unlocking, and without ever exposing the seed. The unit tests cover the logic
+with a shared fake store + a fake `BroadcastChannel`; the real browser behaviors
+below can't be unit-tested:
+
+1. **Cross-document reuse.** Sign in (`recognize()` / `createDerived()` /
+   `unlock()`) on page A, then hard-navigate to page B (a separate document).
+   Confirm `status()` reports `signedIn: true` on B and `signLogin` / `signTransaction`
+   work **without** a re-unlock prompt — the handle was hydrated from IndexedDB.
+2. **No seed at rest.** In DevTools → Application → IndexedDB → `gc-session-signer`,
+   confirm the stored record holds a `CryptoKey` whose `extractable === false`
+   (the seed cannot be exported), and that `exportSecret()` on a hydrated key
+   throws `NoSeedError`.
+3. **Auto-lock.** Leave the page idle past the idle timeout (or hide the tab /
+   `pagehide`) and confirm the session locks (`status().signedIn === false`, the
+   IndexedDB record cleared).
+4. **Cross-tab lock-sync.** Open the app in two tabs (both signed in), `lock()` in
+   one, and confirm the other signs out (its in-memory cache cleared via the
+   `BroadcastChannel` `lock` message).
