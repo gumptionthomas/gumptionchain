@@ -288,3 +288,28 @@ test('isConditionalAvailable() is false when isConditionalMediationAvailable is 
     restore();
   }
 });
+
+test('enroll() honors a residentKey preference and defaults to "required"', async () => {
+  let seenSelection = null;
+  const fakeNav = {
+    credentials: {
+      create: async (opts) => {
+        seenSelection = opts.publicKey.authenticatorSelection;
+        return {
+          rawId: new Uint8Array([1, 2, 3]).buffer,
+          getClientExtensionResults: () => ({ prf: { results: { first: new Uint8Array(32).fill(9).buffer } } }),
+        };
+      },
+    },
+  };
+  const restore = setGlobal('navigator', fakeNav);
+  try {
+    const pk = makeWebauthnPasskey({ rpId: 'gumption.com', rpName: 'G' });
+    await pk.enroll({ userName: 'a' });
+    assert.equal(seenSelection.residentKey, 'required');
+    await pk.enroll({ userName: 'a', residentKey: 'discouraged' });
+    assert.equal(seenSelection.residentKey, 'discouraged');
+  } finally {
+    restore();
+  }
+});
