@@ -10,7 +10,25 @@
 // gc-passkey-webauthn). The hub + the /signing-key page compose this. No deps.
 import { deriveSigningKey } from './gc-derive.mjs';
 import { seedToMnemonic } from './gc-bip39.mjs';
-import { decodeSecret } from './gc-bech32.mjs';
+import { decodeAddress, decodeSecret } from './gc-bech32.mjs';
+
+// The phantom guard (pure, single-sourced): classify a discovered passkey from
+// its userHandle against the address its PRF derives to. A DERIVED passkey's PRF
+// IS the signing seed (so it derives to the identity's address); a WRAP
+// identity's convenience passkey PRF is the keyring UNLOCK secret, NOT the seed,
+// so deriving it yields a phantom address unrelated to the real key. The guard:
+// a userHandle that is a real gc address AND disagrees with the derived address
+// → 'wrap' (recognize WHO, but do NOT adopt — the real key isn't derivable);
+// otherwise (userHandle random/non-address, or it equals the derived address) →
+// 'derived' (adopt). Used by both makeOnboarding.recognize() and key-needing
+// glue (base /signing-key) so the security-critical check can't drift.
+export function classifyRecognition({ userHandle, derivedAddress }) {
+  if (userHandle != null && decodeAddress(userHandle) !== null
+      && userHandle !== derivedAddress) {
+    return 'wrap';
+  }
+  return 'derived';
+}
 
 export function makeDerivedIdentity({ passkey }) {
   // Create a passkey, derive the seed from its PRF, and return the key + its

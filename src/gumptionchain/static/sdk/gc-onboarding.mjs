@@ -14,9 +14,10 @@ import * as keyring from './gc-keyring.mjs';
 import { makeIdbStore } from './gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from './gc-backup.mjs';
 import { makeWebauthnPasskey } from './gc-passkey-webauthn.mjs';
-import { makeDerivedIdentity } from './gc-derived-identity.mjs';
+import {
+  classifyRecognition, makeDerivedIdentity,
+} from './gc-derived-identity.mjs';
 import { deriveSigningKey } from './gc-derive.mjs';
-import { decodeAddress } from './gc-bech32.mjs';
 import { signMessage } from './gc-message.mjs';
 import { signUnsignedTxn } from './gc-transaction.mjs';
 import {
@@ -295,7 +296,7 @@ export function makeOnboarding({
     const sk = await deriveSigningKey(found.prfOutput);
     const derivedAddress = await sk.address();
     const uh = found.userHandle;
-    if (uh != null && decodeAddress(uh) !== null && uh !== derivedAddress) {
+    if (classifyRecognition({ userHandle: uh, derivedAddress }) === 'wrap') {
       // WRAP passkey: its PRF unlocks a keyring — it is NOT the signing seed,
       // so deriving it yields a phantom address. Recognize WHO (the userHandle
       // address), but adopt nothing (the real key isn't derivable here).

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { makeDerivedIdentity } from './gc-derived-identity.mjs';
+import {
+  classifyRecognition, makeDerivedIdentity,
+} from './gc-derived-identity.mjs';
 import { deriveSigningKey } from './gc-derive.mjs';
+import { SigningKey } from './gc-signing-key.mjs';
 
 const PRF = Uint8Array.from({ length: 32 }, (_, i) => i + 5);
 
@@ -60,4 +63,19 @@ test('resolve: no passkey discovered -> no-passkey', async () => {
     passkey: { async discover() { return null; } },
   });
   assert.equal((await id.resolve({})).status, 'no-passkey');
+});
+
+// The single-sourced phantom guard (shared by makeOnboarding.recognize() + base
+// /signing-key glue). Adopt unless a real-address userHandle contradicts the
+// derived address.
+test('classifyRecognition: wrap iff userHandle is a real gc address != the derived address', async () => {
+  const D = await (await SigningKey.generate()).address();
+  const other = await (await SigningKey.generate()).address();
+  // random / non-address userHandle -> derived (adopt)
+  assert.equal(classifyRecognition({ userHandle: 'not-an-address', derivedAddress: D }), 'derived');
+  assert.equal(classifyRecognition({ userHandle: null, derivedAddress: D }), 'derived');
+  // a real address that equals the derived address -> derived (PRF backs it)
+  assert.equal(classifyRecognition({ userHandle: D, derivedAddress: D }), 'derived');
+  // a real address that disagrees with the derived address -> wrap (phantom guard)
+  assert.equal(classifyRecognition({ userHandle: other, derivedAddress: D }), 'wrap');
 });
