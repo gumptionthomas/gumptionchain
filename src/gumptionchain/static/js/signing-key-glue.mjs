@@ -191,6 +191,7 @@ export function init(
     trustAck: $('#trust-ack'),
     // unlock
     unlockSection: $('#unlock-section'),
+    unlockPassphraseRow: $('#unlock-passphrase-row'),
     unlockPassphrase: $('#unlock-passphrase'),
     unlockBtn: $('#unlock-btn'),
     unlockPasskeyBtn: $('#unlock-passkey-btn'),
@@ -203,6 +204,8 @@ export function init(
     addPasskeyStatus: $('#add-passkey-status'),
     // backup
     backupHeading: $('#backup-heading'),
+    backupDesc: $('#backup-desc'),
+    backupPassphraseRow: $('#backup-passphrase-row'),
     backupPassphrase: $('#backup-passphrase'),
     backupBtn: $('#backup-btn'),
     backupStatus: $('#backup-status'),
@@ -246,7 +249,9 @@ export function init(
     show(els.noSigningKey, c.showCreate || c.showImport);
     show(els.hasSigningKey, c.showHasSigningKey);
     show(els.unlockSection, c.showUnlock);
-    show(els.unlockPassphrase, c.showUnlockPassphrase);
+    // Hide the whole passphrase row (label + input), not just the input, so a
+    // derived identity's unlock shows only the passkey button — no dangling label.
+    show(els.unlockPassphraseRow, c.showUnlockPassphrase);
     show(els.unlockBtn, c.showUnlockPassphrase);
     show(els.unlockPasskeyBtn, c.showUnlockPasskey);
     show(els.lockBtn, c.showLock);
@@ -257,7 +262,10 @@ export function init(
     show(els.createDeriveSection, c.showCreateDerive);
     show(els.recognizeBtn, c.showRecognize);
     const derived = kind === 'derived';
-    show(els.backupPassphrase, c.showBackup && !derived);
+    // Backup is kind-aware: a derived identity has no passphrase/encrypted blob —
+    // its backup IS the recovery phrase. Hide the whole passphrase row (label +
+    // input) and reword the heading + description.
+    show(els.backupPassphraseRow, c.showBackup && !derived);
     if (els.backupBtn) {
       els.backupBtn.textContent = derived
         ? 'Show recovery phrase'
@@ -267,6 +275,15 @@ export function init(
       els.backupHeading.textContent = derived
         ? 'Your recovery phrase'
         : 'Download an encrypted backup';
+    }
+    if (els.backupDesc) {
+      els.backupDesc.textContent = derived
+        ? 'Your 24-word recovery phrase is the only backup of this passkey '
+          + 'identity — it re-derives the key on any device. Write it down and '
+          + 'keep it offline; anyone with it controls the signing key.'
+        : 'Exports the encrypted backup blob (safe to store). This is your '
+          + 'recovery, cross-device, and cross-method path. Lose both the '
+          + 'passphrase and the backup and the signing key is unrecoverable.';
     }
     if (hasSigningKey && els.addressOut) {
       els.addressOut.textContent = rec.address ?? '';

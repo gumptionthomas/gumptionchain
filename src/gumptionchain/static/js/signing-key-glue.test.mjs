@@ -694,18 +694,20 @@ test('init: a saved DERIVED record renders passkey-unlock, no passphrase, no add
   // Let the async init IIFE (passkey resolve + first render) settle.
   await new Promise((r) => setTimeout(r, 0));
 
-  // Passphrase-unlock controls are hidden; passkey-unlock is shown.
-  assert.equal(dom.querySelector('#unlock-passphrase').hidden, true);
+  // The whole passphrase row (label + input) is hidden, not just the input —
+  // no dangling "Passphrase" label; passkey-unlock is shown.
+  assert.equal(dom.querySelector('#unlock-passphrase-row').hidden, true);
   assert.equal(dom.querySelector('#unlock-btn').hidden, true);
   assert.equal(dom.querySelector('#unlock-passkey-btn').hidden, false);
   // Add-passkey is hidden for a derived identity (wrap-only operation).
   assert.equal(dom.querySelector('#add-passkey-section').hidden, true);
   assert.equal(dom.querySelector('#add-passkey-btn').hidden, true);
-  // The backup heading + button are relabeled for the recovery-phrase path.
+  // The backup heading + button + description are relabeled for the phrase path.
   assert.equal(dom.querySelector('#backup-btn').textContent, 'Show recovery phrase');
   assert.equal(dom.querySelector('#backup-heading').textContent, 'Your recovery phrase');
-  // No passphrase field for a derived backup.
-  assert.equal(dom.querySelector('#backup-passphrase').hidden, true);
+  assert.match(dom.querySelector('#backup-desc').textContent, /recovery phrase/i);
+  // No passphrase row (label + input) for a derived backup.
+  assert.equal(dom.querySelector('#backup-passphrase-row').hidden, true);
 });
 
 test('init: derived passkey-unlock with the matching passkey unlocks the session', async () => {
@@ -765,11 +767,11 @@ test('init: a saved WRAP record keeps passphrase-unlock + add-passkey', async ()
   init(dom, { store, session, storage, doc: dom, passkey });
   await new Promise((r) => setTimeout(r, 0));
 
-  // Locked wrap: passphrase-unlock input + unlock button shown.
-  assert.equal(dom.querySelector('#unlock-passphrase').hidden, false);
+  // Locked wrap: passphrase-unlock row + unlock button shown.
+  assert.equal(dom.querySelector('#unlock-passphrase-row').hidden, false);
   assert.equal(dom.querySelector('#unlock-btn').hidden, false);
-  // The backup keeps the encrypted-download labels + passphrase field.
+  // The backup keeps the encrypted-download labels + passphrase row.
   assert.equal(dom.querySelector('#backup-btn').textContent, 'Download backup');
   assert.equal(dom.querySelector('#backup-heading').textContent, 'Download an encrypted backup');
-  assert.equal(dom.querySelector('#backup-passphrase').hidden, false);
+  assert.equal(dom.querySelector('#backup-passphrase-row').hidden, false);
 });
