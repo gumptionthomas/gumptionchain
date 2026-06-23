@@ -39,19 +39,26 @@ export function whichControls({
   unlocked,
   secureContext,
   passkeySupported,
+  kind,
 }) {
   const passkeyOk = !!secureContext && !!passkeySupported;
+  // A derived identity has no keyring wraps: passphrase-unlock and add-passkey
+  // are wrap-only operations, so they have no meaning here. It unlocks with its
+  // passkey only.
+  const derived = kind === 'derived';
+  const locked = !!hasSigningKey && !unlocked;
   return {
     // No-signing_key section.
     showCreate: !hasSigningKey,
     showImport: !hasSigningKey,
     // Has-signing_key section.
     showHasSigningKey: !!hasSigningKey,
-    showUnlock: !!hasSigningKey && !unlocked,
-    showUnlockPasskey: !!hasSigningKey && !unlocked && passkeyOk,
+    showUnlock: locked,
+    showUnlockPassphrase: locked && !derived,
+    showUnlockPasskey: locked && passkeyOk,
     showLock: !!hasSigningKey && !!unlocked,
     // Add-passkey is an unlocked-only action (it re-wraps the live DEK).
-    showAddPasskey: !!hasSigningKey && !!unlocked && passkeyOk,
+    showAddPasskey: !!hasSigningKey && !!unlocked && passkeyOk && !derived,
     showBackup: !!hasSigningKey,
     showForget: !!hasSigningKey,
     // Keyless device with a usable passkey leads with the seamless derive

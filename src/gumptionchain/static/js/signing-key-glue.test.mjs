@@ -658,3 +658,17 @@ test('init: backup on a DERIVED record shows the recovery phrase (no download)',
   assert.equal(dom.querySelector('#recovery-phrase-section').hidden, false);
   assert.equal(anchorsCreated, 0);
 });
+
+test('whichControls is kind-aware: derived hides passphrase-unlock + add-passkey', () => {
+  const locked = whichControls({ hasSigningKey: true, unlocked: false, secureContext: true, passkeySupported: true, kind: 'derived' });
+  assert.equal(locked.showUnlock, true);
+  assert.equal(locked.showUnlockPassphrase, false);
+  assert.equal(locked.showUnlockPasskey, true);
+  const unlocked = whichControls({ hasSigningKey: true, unlocked: true, secureContext: true, passkeySupported: true, kind: 'derived' });
+  assert.equal(unlocked.showAddPasskey, false);
+  assert.equal(unlocked.showBackup, true);
+  const wrapLocked = whichControls({ hasSigningKey: true, unlocked: false, secureContext: true, passkeySupported: true, kind: 'wrap' });
+  assert.equal(wrapLocked.showUnlockPassphrase, true);
+  const wrapUnlocked = whichControls({ hasSigningKey: true, unlocked: true, secureContext: true, passkeySupported: true, kind: 'wrap' });
+  assert.equal(wrapUnlocked.showAddPasskey, true);
+});
