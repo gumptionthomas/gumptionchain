@@ -104,7 +104,12 @@ export async function enroll(signing_key, { store }, { passphrase }) {
 // explicitly-supplied passphrase is preferred; otherwise the passkey is used.
 // Wrong secret -> GCM auth-tag failure -> openWithKey rejects (fails closed).
 async function unwrapDek(rec, { passkey } = {}, { passphrase } = {}) {
-  const { wraps } = rec;
+  const wraps = rec.wraps;
+  if (!wraps) {
+    throw new NoSigningKeyError(
+      'this identity has no keyring wraps (a derived identity?) — unlock it with its passkey',
+    );
+  }
   if (passphrase != null && wraps.passphrase) {
     const w = wraps.passphrase;
     const kek = await deriveKey(passphrase, w.salt, w.iterations);

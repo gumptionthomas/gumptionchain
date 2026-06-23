@@ -166,3 +166,11 @@ test('unlock prefers an explicitly-supplied passphrase over the passkey', async 
     addr,
   );
 });
+
+test('unlock/addPasskey on a wraps-less (derived) record throw a clean NoSigningKeyError', async () => {
+  const { NoSigningKeyError } = await import('./gc-errors.mjs');
+  let r = { version: 2, kind: 'derived', address: 'gc1x', credentialId: 'c' };
+  const store = { get: async () => r, put: async (x) => { r = x; }, delete: async () => { r = null; } };
+  await assert.rejects(() => keyring.unlock({ store }, { passphrase: 'pw' }), NoSigningKeyError);
+  await assert.rejects(() => keyring.addPasskey({ store, passkey: {} }, { passphrase: 'pw' }, {}), NoSigningKeyError);
+});
