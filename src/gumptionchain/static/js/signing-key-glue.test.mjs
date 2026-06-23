@@ -658,3 +658,120 @@ test('init: backup on a DERIVED record shows the recovery phrase (no download)',
   assert.equal(dom.querySelector('#recovery-phrase-section').hidden, false);
   assert.equal(anchorsCreated, 0);
 });
+
+test('whichControls is kind-aware: derived hides passphrase-unlock + add-passkey', () => {
+  const locked = whichControls({ hasSigningKey: true, unlocked: false, secureContext: true, passkeySupported: true, kind: 'derived' });
+  assert.equal(locked.showUnlock, true);
+  assert.equal(locked.showUnlockPassphrase, false);
+  assert.equal(locked.showUnlockPasskey, true);
+  const unlocked = whichControls({ hasSigningKey: true, unlocked: true, secureContext: true, passkeySupported: true, kind: 'derived' });
+  assert.equal(unlocked.showAddPasskey, false);
+  assert.equal(unlocked.showBackup, true);
+  const wrapLocked = whichControls({ hasSigningKey: true, unlocked: false, secureContext: true, passkeySupported: true, kind: 'wrap' });
+  assert.equal(wrapLocked.showUnlockPassphrase, true);
+  const wrapUnlocked = whichControls({ hasSigningKey: true, unlocked: true, secureContext: true, passkeySupported: true, kind: 'wrap' });
+  assert.equal(wrapUnlocked.showAddPasskey, true);
+});
+
+// --- kind-aware management render + unlock via init (#338) ----------------
+// A saved DERIVED identity gets passkey-unlock (no passphrase field), a
+// recovery-phrase backup (relabeled), and NO add-passkey. A saved WRAP record
+// keeps the passphrase-unlock + add-passkey affordances. These exercise the
+// kind-threaded render() and the derived branch of #unlock-passkey-btn,
+// reusing the fakeDom / memStore / memStorage / fakePasskey helpers above.
+
+test('init: a saved DERIVED record renders passkey-unlock, no passphrase, no add-passkey', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const prfOutput = new Uint8Array(32).fill(13);
+  const { deriveSigningKey } = await import('../sdk/gc-derive.mjs');
+  const D = await (await deriveSigningKey(prfOutput)).address();
+  const store = memStore({ version: 2, kind: 'derived', address: D, credentialId: 'c' });
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  const passkey = fakePasskey({ prfOutput });
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  // Let the async init IIFE (passkey resolve + first render) settle.
+  await new Promise((r) => setTimeout(r, 0));
+
+  // The whole passphrase row (label + input) is hidden, not just the input —
+  // no dangling "Passphrase" label; passkey-unlock is shown.
+  assert.equal(dom.querySelector('#unlock-passphrase-row').hidden, true);
+  assert.equal(dom.querySelector('#unlock-btn').hidden, true);
+  assert.equal(dom.querySelector('#unlock-passkey-btn').hidden, false);
+  // Add-passkey is hidden for a derived identity (wrap-only operation).
+  assert.equal(dom.querySelector('#add-passkey-section').hidden, true);
+  assert.equal(dom.querySelector('#add-passkey-btn').hidden, true);
+  // The backup heading + button + description are relabeled for the phrase path.
+  assert.equal(dom.querySelector('#backup-btn').textContent, 'Show recovery phrase');
+  assert.equal(dom.querySelector('#backup-heading').textContent, 'Your recovery phrase');
+  assert.match(dom.querySelector('#backup-desc').textContent, /recovery phrase/i);
+  // No passphrase row (label + input) for a derived backup.
+  assert.equal(dom.querySelector('#backup-passphrase-row').hidden, true);
+});
+
+test('init: derived passkey-unlock with the matching passkey unlocks the session', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const prfOutput = new Uint8Array(32).fill(17);
+  const { deriveSigningKey } = await import('../sdk/gc-derive.mjs');
+  const D = await (await deriveSigningKey(prfOutput)).address();
+  const store = memStore({ version: 2, kind: 'derived', address: D, credentialId: 'c' });
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  const passkey = fakePasskey({ prfOutput });
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  await new Promise((r) => setTimeout(r, 0));
+
+  await dom.querySelector('#unlock-passkey-btn').click();
+
+  assert.equal(session.isUnlocked(), true);
+  assert.equal((await session.getSigningKey().address()), D);
+  assert.equal(dom.querySelector('#unlock-status').dataset.kind, 'ok');
+});
+
+test('init: derived passkey-unlock with a MISMATCHED passkey does not unlock, errors', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  // Saved record is for the address derived from one PRF...
+  const savedPrf = new Uint8Array(32).fill(19);
+  const { deriveSigningKey } = await import('../sdk/gc-derive.mjs');
+  const D = await (await deriveSigningKey(savedPrf)).address();
+  const store = memStore({ version: 2, kind: 'derived', address: D, credentialId: 'c' });
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  // ...but the passkey on this device derives a DIFFERENT address.
+  const otherPrf = new Uint8Array(32).fill(23);
+  const passkey = fakePasskey({ prfOutput: otherPrf });
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  await new Promise((r) => setTimeout(r, 0));
+
+  await dom.querySelector('#unlock-passkey-btn').click();
+
+  assert.equal(session.isUnlocked(), false);
+  assert.equal(dom.querySelector('#unlock-status').dataset.kind, 'error');
+});
+
+test('init: a saved WRAP record keeps passphrase-unlock + add-passkey', async () => {
+  const dom = fakeDom();
+  const session = makeSession();
+  const store = memStore();
+  const storage = memStorage({ [TRUST_ACK_KEY]: '1' });
+  const passkey = fakePasskey();
+
+  // Enroll a real wrap record (version-tagged ciphertext under a passphrase).
+  const sk = await SigningKey.generate();
+  const { enroll } = await import('../sdk/gc-keyring.mjs');
+  await enroll(sk, { store }, { passphrase: 'correct horse battery' });
+
+  init(dom, { store, session, storage, doc: dom, passkey });
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Locked wrap: passphrase-unlock row + unlock button shown.
+  assert.equal(dom.querySelector('#unlock-passphrase-row').hidden, false);
+  assert.equal(dom.querySelector('#unlock-btn').hidden, false);
+  // The backup keeps the encrypted-download labels + passphrase row.
+  assert.equal(dom.querySelector('#backup-btn').textContent, 'Download backup');
+  assert.equal(dom.querySelector('#backup-heading').textContent, 'Download an encrypted backup');
+  assert.equal(dom.querySelector('#backup-passphrase-row').hidden, false);
+});
