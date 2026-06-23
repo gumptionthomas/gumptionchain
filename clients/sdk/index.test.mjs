@@ -7,6 +7,7 @@ const FUNCTIONS = [
   'canonical', 'signHeaders',
   'enroll', 'unlock', 'hasSigningKey', 'clear',
   'makeWebauthnPasskey', 'makeIdbStore',
+  'makeSessionSigner', 'makeSessionStore',
   'exportEncrypted', 'importEncrypted', 'exportPlain', 'importPlain',
   'deriveSeed', 'deriveSigningKey', 'seedToMnemonic', 'mnemonicToSeed',
   'signMessage', 'verifyMessage', 'toArmored', 'fromArmored',
