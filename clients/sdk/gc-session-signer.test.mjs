@@ -4,6 +4,8 @@ import { makeSessionSigner, DEFAULT_IDLE_MS } from './gc-session-signer.mjs';
 import { SigningKey } from './gc-signing-key.mjs';
 import { verifyMessage } from './gc-message.mjs';
 import { deriveSigningKey } from './gc-derive.mjs';
+import { signSocialBinding, verifyBinding } from './gc-attestation.mjs';
+import { NoSeedError } from './gc-errors.mjs';
 
 function fakeStore() {
   let rec = null;
@@ -224,4 +226,27 @@ test('touch re-arms the idle timer (clear + set)', async () => {
 
 test('DEFAULT_IDLE_MS is 15 minutes', () => {
   assert.equal(DEFAULT_IDLE_MS, 15 * 60 * 1000);
+});
+
+test('signingKey() yields a sign-only key usable with the gc-attestation helpers (#336)', async () => {
+  const store = fakeStore();
+  const s = makeSessionSigner({ store });
+  await s.adopt(await SigningKey.generate());
+  const k = await s.signingKey();
+  assert.ok(k);
+  await assert.rejects(() => k.exportSecret(), NoSeedError); // non-extractable: no seed leak
+  // the gc-attestation helpers take a raw SigningKey and work UNCHANGED
+  const proof = await signSocialBinding(k, { platform: 'github', handle: 'octocat' });
+  const r = await verifyBinding(proof, { maxAge: Number.MAX_SAFE_INTEGER });
+  assert.equal(r.valid, true);
+  assert.equal(r.claim.handle, 'octocat');
+});
+
+test('signingKey() is null when locked (#336)', async () => {
+  const store = fakeStore();
+  const s = makeSessionSigner({ store });
+  await s.adopt(await SigningKey.generate());
+  assert.ok(await s.signingKey());
+  await s.lock();
+  assert.equal(await s.signingKey(), null);
 });

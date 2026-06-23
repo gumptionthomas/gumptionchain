@@ -85,6 +85,19 @@ export function makeSessionSigner({ store, durableStore, passkey, idleMs = DEFAU
     return { signedIn: Boolean(k), address: k ? await k.address() : null };
   }
 
+  // The session's sign-only SigningKey (or null when locked) — for composing
+  // signing the session-signer doesn't wrap, e.g. attestations via the
+  // gc-attestation helpers (signStakeAttestation / signSocialBinding), or any
+  // signMessage. The key is NON-EXTRACTABLE: it signs, but exportSecret() /
+  // mnemonic() throw NoSeedError — so this grants exactly the signing capability
+  // signLogin/signTransaction already imply, with no new seed-leak surface.
+  // CONTRACT: call this fresh per operation and do NOT retain the reference —
+  // lock() clears the session but cannot revoke a handle a caller already
+  // captured (a retained handle can still sign until GC).
+  async function signingKey() {
+    return held();
+  }
+
   async function signLogin(challenge, { timestamp } = {}) {
     const k = await held();
     if (!k) throw new NoSigningKeyError('locked: no session signer');
@@ -189,7 +202,7 @@ export function makeSessionSigner({ store, durableStore, passkey, idleMs = DEFAU
   }
 
   return {
-    adopt, status, signLogin, signTransaction, recognize, createDerived,
-    unlock, onLock, lock, armIdle, touch, installAutoLock,
+    adopt, status, signingKey, signLogin, signTransaction, recognize,
+    createDerived, unlock, onLock, lock, armIdle, touch, installAutoLock,
   };
 }
