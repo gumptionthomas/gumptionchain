@@ -202,6 +202,7 @@ export function init(
     addPasskeyPassphrase: $('#add-passkey-passphrase'),
     addPasskeyStatus: $('#add-passkey-status'),
     // backup
+    backupHeading: $('#backup-heading'),
     backupPassphrase: $('#backup-passphrase'),
     backupBtn: $('#backup-btn'),
     backupStatus: $('#backup-status'),
@@ -227,19 +228,26 @@ export function init(
     if (el) el.hidden = !visible;
   }
 
-  // Re-render which controls are visible from the current state.
+  // Re-render which controls are visible from the current state. Reads the
+  // record + kind once at the top and threads kind through whichControls so a
+  // saved derived identity gets passkey-unlock / recovery-phrase backup / no
+  // add-passkey, while a wrap keeps the passphrase affordances.
   async function render() {
-    const hasSigningKey = await keyring.hasSigningKey(store);
+    const rec = await store.get();
+    const hasSigningKey = rec !== null;
+    const kind = rec ? (rec.kind ?? (rec.wraps ? 'wrap' : null)) : null;
     const unlocked = session.isUnlocked();
     const c = whichControls({
-      hasSigningKey,
-      unlocked,
+      hasSigningKey, unlocked,
       secureContext: passkeyState.secureContext,
       passkeySupported: passkeyState.supported,
+      kind,
     });
     show(els.noSigningKey, c.showCreate || c.showImport);
     show(els.hasSigningKey, c.showHasSigningKey);
     show(els.unlockSection, c.showUnlock);
+    show(els.unlockPassphrase, c.showUnlockPassphrase);
+    show(els.unlockBtn, c.showUnlockPassphrase);
     show(els.unlockPasskeyBtn, c.showUnlockPasskey);
     show(els.lockBtn, c.showLock);
     show(els.addPasskeySection, c.showAddPasskey);
@@ -248,9 +256,20 @@ export function init(
     show(els.backupBtn, c.showBackup);
     show(els.createDeriveSection, c.showCreateDerive);
     show(els.recognizeBtn, c.showRecognize);
+    const derived = kind === 'derived';
+    show(els.backupPassphrase, c.showBackup && !derived);
+    if (els.backupBtn) {
+      els.backupBtn.textContent = derived
+        ? 'Show recovery phrase'
+        : 'Download backup';
+    }
+    if (els.backupHeading) {
+      els.backupHeading.textContent = derived
+        ? 'Your recovery phrase'
+        : 'Download an encrypted backup';
+    }
     if (hasSigningKey && els.addressOut) {
-      const rec = await store.get();
-      els.addressOut.textContent = rec?.address ?? '';
+      els.addressOut.textContent = rec.address ?? '';
     }
   }
 
@@ -573,6 +592,39 @@ export function init(
             'Passkeys are not available here.',
             'error',
           );
+          return;
+        }
+        // A derived identity has no keyring wraps: re-derive its key from the
+        // live passkey PRF and confirm it matches the saved address (an unknown
+        // passkey on this device must not silently adopt a different identity).
+        const rec = await store.get();
+        const kind = rec ? (rec.kind ?? (rec.wraps ? 'wrap' : null)) : null;
+        if (kind === 'derived') {
+          const found = await passkey.discover();
+          if (!found) {
+            setStatus(
+              els.unlockStatus,
+              'No passkey found on this device.',
+              'error',
+            );
+            return;
+          }
+          const sk = await deriveSigningKey(found.prfOutput);
+          if ((await sk.address()) !== rec.address) {
+            setStatus(
+              els.unlockStatus,
+              "That passkey isn't this identity.",
+              'error',
+            );
+            return;
+          }
+          session.setSigningKey(sk);
+          setStatus(
+            els.unlockStatus,
+            'Unlocked with your passkey for this page session.',
+            'ok',
+          );
+          await render();
           return;
         }
         const signing_key = await keyring.unlock({ store, passkey }, {});
