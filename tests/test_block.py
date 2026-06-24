@@ -17,7 +17,7 @@ from gumptionchain.exceptions import (
     SealedBlockError,
     UnlinkedBlockError,
 )
-from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.payload import Inflow, Outflow, encode_subject
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
 from gumptionchain.util import dt_2_iso, now
 
@@ -79,6 +79,67 @@ def test_in_merkle_tree(reward, single_block, single_txn, signing_key):
     single_block.mill()
     single_block.validate()
     assert single_block.in_merkle_tree(single_txn.txid)
+
+
+def _two_txn_block(
+    single_block, signing_key, subject, txid, reward, time_machine
+):
+    """A sealed+milled block: two regular txns + coinbase (coinbase last)."""
+    base = now()
+    time_machine.move_to(base + datetime.timedelta(seconds=1))
+    single_block.add_txn(new_txn(txid, subject, signing_key))
+    time_machine.move_to(base + datetime.timedelta(seconds=2))
+    single_block.add_txn(
+        new_txn(txid[::-1], encode_subject('a second subject'), signing_key)
+    )
+    single_block.link(0, GENESIS_HASH, TEST_TARGET)
+    single_block.seal(signing_key, reward, CoinbaseMetrics())
+    single_block.mill()
+    return single_block
+
+
+def test_merkle_root_order_independent(
+    reward, single_block, signing_key, subject, txid, time_machine
+):
+    block = _two_txn_block(
+        single_block, signing_key, subject, txid, reward, time_machine
+    )
+    block.validate()
+    root = block.get_merkle_root()
+    assert root == block.merkle_root
+    # Simulate a non-canonical reload: coinbase no longer last.
+    block.txns = [block.txns[-1], *block.txns[:-1]]
+    assert block.get_merkle_root() == root
+    block.validate_merkle_root()  # must not raise
+
+
+def test_canonical_txns_orders_coinbase_last(
+    reward, single_block, signing_key, subject, txid, time_machine
+):
+    block = _two_txn_block(
+        single_block, signing_key, subject, txid, reward, time_machine
+    )
+    shuffled = [block.txns[-1], *reversed(block.txns[:-1])]
+    block.txns = shuffled
+    canonical = block.canonical_txns()
+    assert canonical[-1].is_coinbase
+    assert not any(t.is_coinbase for t in canonical[:-1])
+    regulars = canonical[:-1]
+    assert regulars == sorted(
+        regulars, key=lambda t: (t.timestamp, t.txid or '')
+    )
+
+
+def test_in_merkle_tree_multi_txn(
+    reward, single_block, signing_key, subject, txid, time_machine
+):
+    block = _two_txn_block(
+        single_block, signing_key, subject, txid, reward, time_machine
+    )
+    block.validate()
+    for t in block.txns:
+        assert block.in_merkle_tree(t.txid)
+    assert not block.in_merkle_tree('nonexistent-txid')
 
 
 def test_add_txn(single_block, subject, time_machine, txid, signing_key):
