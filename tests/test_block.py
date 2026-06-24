@@ -1,4 +1,5 @@
 import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,7 +20,7 @@ from gumptionchain.exceptions import (
 )
 from gumptionchain.payload import Inflow, Outflow, encode_subject
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
-from gumptionchain.util import dt_2_iso, now
+from gumptionchain.util import dt_2_iso, iso_2_dt, now
 
 TEST_TARGET = 'F' * 64
 
@@ -140,6 +141,36 @@ def test_in_merkle_tree_multi_txn(
     for t in block.txns:
         assert block.in_merkle_tree(t.txid)
     assert not block.in_merkle_tree('nonexistent-txid')
+
+
+def test_from_dao_canonicalizes_transaction_order(
+    app, reward, single_block, signing_key, subject, txid, time_machine
+):
+    block = _two_txn_block(
+        single_block, signing_key, subject, txid, reward, time_machine
+    )
+    block.validate()
+    # DB presents transactions coinbase-FIRST (the (timestamp,txid)
+    # tie-break flip).
+    with app.app_context():
+        cb_dao = block.coinbase.to_dao()
+        reg_daos = [t.to_dao() for t in block.regular_txns]
+    fake_dao = SimpleNamespace(
+        idx=block.idx,
+        timestamp=iso_2_dt(block.timestamp),
+        block_hash=block.block_hash,
+        prev_hash=block.prev_hash,
+        target=block.target,
+        proof_of_work=block.proof_of_work,
+        merkle_root=block.merkle_root,
+        version=block.version,
+        transactions=[cb_dao, *reg_daos],
+    )
+    reloaded = Block.from_dao(fake_dao)
+    assert reloaded.coinbase.is_coinbase
+    assert reloaded.coinbase.txid == block.coinbase.txid
+    assert not any(t.is_coinbase for t in reloaded.regular_txns)
+    reloaded.validate()
 
 
 def test_add_txn(single_block, subject, time_machine, txid, signing_key):

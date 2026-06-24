@@ -414,9 +414,9 @@ class Block:
             target=dao.target,
             proof_of_work=dao.proof_of_work,
             merkle_root=dao.merkle_root,
-            txns=[
-                Transaction.from_dao(txn_dao) for txn_dao in dao.transactions
-            ],
+            txns=cls._canonical_order(
+                [Transaction.from_dao(txn_dao) for txn_dao in dao.transactions]
+            ),
             version=dao.version,
         )
 
