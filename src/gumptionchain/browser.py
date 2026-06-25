@@ -501,6 +501,7 @@ def advanced_view() -> Any:
         title='Advanced',
         node_host=current_app.config['NODE_HOST'],
         rp_name='GumptionChain',
+        rp_id=current_app.config.get('RP_ID') or '',
     )
 
 
@@ -518,6 +519,7 @@ def transact_view() -> Any:
         # rp_name labels the WebAuthn passkey (RP name) for the saved key
         # passkey unlock path; gc-sig is node-bound so node_host stays too.
         rp_name='GumptionChain',
+        rp_id=current_app.config.get('RP_ID') or '',
     )
 
 
@@ -532,4 +534,5 @@ def signing_key_view() -> Any:
         'signing_key.html',
         title='SigningKey',
         rp_name='GumptionChain',
+        rp_id=current_app.config.get('RP_ID') or '',
     )

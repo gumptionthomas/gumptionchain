@@ -4,7 +4,7 @@
 
 {% block content -%}
 <div class="container-fluid" data-node-host="{{ node_host }}"
-     data-rp-name="{{ rp_name }}">
+     data-rp-name="{{ rp_name }}" data-rp-id="{{ rp_id }}">
 
   <div class="row my-3"><div class="col">
     <div class="alert alert-warning" role="alert">
@@ -118,6 +118,7 @@
   init(root, {
     nodeHost: root.dataset.nodeHost,
     rpName: root.dataset.rpName,
+    rpId: root.dataset.rpId,
   });
 </script>
 {%- endblock %}

@@ -13,6 +13,7 @@ import {
   createPathFor,
   recognitionOutcome,
   classifyRecognition,
+  resolveRpId,
 } from './signing-key-glue.mjs';
 import { SigningKey } from '../sdk/gc-signing-key.mjs';
 import { makeSession } from './signing-key-session.mjs';
@@ -774,4 +775,16 @@ test('init: a saved WRAP record keeps passphrase-unlock + add-passkey', async ()
   assert.equal(dom.querySelector('#backup-btn').textContent, 'Download backup');
   assert.equal(dom.querySelector('#backup-heading').textContent, 'Download an encrypted backup');
   assert.equal(dom.querySelector('#backup-passphrase-row').hidden, false);
+});
+
+// --- resolveRpId: explicit (server-configured) rpId wins, else hostname ----
+test('resolveRpId returns an explicit rpId when provided', () => {
+  const win = { location: { hostname: 'chain.example' } };
+  assert.equal(resolveRpId({ window: win, rpId: 'gumption.com' }), 'gumption.com');
+});
+
+test('resolveRpId falls back to the origin hostname when rpId is empty/absent', () => {
+  const win = { location: { hostname: 'chain.example' } };
+  assert.equal(resolveRpId({ window: win }), 'chain.example');
+  assert.equal(resolveRpId({ window: win, rpId: '' }), 'chain.example');
 });
