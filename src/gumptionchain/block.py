@@ -182,9 +182,22 @@ class Block:
         potential_header = self.potential_header(proof_of_work)
         return validate_hash_diff(mill_hash_str(potential_header), self.target)
 
+    @staticmethod
+    def _canonical_order(txns: list[Transaction]) -> list[Transaction]:
+        # One canonical block order: regular txns by (timestamp, txid),
+        # then the coinbase LAST. is_coinbase (prev_hash is not None) is
+        # position-independent and survives to_dao/from_dao, so the order is
+        # reproducible from any starting permutation (DB load, wire JSON).
+        return sorted(
+            txns, key=lambda t: (t.is_coinbase, t.timestamp, t.txid or '')
+        )
+
+    def canonical_txns(self) -> list[Transaction]:
+        return self._canonical_order(self.txns)
+
     def build_merkle_tree(self) -> InmemoryTree:
         tree = InmemoryTree()
-        for txn in self.txns:
+        for txn in self.canonical_txns():
             if txn.txid is not None:
                 tree.append_entry(txn.txid.encode())
         return tree
@@ -194,7 +207,8 @@ class Block:
         return root.digest.hex() if root else None
 
     def in_merkle_tree(self, txid: str) -> bool:
-        txids = [t.txid for t in self.txns]
+        canonical = self.canonical_txns()
+        txids = [t.txid for t in canonical]
         if txid not in txids:
             return False
         tree = self.build_merkle_tree()
@@ -400,9 +414,9 @@ class Block:
             target=dao.target,
             proof_of_work=dao.proof_of_work,
             merkle_root=dao.merkle_root,
-            txns=[
-                Transaction.from_dao(txn_dao) for txn_dao in dao.transactions
-            ],
+            txns=cls._canonical_order(
+                [Transaction.from_dao(txn_dao) for txn_dao in dao.transactions]
+            ),
             version=dao.version,
         )
 

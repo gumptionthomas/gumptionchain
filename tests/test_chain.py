@@ -30,7 +30,7 @@ from gumptionchain.exceptions import (
     SpentTransactionError,
 )
 from gumptionchain.milling import mill_hash_str
-from gumptionchain.models import ChainDAO, TransactionDAO
+from gumptionchain.models import BlockDAO, ChainDAO, TransactionDAO
 from gumptionchain.payload import Inflow, Outflow
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
@@ -289,6 +289,127 @@ def test_db(add_chain_block, app, time_machine, signing_key):
         chain.to_db()
         chain_copy = Chain.from_db(chain.cid)
         assert chain == chain_copy
+
+
+def test_reloaded_multi_txn_chain_validates(
+    add_chain_block, app, time_machine, signing_key, subject
+):
+    # Regression for egu-340: a block carrying regular txns alongside its
+    # coinbase must validate after being reloaded from the DB. The merkle root
+    # is sealed over a CANONICAL order (regular txns by (timestamp, txid), then
+    # the coinbase LAST). The DB association order, however, is plain
+    # (timestamp, txid) over ALL txns — so when a regular txn shares the
+    # coinbase's timestamp and its txid sorts before the coinbase's, the DB
+    # presents the coinbase NOT-last. Pre-fix, Block.from_dao reconstructed
+    # txns in that raw DB order, the recomputed merkle root mismatched the
+    # sealed header, and Chain.validate() raised InvalidMerkleRootError. This
+    # mirrors `gumptionchain validate` and the peer-sync path.
+    with app.app_context():
+        # Both split outputs go to signing_key's own address so signing_key can
+        # spend each independently in block 2 (an inflow's outflow address must
+        # match the spender's address).
+        addr = signing_key.address
+        # A FIXED instant (not now()) so every txid — and thus the
+        # (timestamp, txid) sort that drives both add_txn ordering and the DB
+        # association order — is fully deterministic across runs. With a
+        # wall-clock now() the txids reshuffle every run, intermittently
+        # tripping OutOfOrderTransactionError on the two same-timestamp spends
+        # and flipping the coinbase-not-last divergence this test relies on.
+        # The seconds field is chosen so the coinbase's txid does NOT sort last
+        # under (timestamp, txid) — i.e. the DB presents the coinbase not-last,
+        # which is what surfaces the merkle bug (asserted by the guard below). A
+        # broad majority of values diverge, so this is robust; the guard fails
+        # loud if a future txid-format change ever removes the divergence.
+        now_dt = datetime.datetime(2026, 6, 15, 12, 0, 2, tzinfo=datetime.UTC)
+        t0 = now_dt - datetime.timedelta(hours=2)
+        t1 = now_dt - datetime.timedelta(hours=1)
+
+        # Genesis block (coinbase only) — its coinbase reward funds the chain.
+        time_machine.move_to(t0)
+        chain, block0 = add_chain_block()
+        cb0 = block0.coinbase
+        cb0_amount = next(iter(cb0.outflows)).amount
+
+        # Block 1: one regular txn that splits the genesis reward into two
+        # spendable outputs (idx 0 and idx 1), so block 2 can carry two
+        # independent regular txns.
+        half = cb0_amount // 2
+        time_machine.move_to(t1)
+        split = Transaction()
+        split.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
+        split.add_outflow(Outflow(amount=half, address=addr))
+        split.add_outflow(Outflow(amount=cb0_amount - half, address=addr))
+        split.set_signing_key(signing_key)
+        split.seal()
+        split.sign()
+        split.to_db()
+        block1 = Block()
+        block1.add_txn(split)
+        _, block1 = add_chain_block(chain=chain, block=block1)
+
+        # Block 2: TWO regular txns, each spending one of block 1's outputs and
+        # each timestamped at now_dt — the same instant the block (and its
+        # coinbase) is sealed. With the canonical test key's deterministic
+        # txids, the coinbase ties on timestamp and the (timestamp, txid)
+        # tie-break leaves it NOT-last in DB order.
+        time_machine.move_to(now_dt)
+        spend_a = Transaction()
+        spend_a.add_inflow(Inflow(outflow_txid=split.txid, outflow_idx=0))
+        spend_a.add_outflow(Outflow(amount=half, opposition=subject))
+        spend_a.set_signing_key(signing_key)
+        spend_a.seal()
+        spend_a.sign()
+        spend_a.to_db()
+        spend_b = Transaction()
+        spend_b.add_inflow(Inflow(outflow_txid=split.txid, outflow_idx=1))
+        spend_b.add_outflow(Outflow(amount=cb0_amount - half, support=subject))
+        spend_b.set_signing_key(signing_key)
+        spend_b.seal()
+        spend_b.sign()
+        spend_b.to_db()
+        block2 = Block()
+        # add_txn enforces non-decreasing (timestamp, txid) order; spend_a and
+        # spend_b share a timestamp, so add them in their sorted order (mirrors
+        # the mempool, which yields pending txns ordered by (timestamp, txid)).
+        for txn in sorted([spend_a, spend_b]):
+            block2.add_txn(txn)
+        # add_chain_block seals the block (appending the coinbase), mills, and
+        # persists it. The block now carries 3 txns: two regular + coinbase.
+        _, block2 = add_chain_block(chain=chain, block=block2)
+        chain.to_db()
+
+        # Confirm the raw DB association order genuinely diverges from the
+        # canonical order — i.e. the coinbase is NOT last as the DB presents
+        # it. Without this divergence the test would not exercise the bug.
+        # A coinbase DAO is discriminated by a non-null prev_hash (it binds
+        # its block's prev_hash into the txid); regular txns leave it unset.
+        block2_dao = BlockDAO.get(block2.block_hash)
+        db_order = list(block2_dao.transactions)
+        assert db_order[-1].prev_hash is None, (
+            'expected the DB association order to present the coinbase '
+            'NOT-last (the (timestamp, txid) tie-break flip that surfaces '
+            'the merkle bug); got coinbase last so the bug is not exercised'
+        )
+
+        # Reload the whole chain from the DB by its tip hash and validate it
+        # end-to-end — the from_db/from_dao path that surfaced the bug.
+        reloaded = Chain.from_db(block_hash=chain.block_hash)
+        assert reloaded is not None
+        # Sanity-check that a reloaded block genuinely has >1 txn (here, 3),
+        # so this actually exercises a multi-txn block — a coinbase-only block
+        # would not.
+        reloaded_blocks = list(reloaded.blocks)
+        multi_txn_blocks = [b for b in reloaded_blocks if len(b.txns) > 1]
+        assert multi_txn_blocks, 'expected a reloaded block with >1 txn'
+        assert any(len(b.txns) == 3 for b in multi_txn_blocks)
+        # On reload, each multi-txn block's recomputed merkle root must still
+        # match its sealed header. Pre-fix, from_dao kept the raw DB order and
+        # the recomputed root diverged from the stored one (InvalidMerkleRoot).
+        for b in multi_txn_blocks:
+            assert b.get_merkle_root() == b.merkle_root
+        # And the chain validates end-to-end (must not raise — e.g.
+        # InvalidMerkleRootError / OutOfOrderTransactionError before the fix).
+        assert reloaded.validate() is True
 
 
 def test_dao(add_chain_block, app, time_machine, time_stepper, signing_key):
