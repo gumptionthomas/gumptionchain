@@ -1,4 +1,5 @@
 import datetime
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -171,6 +172,61 @@ def test_from_dao_canonicalizes_transaction_order(
     assert reloaded.coinbase.txid == block.coinbase.txid
     assert not any(t.is_coinbase for t in reloaded.regular_txns)
     reloaded.validate()
+
+
+def test_from_dict_canonicalizes_transaction_order(
+    reward, single_block, signing_key, subject, txid, time_machine
+):
+    # A serialized block whose txns array is NON-canonical (coinbase not last)
+    # must reconstruct in canonical order, so the position-based coinbase /
+    # regular_txns properties stay correct. (Block.__eq__ ignores txns order,
+    # so assert the order explicitly rather than via ==.)
+    block = _two_txn_block(
+        single_block, signing_key, subject, txid, reward, time_machine
+    )
+    block.validate()
+    d = block.to_dict()
+    d['txns'] = list(reversed(d['txns']))  # coinbase first — non-canonical
+    reconstructed = Block.from_dict(d)
+    assert reconstructed.txns[-1].is_coinbase
+    assert reconstructed.coinbase.txid == block.coinbase.txid
+    assert not any(t.is_coinbase for t in reconstructed.regular_txns)
+    reconstructed.validate()
+
+
+def test_from_json_canonicalizes_transaction_order(
+    reward, single_block, signing_key, subject, txid, time_machine
+):
+    block = _two_txn_block(
+        single_block, signing_key, subject, txid, reward, time_machine
+    )
+    block.validate()
+    d = block.to_dict()
+    d['txns'] = list(reversed(d['txns']))  # coinbase first — non-canonical
+    reconstructed = Block.from_json(json.dumps(d))
+    assert reconstructed.txns[-1].is_coinbase
+    assert reconstructed.coinbase.txid == block.coinbase.txid
+    assert not any(t.is_coinbase for t in reconstructed.regular_txns)
+    reconstructed.validate()
+
+
+def test_in_merkle_tree_skips_untxid_leaf(
+    reward, single_block, signing_key, subject, txid, time_machine
+):
+    # in_merkle_tree's leaf index must be computed over the SAME leaves the
+    # tree is built from — build_merkle_tree skips txns with no txid. Inject a
+    # txid-less txn that sorts canonically first; pre-hardening its phantom
+    # slot shifted every real leaf index by one, breaking the inclusion proof.
+    block = _two_txn_block(
+        single_block, signing_key, subject, txid, reward, time_machine
+    )
+    real = block.regular_txns[0]
+    dummy = Transaction()  # unsealed → txid is None
+    dummy.timestamp = '2000-01-01T00:00:00Z'  # sorts before every real txn
+    block.txns.insert(0, dummy)
+    assert block.in_merkle_tree(real.txid)
+    assert block.in_merkle_tree(block.coinbase.txid)
+    assert not block.in_merkle_tree('nonexistent-txid')
 
 
 def test_add_txn(single_block, subject, time_machine, txid, signing_key):
