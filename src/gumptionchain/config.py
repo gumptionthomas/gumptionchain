@@ -32,6 +32,11 @@ class EnvAppSettings(EnvironSettings):
     _prefix: ClassVar[str] = 'GC_'
 
     NODE_HOST: str | None = field(default=None)
+    # Canonical WebAuthn RP ID for passkey ceremonies on the browser pages.
+    # None → the page falls back to its origin hostname (self-scoped). Set to a
+    # shared EGU rpId (e.g. the hub domain) to federate one passkey identity
+    # across distinct origins via Related Origin Requests (gump-hub#67).
+    RP_ID: str | None = field(default=None)
     PEERS: list[str] = field(default_factory=list)
     API_CLIENT_TIMEOUT: int = field(default=10)
     MAX_CHAIN_FILL_DEPTH: int = field(default=50000)

@@ -3,7 +3,7 @@
 {% block title %}Signing key{% endblock %}
 
 {% block content -%}
-<div class="container-fluid" data-rp-name="{{ rp_name }}">
+<div class="container-fluid" data-rp-name="{{ rp_name }}" data-rp-id="{{ rp_id }}">
 
   <!-- Security banner: persistence is a trust decision in this node. -->
   <div class="row my-3"><div class="col">
@@ -231,6 +231,6 @@
 <script type="module">
   import { init } from "{{ url_for('browser.static', filename='js/signing-key-glue.mjs') }}";
   const root = document.querySelector('[data-rp-name]');
-  init(root, { rpName: root.dataset.rpName });
+  init(root, { rpName: root.dataset.rpName, rpId: root.dataset.rpId });
 </script>
 {%- endblock %}

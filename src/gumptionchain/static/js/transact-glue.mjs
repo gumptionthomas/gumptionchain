@@ -389,6 +389,7 @@ export function init(
   {
     nodeHost,
     rpName = 'GumptionChain',
+    rpId,
     store = makeIdbStore({}),
     session = defaultSession,
     win = typeof window !== 'undefined' ? window : undefined,
@@ -835,7 +836,7 @@ export function init(
   // the shared auto-lock policy so an unlocked key (saved OR session) is dropped
   // on idle / tab-hide / page-unload. A lock re-renders the panel.
   (async () => {
-    passkey = await makePasskey({ window: win, rpName });
+    passkey = await makePasskey({ window: win, rpName, rpId });
     session.onLock(() => {
       if (wasUnlocked && keyStatus) {
         setStatus(keyStatus, 'Key locked — cleared from memory.', 'info');

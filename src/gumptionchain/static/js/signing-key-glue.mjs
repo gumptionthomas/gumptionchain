@@ -12,7 +12,7 @@ import * as keyring from '../sdk/gc-keyring.mjs';
 import { makeIdbStore } from '../sdk/gc-store-idb.mjs';
 import { exportEncrypted, importEncrypted } from '../sdk/gc-backup.mjs';
 import { session as defaultSession } from './signing-key-session.mjs';
-import { makePasskey } from './signing-key-passkey.mjs';
+import { makePasskey, resolveRpId } from './signing-key-passkey.mjs';
 import {
   classifyRecognition, makeDerivedIdentity,
 } from '../sdk/gc-derived-identity.mjs';
@@ -26,8 +26,8 @@ export { classifyRecognition };
 
 // Re-exported so existing importers (and tests) of signing-key-glue keep working;
 // the implementation now lives in the shared signing-key-passkey module so /transact
-// can reuse the same secure-context gating.
-export { makePasskey };
+// can reuse the same secure-context gating. resolveRpId travels with it.
+export { makePasskey, resolveRpId };
 
 // --- pure helpers ---------------------------------------------------------
 
@@ -151,12 +151,15 @@ function downloadText(doc, filename, text) {
 }
 
 // init wires the page. root defaults to document. rpName labels the passkey
-// (WebAuthn RP name). store/session/win are injectable for completeness but
-// default to the real IndexedDB store / shared session / window.
+// (WebAuthn RP name); rpId overrides the origin hostname as the WebAuthn RP ID
+// (the canonical EGU rpId when configured, else the hostname). store/session/win
+// are injectable for completeness but default to the real IndexedDB store /
+// shared session / window.
 export function init(
   root = document,
   {
     rpName = 'GumptionChain',
+    rpId,
     store = makeIdbStore({}),
     session = defaultSession,
     win = typeof window !== 'undefined' ? window : undefined,
@@ -805,7 +808,7 @@ export function init(
   // Resolve passkey capability, install auto-lock, then render. Auto-lock
   // re-renders on lock so the controls reflect the locked state.
   (async () => {
-    if (!passkey) passkey = await makePasskey({ window: win, rpName });
+    if (!passkey) passkey = await makePasskey({ window: win, rpName, rpId });
     passkeyState = {
       secureContext: injectedPasskey ? true : !!win?.isSecureContext,
       supported: passkey != null,
