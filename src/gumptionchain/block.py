@@ -87,9 +87,12 @@ def _block_from_model_data(data: dict[str, Any]) -> dict[str, Any]:
     """
     return {
         **data,
-        'txns': [
-            Transaction(**txn_from_model_data(t)) for t in data.get('txns', [])
-        ],
+        'txns': Block._canonical_order(
+            [
+                Transaction(**txn_from_model_data(t))
+                for t in data.get('txns', [])
+            ]
+        ),
     }
 
 
@@ -208,7 +211,9 @@ class Block:
 
     def in_merkle_tree(self, txid: str) -> bool:
         canonical = self.canonical_txns()
-        txids = [t.txid for t in canonical]
+        # Index over the SAME leaves build_merkle_tree appends — it skips txns
+        # with no txid, so a txid-less txn must not shift the leaf indices.
+        txids = [t.txid for t in canonical if t.txid is not None]
         if txid not in txids:
             return False
         tree = self.build_merkle_tree()
