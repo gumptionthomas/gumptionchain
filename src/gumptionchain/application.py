@@ -120,8 +120,24 @@ def init_app(
 
 
 def read_signing_keys(app: Flask) -> dict[str, SigningKey]:
-    signing_keydir = app.config.get('SIGNING_KEY_DIR')
     signing_keys: dict[str, SigningKey] = {}
+    # Inline single-key identity (env GC_SIGNING_KEY) wins over the *.pem dir:
+    # cloud platforms inject secrets as env vars, not files. Only the derived
+    # address is logged — never the secret. A malformed secret logs and falls
+    # back to the dir scan rather than crashing startup.
+    inline_secret = app.config.get('SIGNING_KEY')
+    if inline_secret:
+        try:
+            key = SigningKey.from_secret(inline_secret)
+        except Exception as e:
+            app.logger.error('Error loading inline GC_SIGNING_KEY')
+            app.logger.exception(e)
+        else:
+            app.logger.info(
+                f'Loaded node signing key {key.address} from GC_SIGNING_KEY'
+            )
+            return {key.address: key}
+    signing_keydir = app.config.get('SIGNING_KEY_DIR')
     if signing_keydir and os.path.isdir(signing_keydir):
         for dirpath, _, filenames in os.walk(signing_keydir):
             for filename in filenames:
