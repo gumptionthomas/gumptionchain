@@ -1,10 +1,14 @@
 import gc
+import logging
 import weakref
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from gumptionchain.application import close_clients
+from gumptionchain.application import close_clients, read_signing_keys
+from gumptionchain.signing_key import SigningKey
 
 
 class _RecordingClient:
@@ -92,3 +96,52 @@ def test_weakref_finalize_fires_on_gc() -> None:
     assert app_ref() is None, 'standin app was not garbage-collected'
     assert a.closed is True
     assert b.closed is True
+
+
+def _key_app(**config: Any) -> Any:
+    return SimpleNamespace(
+        config=config, logger=logging.getLogger('test-read-signing-keys')
+    )
+
+
+def test_read_signing_keys_inline_secret_loads_one_key() -> None:
+    sk = SigningKey()
+    app = _key_app(SIGNING_KEY=sk.secret, SIGNING_KEY_DIR=None)
+    keys = read_signing_keys(app)
+    assert set(keys) == {sk.address}
+    assert keys[sk.address].address == sk.address
+
+
+def test_read_signing_keys_inline_wins_over_dir() -> None:
+    inline = SigningKey()
+    dir_key = SigningKey()
+    with TemporaryDirectory() as d:
+        dir_key.to_file(signing_keydir=d)
+        app = _key_app(SIGNING_KEY=inline.secret, SIGNING_KEY_DIR=d)
+        keys = read_signing_keys(app)
+    assert set(keys) == {inline.address}
+    assert dir_key.address not in keys
+
+
+def test_read_signing_keys_dir_only_unchanged() -> None:
+    dir_key = SigningKey()
+    with TemporaryDirectory() as d:
+        dir_key.to_file(signing_keydir=d)
+        app = _key_app(SIGNING_KEY=None, SIGNING_KEY_DIR=d)
+        keys = read_signing_keys(app)
+    assert set(keys) == {dir_key.address}
+
+
+def test_read_signing_keys_neither_set_is_empty() -> None:
+    app = _key_app(SIGNING_KEY=None, SIGNING_KEY_DIR=None)
+    assert read_signing_keys(app) == {}
+
+
+def test_read_signing_keys_inline_malformed_falls_back_to_dir() -> None:
+    dir_key = SigningKey()
+    with TemporaryDirectory() as d:
+        dir_key.to_file(signing_keydir=d)
+        app = _key_app(SIGNING_KEY='gcsec1notavalidsecret', SIGNING_KEY_DIR=d)
+        keys = read_signing_keys(app)
+    # A bad inline secret must not crash startup; it logs and falls back.
+    assert set(keys) == {dir_key.address}

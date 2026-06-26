@@ -47,6 +47,10 @@ class EnvAppSettings(EnvironSettings):
     API_ASYNC_PROCESSING: bool = field(default=False)
     DEFAULT_COMMAND_HOST: str | None = field(default=None)
     SIGNING_KEY_DIR: str | None = field(default=None)
+    # Inline single-key identity: a gcsec1… secret (env GC_SIGNING_KEY) loaded
+    # as THE node key, for platforms that inject secrets as env vars not files
+    # (Fly.io). Takes precedence over SIGNING_KEY_DIR. Never logged.
+    SIGNING_KEY: str | None = field(default=None)
     ADMIN_ADDRESSES: list[str] = field(default_factory=list)
     MILLER_ADDRESSES: list[str] = field(default_factory=list)
     TRANSACTOR_ADDRESSES: list[str] = field(default_factory=list)
