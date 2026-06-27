@@ -248,6 +248,29 @@ Lower-level txid primitives live in `gc-transaction.mjs` (internal):
 `dataCsv(txn)`, `txid(txn)`, `signingData(txn)`, `signUnsignedTxn(unsigned,
 signing_key)` — byte-identical to the Python implementation.
 
+### `relay-glue.mjs` — the relay path
+
+`transact-glue` above is **direct-to-node**: the browser gc-sig-signs each API
+request *as the user*, so the user's address must be a `TRANSACTOR`. For a
+**closed-transactor** node where end users transact through a **relay** (the
+node-proxy `node_proxy_blueprint`; the *relay's* service key is the only
+authorized caller), use `relay-glue.mjs`
+(`/static/gumptionchain/js/relay-glue.mjs`). The browser→relay hop is a plain
+JSON POST (no GC-* headers — the relay signs the node call); the user still signs
+only their own tx payload.
+
+| Export | Signature → returns | Purpose |
+|---|---|---|
+| `buildUnsigned({ relayBase, type, fields, fetchImpl? })` | → `{ unsigned }` | POST `relayBase/txn/<type>` (`fields` use the relay's wire names: `signer`, `subject`, `amount_grit`, `kind`/`to_address`/`denomination_grit`+`count`). `type` ∈ `support\|oppose\|rescind\|transfer\|split`. |
+| `signAndSubmit({ relayBase, unsigned, signing_key, fetchImpl? })` | → `{ unsigned, signed, txid }` | Sign a pre-built unsigned txn (`signUnsignedTxn`) and POST `relayBase/txn/submit` (confirm-then-sign). |
+| `submit({ relayBase, signed, fetchImpl? })` | → `{ txid }` | POST an already-signed txn to the relay. |
+| `buildSignSubmit({ relayBase, type, fields, signing_key, fetchImpl? })` | → `{ unsigned, signed, txid }` | The full relay round-trip in one call. |
+| `buildBody` / `normalizeGrit` / `relayMessage` / `relayUrl` | (pure helpers) | Request-body assembly, whole-GRIT validation (sub-grain rejected, mirrors `gumptionchain.units`), and relay status→message mapping. |
+
+Amounts cross as **whole GRIT** (`amount_grit`/`denomination_grit`, ≤ 2 decimals);
+the relay converts to grains. `relayBase` is the prefix the consuming app mounts
+the relay at (e.g. `/relay`).
+
 ---
 
 ## 7. Backup, recovery & derivation
