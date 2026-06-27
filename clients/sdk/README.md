@@ -34,10 +34,25 @@ import { SigningKey, signMessage } from './clients/sdk/index.mjs';
 // @<tag-or-sha> segment so you track a fixed version, not the default branch:
 // import { SigningKey } from
 //   'https://cdn.jsdelivr.net/gh/gumptionthomas/gumptionchain@<tag-or-sha>/clients/sdk/index.mjs';
+
+// Or, when a base gumptionchain node serves the package (member apps embedding
+// the node's static assets), import the SERVED barrel:
+// import { SigningKey } from '/static/gumptionchain/sdk/index.mjs';
 ```
 
 Only symbols re-exported from `index.mjs` are the supported public API. Other
 files (`gc-crypto.mjs`, `gc-envelope.mjs`, …) are internal and may change.
+
+**Importing the served package (member apps).** When you consume the SDK from a
+base node's static assets, import **only the served barrel** —
+`/static/gumptionchain/sdk/index.mjs` — never an individual file URL
+(`…/sdk/gc-keyring.mjs`). The barrel path is the stable contract; individual
+served filenames are internal and may be renamed or moved, which would 404 a
+direct import only **after** you bump the node pin (invisible until runtime —
+see issue #352). Read the `version` export to gate on the embedder-API semver.
+A base node serves `index.mjs` with a `text/javascript` MIME type (required for
+`import`); `tests/test_static_assets.py` guards that path so a base-side break
+fails CI rather than your deploy.
 
 ## Quickstart
 
