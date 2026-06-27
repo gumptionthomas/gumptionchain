@@ -59,9 +59,11 @@ export function normalizeGrit(value, field = 'amount_grit') {
   if (decimals > 2) {
     throw new Error(`${field} precision finer than one grain (0.01)`);
   }
-  // Canonicalize (drop a leading + / insignificant forms) via Number, but keep
-  // exactness for <= 2 decimals.
-  return String(num);
+  // Return the validated decimal string as-is (the regex guarantees a plain
+  // [-]digits[.digits] form). Don't round-trip through Number — that would
+  // emit exponential notation for very large values; the relay parses the
+  // string with Decimal, so leading/trailing zeros are harmless.
+  return str;
 }
 
 // Build the relay request body for a transaction type from caller-supplied
