@@ -100,6 +100,52 @@ def test_miller_create_block(app, time_machine, time_stepper, signing_key):
         assert m.longest_chain.get_block(b2.block_hash)
 
 
+def test_balance_filter_pending_excludes_pending_spend(
+    app, time_machine, time_stepper, signing_key
+):
+    # egu-357: balance(address, filter_pending=True) is the spendable-now total
+    # (confirmed-unspent minus outputs already consumed by mempool txns), so a
+    # UI can gate compose-time. Default False keeps confirmed-balance semantics.
+    with app.app_context():
+        now_dt = now()
+        time_step = time_stepper(start=now_dt - datetime.timedelta(hours=1))
+        m = Miller(milling_signing_key=signing_key)
+        _ = next(time_step)
+        b0 = m.create_block()
+        m.mill_block(b0)  # coinbase cb0 -> REWARD
+        _ = next(time_step)
+        b1 = m.create_block()
+        m.mill_block(b1)  # coinbase cb1 -> REWARD
+        _ = next(time_step)
+        addr = signing_key.address
+        lc = m.longest_chain
+        assert lc.balance(addr) == 2 * REWARD
+        # Nothing pending yet: available == confirmed.
+        assert lc.balance(addr, filter_pending=True) == 2 * REWARD
+
+        # Spend ONE confirmed coinbase output (cb0) via a PENDING, unmilled txn.
+        cb0 = b0.coinbase
+        cb0_amount = next(iter(cb0.outflows)).amount
+        w2 = SigningKey()
+        remit = 2 * GPG
+        t0 = Transaction()
+        t0.add_inflow(Inflow(outflow_txid=cb0.txid, outflow_idx=0))
+        t0.add_outflow(Outflow(amount=remit, address=w2.address))
+        t0.add_outflow(Outflow(amount=cb0_amount - remit, address=addr))
+        t0.set_signing_key(signing_key)
+        t0.seal()
+        t0.sign()
+        m.receive_transaction(t0.txid, t0.to_json())  # -> mempool, not milled
+
+        lc = m.longest_chain
+        # Confirmed balance ignores pending consumption (unchanged behavior).
+        assert lc.balance(addr) == 2 * REWARD
+        # Available excludes cb0 (consumed by the pending txn); the pending
+        # change isn't confirmed, so only the untouched cb1 remains spendable.
+        assert lc.balance(addr, filter_pending=True) == REWARD
+        time_machine.move_to(now_dt)
+
+
 def test_expired_transaction(app, time_machine, signing_key):
     with app.app_context():
         m = Miller(milling_signing_key=signing_key)

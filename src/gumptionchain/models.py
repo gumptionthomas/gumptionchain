@@ -815,9 +815,15 @@ class ChainDAO(Base):
             stmt = stmt.where(~OutflowDAO.pending.any())
         return stmt
 
-    def signing_key_balance(self, address: str) -> int:
-        stmt = self.outflows.where(OutflowDAO.address == address)
-        stmt = stmt.where(self._unspent_clause())
+    def signing_key_balance(
+        self,
+        address: str,
+        filter_pending: bool = False,  # noqa: FBT001
+    ) -> int:
+        # filter_pending=True returns the spendable-now total: confirmed-unspent
+        # minus outputs already consumed by mempool txns (egu-357). Reuses
+        # unspent_outflows so the unspent + pending logic lives in one place.
+        stmt = self.unspent_outflows(address, filter_pending=filter_pending)
         outflows_alias = db.aliased(OutflowDAO, stmt.subquery())
         sum_stmt = db.select(db.func.sum(OutflowDAO.amount)).join(
             outflows_alias, OutflowDAO.id == outflows_alias.id
