@@ -179,6 +179,30 @@ def node_proxy_blueprint(
     def txn_oppose() -> Response:
         return _build('get_opposition_transaction')
 
+    @bp.post('/txn/rescind')
+    def txn_rescind() -> Response:
+        # Build an unsigned rescind: un-stake the signer's own support or
+        # opposition on a subject. `kind` selects which stake to undo
+        # (the node re-validates it; we 400 early on a bad value).
+        data = request.get_json(silent=True) or {}
+        signer = _signer(data)
+        subject = _require_subject(data.get('subject'))
+        grains = _grit_to_grains(data.get('amount_grit'))
+        kind = data.get('kind')
+        if kind not in ('opposition', 'support'):
+            raise _ProxyError(400, "kind must be 'opposition' or 'support'")
+        return jsonify(
+            _ok(
+                _call(
+                    make_client().get_rescind_transaction,
+                    signer,
+                    grains,
+                    subject,
+                    kind,
+                )
+            ).json()
+        )
+
     @bp.post('/txn/transfer')
     def txn_transfer() -> Response:
         # Build an unsigned player->address GRIT transfer. Same shape as the
