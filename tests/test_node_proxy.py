@@ -67,6 +67,11 @@ class FakeClient:
     ):
         return self._resp('build_split', signer, denomination, count)
 
+    def get_rescind_transaction(
+        self, signer, amount, subject, kind, *, raise_for_status=True
+    ):
+        return self._resp('build_rescind', signer, amount, subject, kind)
+
     def get(self, path, *, raise_for_status=True):
         return self._resp('status', path)
 
@@ -213,6 +218,37 @@ def test_build_transfer_rejects_bad_address():
         json={'signer': SIGNER, 'amount_grit': 20, 'to_address': 'nope'},
     )
     assert resp.status_code == 400
+
+
+def test_build_rescind_converts_grit_and_passes_kind():
+    unsigned = {'txid': 'r1', 'outflows': [{'amount': 500, 'rescind': 'enc'}]}
+    client = FakeClient(build_rescind=FakeResponse(200, unsigned))
+    resp = _app(client).post(
+        '/api/node/txn/rescind',
+        json={
+            'signer': SIGNER,
+            'amount_grit': 5,
+            'subject': 'goblins',
+            'kind': 'support',
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.get_json() == unsigned
+    name, args, _ = client.calls[0]
+    assert name == 'build_rescind'
+    assert args == (SIGNER, 500, 'goblins', 'support')
+
+
+def test_build_rescind_rejects_bad_kind():
+    client = FakeClient()
+    for bad in ({}, {'kind': ''}, {'kind': 'nope'}, {'kind': 'Support'}):
+        resp = _app(client).post(
+            '/api/node/txn/rescind',
+            json={'signer': SIGNER, 'amount_grit': 5, 'subject': 'x', **bad},
+        )
+        assert resp.status_code == 400, bad
+        assert 'kind' in resp.get_json()['error']
+    assert client.calls == []
 
 
 def test_build_split_converts_grit_and_passes_count():
