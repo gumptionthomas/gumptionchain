@@ -9,9 +9,9 @@ import httpx
 from flask import Blueprint, Request, Response, jsonify, request
 
 from gumptionchain.api_client import ApiClient
-from gumptionchain.chain import GRAIN_PER_GRIT
 from gumptionchain.payload import encode_subject, validate_raw_subject
 from gumptionchain.schema import validate_address_format
+from gumptionchain.units import GRAIN_PER_GRIT
 
 
 class _ProxyError(Exception):
@@ -89,7 +89,15 @@ def node_proxy_blueprint(
     """A browser-facing JSON relay over ``ApiClient`` for GRIT support/oppose
     spending, keeping the node host server-side. ``make_client`` supplies a
     configured client (node host + a TRANSACTOR/READER key). The relay holds no
-    key; it converts GRIT<->grains, validates subjects, and maps errors."""
+    key; it converts GRIT<->grains, validates subjects, and maps errors.
+
+    **Whole-GRIT at the proxy (the canonical conversion boundary).** Every
+    amount crossing this relay is **whole/decimal GRIT** (``amount_grit``,
+    ``denomination_grit``; reads return ``{grit, grains}``). The proxy is the
+    *one* place GRIT<->grains conversion happens (via ``gumptionchain.units``),
+    so a member app speaking to it never handles grains and never re-declares
+    the 100:1 factor (egu-353). One grain (0.01 GRIT) is the finest amount;
+    finer precision is a 400, not a silent truncation."""
     bp = Blueprint(name, __name__, url_prefix=url_path)
 
     @bp.errorhandler(_ProxyError)

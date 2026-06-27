@@ -32,7 +32,6 @@ from rich.text import Text
 
 from gumptionchain.api_client import ApiClient
 from gumptionchain.block import Block
-from gumptionchain.chain import GRAIN_PER_GRIT
 from gumptionchain.console import console
 from gumptionchain.database import db
 from gumptionchain.miller import Miller
@@ -40,6 +39,7 @@ from gumptionchain.node import Node
 from gumptionchain.payload import StakeKind, encode_subject
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import Transaction
+from gumptionchain.units import GRAIN_PER_GRIT
 from gumptionchain.util import host_address, now_iso
 
 REFRESH_PER_SECOND = 8

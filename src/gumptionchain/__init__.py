@@ -17,21 +17,21 @@
 
 from __future__ import annotations
 
+from functools import cache as _cache
 from importlib.metadata import version as _pkg_version
 from pathlib import Path as _Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import click
-from flask import Flask
-from flask.cli import FlaskGroup
-from flask_migrate import Migrate
+if TYPE_CHECKING:
+    from flask import Flask
 
-from gumptionchain.node_proxy import (
-    node_proxy_blueprint as node_proxy_blueprint,
-)
-from gumptionchain.static_assets import (
-    static_assets_blueprint as static_assets_blueprint,
-)
+# Lightweight entry point (egu-354): this package's __init__ must NOT eagerly
+# import Flask / Click / the node DB layer, so a member app can
+# `from gumptionchain.units import grit_to_grains` or
+# `from gumptionchain.signing_key import SigningKey` at module top without
+# paying the node's startup cost. The heavy public names (create_app, cli, the
+# blueprints) are exposed lazily via PEP 562 module __getattr__ below; each
+# imports Flask only when actually accessed.
 
 __version__ = _pkg_version('gumptionchain')
 
@@ -47,6 +47,8 @@ def create_app(
     config_map: dict[str, Any] | None = None,
     register_browser: bool = True,  # noqa: FBT001
 ) -> Flask:
+    from flask import Flask  # noqa: PLC0415 — deferred to keep import light
+
     from .application import (  # noqa: PLC0415 — circular: application imports gumptionchain
         init_app,
     )
@@ -81,6 +83,10 @@ def create_app(
     init_app(app, register_browser=register_browser)
 
     try:
+        from flask_migrate import (  # noqa: PLC0415 — deferred so `import gumptionchain` stays light
+            Migrate,
+        )
+
         db.init_app(app)
         Migrate(app, db, directory=_MIGRATIONS_DIR)
     except RuntimeError as e:
@@ -103,7 +109,41 @@ def create_app(
     return app
 
 
-@click.version_option(package_name='gumptionchain')
-@click.group(cls=FlaskGroup, create_app=create_app, add_version_option=False)
-def cli() -> None:
-    pass
+@_cache
+def _make_cli() -> Any:
+    # Built lazily (not at module import) so `import gumptionchain` doesn't pull
+    # in Click + Flask's CLI. @cache makes `gumptionchain.cli` a stable
+    # singleton; the console-script entry point is unchanged.
+    import click  # noqa: PLC0415 — deferred to keep package import light
+    from flask.cli import FlaskGroup  # noqa: PLC0415 — deferred (keep light)
+
+    @click.version_option(package_name='gumptionchain')
+    @click.group(
+        cls=FlaskGroup, create_app=create_app, add_version_option=False
+    )
+    def cli() -> None:
+        pass
+
+    return cli
+
+
+def __getattr__(name: str) -> Any:
+    # PEP 562 lazy attributes: keep the public surface
+    # (`from gumptionchain import cli / node_proxy_blueprint / ...`) working
+    # while importing Flask/Click/the blueprints only on first access.
+    if name == 'cli':
+        return _make_cli()
+    if name == 'node_proxy_blueprint':
+        from gumptionchain.node_proxy import (  # noqa: PLC0415 — lazy
+            node_proxy_blueprint,
+        )
+
+        return node_proxy_blueprint
+    if name == 'static_assets_blueprint':
+        from gumptionchain.static_assets import (  # noqa: PLC0415 — lazy
+            static_assets_blueprint,
+        )
+
+        return static_assets_blueprint
+    msg = f'module {__name__!r} has no attribute {name!r}'
+    raise AttributeError(msg)
