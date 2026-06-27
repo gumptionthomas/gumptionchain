@@ -519,8 +519,18 @@ class Chain:
             if limit is not None and amount >= limit:
                 break
 
-    def balance(self, address: str) -> int:
-        return int(self.to_dao().signing_key_balance(address))
+    def balance(
+        self,
+        address: str,
+        filter_pending: bool = False,  # noqa: FBT001
+    ) -> int:
+        # filter_pending=True -> spendable-now balance (excludes outputs already
+        # consumed by mempool txns); default False -> confirmed (egu-357).
+        return int(
+            self.to_dao().signing_key_balance(
+                address, filter_pending=filter_pending
+            )
+        )
 
     def _funds_error(self, address: str, amount: int) -> InsufficientFundsError:
         # Distinguish a genuine shortfall from funds tied up in an unconfirmed
