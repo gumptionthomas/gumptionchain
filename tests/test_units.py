@@ -69,7 +69,7 @@ def test_lightweight_surface_does_not_import_db_or_flask():
         'import gumptionchain.signing_key\n'
         'from gumptionchain.units import grit_to_grains, GRAIN_PER_GRIT\n'
         'from gumptionchain.signing_key import SigningKey\n'
-        "heavy = [m for m in ('sqlalchemy', 'flask', 'flask_migrate') "
+        "heavy = [m for m in ('sqlalchemy', 'flask', 'flask_migrate', 'click') "
         'if m in sys.modules]\n'
         "print(','.join(heavy))\n"
     )
