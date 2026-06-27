@@ -11,10 +11,10 @@ from werkzeug.routing import BaseConverter, ValidationError
 
 from gumptionchain import __version__, api, browser, command
 from gumptionchain.api_client import ApiClient
-from gumptionchain.chain import GRAIN_PER_GRIT
 from gumptionchain.payload import decode_subject, validate_subject
 from gumptionchain.schema import validate_address_format, validate_base64
 from gumptionchain.signing_key import SigningKey
+from gumptionchain.units import GRAIN_PER_GRIT
 from gumptionchain.util import host_address
 
 

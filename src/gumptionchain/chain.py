@@ -45,9 +45,12 @@ from gumptionchain.models import (
 from gumptionchain.payload import Inflow, Outflow, StakeKind
 from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
+from gumptionchain.units import GRAIN_PER_GRIT
 from gumptionchain.util import dt_2_iso, now
 
-GRAIN_PER_GRIT = 100
+# GRAIN_PER_GRIT is defined in the dependency-free gumptionchain.units and
+# re-exported here so existing `from gumptionchain.chain import GRAIN_PER_GRIT`
+# imports keep working (single source of truth — egu-353).
 GENESIS_HASH = mill_hash_str('GENESIS')
 # MAX_TARGET is the difficulty floor (easiest target) and genesis/initial
 # target. Benchmarked on the target hardware (#169): Pi 3 B+ single-core
