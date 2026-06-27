@@ -140,7 +140,7 @@ When `GC_API_ASYNC_PROCESSING=true`, block/txn POSTs return `202` without doing 
 
 - `ruff` config in `pyproject.toml`: `[tool.ruff]` holds top-level settings (target Python 3.12, `line-length = 80`), `[tool.ruff.lint]` holds the rule selection — large rule set enabled (`A,B,C,DTZ,E,EM,F,FBT,I,ICN,ISC,N,PLC,PLE,PLR,PLW,Q,RUF,S,SIM,T,TID,UP,W,YTT`). Quote style: `[tool.ruff.lint.flake8-quotes] inline-quotes = "single"` + `[tool.ruff.format] quote-style = "single"` keep linter and formatter aligned. Project-wide ignores include `S101` (assert allowed in tests). Both `ruff check` and `ruff format --check` are hard CI gates as of Phase 3 / PR 8.
 - `mypy` runs under `[tool.mypy] strict = true` and is a hard CI gate as of Phase 3. Target paths come from the `files = ["src/gumptionchain"]` setting; invoke with `uv run mypy` (no positional args) so config and CI agree.
-- Python ≥ 3.12 (CI matrix: 3.12, 3.13). 3.13 is the highest actively tested version.
+- Python ≥ 3.12 (CI matrix: 3.12, 3.13, 3.14). 3.14 is the highest actively tested version. `ruff target-version`/`mypy python_version` stay pinned to the 3.12 floor for back-compat checking.
 - SQLAlchemy is `>=2.0` with `Mapped[]` annotations on every DAO in `models.py`. Flask-SQLAlchemy 3.1+ preserves the legacy `Model.query` / `db.session.query(...)` API; modernization to `db.session.execute(db.select(...))` is Phase 6 work, not Phase 3.
 - pymerkle is `>=5` (currently resolves to 6.1.0) with the v5/v6 `InmemoryTree` API in `block.py`.
 
