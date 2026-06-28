@@ -113,6 +113,10 @@ def test_transaction_view_pending_txn(
         assert 'opposition' in page
         # the spent coinbase outflow's amount resolves from the chain
         assert 'None (pending)' in page  # block row placeholder
+        # back-link is contextual: a pending txn came from the mempool, not
+        # the blocks index (egu-364)
+        assert '&larr; Mempool' in page
+        assert '&larr; Blocks' not in page
 
 
 def test_transaction_view_confirmed_shows_status(

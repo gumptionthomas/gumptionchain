@@ -13,7 +13,7 @@
         <tbody class="font-monospace">
         {%- for entry in entries %}
           <tr>
-            <td>{{ entry.txid }}</td>
+            <td><a href="{{ url_for('browser.transaction_view', txid=entry.txid) }}">{{ entry.txid }}</a></td>
             <td>{{ entry.timestamp | utc_datetime }}</td>
             <td>{{ entry.inflows }}</td>
             <td>{{ entry.outflows }}</td>
