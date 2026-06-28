@@ -82,8 +82,8 @@ def test_mempool_shows_pending_txn(
         assert txn.txid.encode() in body
         # the numeric total-out is shown
         assert str(total_out).encode() in body
-        # link-free: no /transaction/<txid> link rendered for it
-        assert f'/transaction/{txn.txid}'.encode() not in body
+        # the txid links to its transaction view (egu-364)
+        assert f'/transaction/{txn.txid}'.encode() in body
 
 
 def _reinsert_pending(txn):
