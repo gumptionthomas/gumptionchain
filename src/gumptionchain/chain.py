@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import total_ordering
 from typing import Any, Self, assert_never
 
@@ -547,6 +548,15 @@ class Chain:
 
     def signing_key_leaderboard(self, limit: int | None = None) -> Select[Any]:
         return self.to_dao().signing_key_leaderboard(limit=limit)
+
+    def coinbase_stats(self, address: str) -> tuple[int, datetime | None]:
+        # (blocks this address milled, datetime of its most recent block) on
+        # the canonical chain — the dashboard's "is my miller producing?"
+        # signal (egu-366). Empty/un-persisted chain → (0, None).
+        dao = self.to_dao()
+        if dao is None:
+            return (0, None)
+        return dao.coinbase_stats(address)
 
     def address_holdings(self, address: str) -> Select[tuple[OutflowDAO]]:
         # unspent_outflows has no inherent order; add a deterministic sort so

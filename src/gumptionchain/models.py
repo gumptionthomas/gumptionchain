@@ -830,6 +830,25 @@ class ChainDAO(Base):
         )
         return db.session.scalar(sum_stmt) or 0
 
+    def coinbase_stats(
+        self, address: str
+    ) -> tuple[int, datetime.datetime | None]:
+        # (blocks milled by `address`, timestamp of its most recent block)
+        # over the CANONICAL chain. A coinbase (prev_hash set) pays the miller
+        # via its outflow; the coinbase txn's timestamp is the block's seal
+        # time, so no block join is needed. COUNT(DISTINCT txid) is robust if a
+        # coinbase ever carries more than one outflow to the same address.
+        txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
+        stmt = db.select(
+            db.func.count(db.distinct(OutflowDAO.txid)).label('n'),
+            db.func.max(txn_alias.timestamp).label('latest'),
+        )
+        stmt = stmt.join(txn_alias, OutflowDAO.transaction)
+        stmt = stmt.where(txn_alias.prev_hash.is_not(None))
+        stmt = stmt.where(OutflowDAO.address == address)
+        row = db.session.execute(stmt).one()
+        return (int(row.n or 0), row.latest)
+
     def unrescinded_outflows(
         self,
         subject: str,

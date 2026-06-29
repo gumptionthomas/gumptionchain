@@ -1879,3 +1879,41 @@ def test_transaction_provenance_orphaned(
         assert prov['status'] == 'orphaned'
         assert prov['height'] is None
         assert prov['confirmations'] == 0
+
+
+def test_coinbase_stats_counts_blocks_milled_by_address(
+    app, mill_block, signing_key
+):
+    with app.app_context():
+        other = SigningKey()
+        # An address that has milled nothing.
+        assert mill_block(signing_key)[0].longest_chain.coinbase_stats(
+            other.address
+        ) == (0, None)
+        # Mill two more to `signing_key`; its count rises, latest is set.
+        m, _ = mill_block(signing_key)
+        m, _ = mill_block(signing_key)
+        count, latest = m.longest_chain.coinbase_stats(signing_key.address)
+        assert count == 3  # 1 (above) + 2
+        assert latest is not None
+
+
+def test_coinbase_stats_equals_canonical_height_for_sole_miller(
+    app, mill_block, signing_key
+):
+    # When one address mills every block on a single linear chain, its
+    # coinbase_stats count equals the canonical height. (Canonical-only
+    # scoping is guaranteed by self.transactions routing through
+    # LongestChainBlockDAO; this test pins the height invariant, not fork
+    # isolation.)
+    with app.app_context():
+        m, _ = mill_block(signing_key)
+        m, _ = mill_block(signing_key)
+        count, _ = m.longest_chain.coinbase_stats(signing_key.address)
+        assert count == m.longest_chain.length
+
+
+def test_coinbase_stats_empty_chain_returns_zero(app, signing_key):
+    with app.app_context():
+        # A Chain with no persisted tip (to_dao() is None).
+        assert Chain().coinbase_stats(signing_key.address) == (0, None)
