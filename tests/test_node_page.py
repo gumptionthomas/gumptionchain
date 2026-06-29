@@ -1,5 +1,7 @@
 import httpx
 
+from gumptionchain.signing_key import SigningKey
+
 
 def test_node_page_empty_db(app, test_client):
     # Renders without a chain: identity/mempool/peers still show; no 500.
@@ -27,18 +29,21 @@ def test_node_page_with_chain_shows_cadence(
         assert 's ago' in body  # last-block age rendered
 
 
-def test_node_page_miller_section(
+def test_node_page_millers_leaderboard(
     app, mill_block, test_client, miller_signing_key, signing_key
 ):
     with app.app_context():
-        # Mill a block to the MILLER key so it has produced + earned.
-        mill_block(miller_signing_key)
+        # An address that is NEITHER loaded here NOR configured MILLER, but
+        # mills a block, must still appear (the whole point of the change).
+        stranger = SigningKey()
+        mill_block(miller_signing_key)  # configured MILLER, loaded
+        mill_block(stranger)  # neither
         body = test_client.get('/node').get_data(as_text=True)
-        assert 'Miller' in body
-        # the MILLER key appears in a miller row
+        assert 'Millers' in body
         assert f'data-miller-address="{miller_signing_key.address}"' in body
-        # a non-MILLER loaded key (the ADMIN signing_key) is NOT a miller row
-        assert f'data-miller-address="{signing_key.address}"' not in body
+        assert f'data-miller-address="{stranger.address}"' in body
+        # miller_signing_key is configured MILLER -> MILLER badge near its row
+        assert 'MILLER' in body
 
 
 def test_node_page_fresh_block_not_stale(

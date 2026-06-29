@@ -197,7 +197,6 @@ def subjects_view() -> Any:
 
 @blueprint.route('/node')
 def node_view() -> Any:
-    from gumptionchain.api import Role  # noqa: PLC0415 — avoid import cycle
     from gumptionchain.util import host_address  # noqa: PLC0415
 
     try:
@@ -220,30 +219,22 @@ def node_view() -> Any:
                     and age_seconds > 2 * TARGET_GOAL_SECONDS
                 ),
             }
-        # Miller view: only loaded keys that hold the MILLER role. Identity,
-        # full chain detail, and the mempool live on their own surfaces (config,
-        # /chains + /blocks, /mempool) — this page is node + miller health, so
-        # it carries only what those don't: block cadence + per-miller status.
-        miller = []
-        for addr in sorted(keys):
-            if Role.MILLER not in Role.address_roles(addr):
-                continue
-            count, latest = (
-                lc.coinbase_stats(addr) if lc is not None else (0, None)
-            )
-            miller.append(
-                {
-                    'address': addr,
-                    'balance': lc.balance(addr) if lc is not None else 0,
-                    'blocks_milled': count,
-                    'last_milled_dt': latest,
-                }
-            )
+        # Miller view: a leaderboard of EVERY canonical coinbase recipient —
+        # not just MILLER-role keys loaded here — so millers whose key isn't
+        # held/allowlisted on this node still appear (egu-366). Rows are badged
+        # by whether this node holds the key / lists it in MILLER_ADDRESSES.
+        millers_page = (
+            paginate_rows(lc.miller_leaderboard()) if lc is not None else None
+        )
+        held = set(keys)  # addresses whose key is loaded on this node
+        configured = set(cfg.get('MILLER_ADDRESSES') or [])
         context = {
             'node_host': cfg['NODE_HOST'],
             'chain': chain,
             'peers': [host_address(p)[0] for p in (cfg.get('PEERS') or [])],
-            'miller': miller,
+            'millers_page': millers_page,
+            'held': held,
+            'configured': configured,
             'target_goal_seconds': TARGET_GOAL_SECONDS,
         }
     except HTTPException as e:

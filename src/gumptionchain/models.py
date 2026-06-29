@@ -872,6 +872,26 @@ class ChainDAO(Base):
         row = db.session.execute(stmt).one()
         return (int(row.n or 0), row.latest)
 
+    def miller_leaderboard(self) -> Select[Any]:
+        # Every canonical coinbase recipient: blocks milled, total GRIT minted
+        # (grains), and last-milled time — "who milled this chain" (egu-366).
+        # COUNT(DISTINCT txid) counts blocks (a coinbase has several outflows to
+        # the miller); SUM(amount) totals all those outflows = total minted.
+        txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
+        return (  # type: ignore[no-any-return]
+            db.select(
+                OutflowDAO.address.label('address'),
+                db.func.count(db.distinct(OutflowDAO.txid)).label('blocks'),
+                db.func.sum(OutflowDAO.amount).label('minted'),
+                db.func.max(txn_alias.timestamp).label('last_milled'),
+            )
+            .join(txn_alias, OutflowDAO.transaction)
+            .where(txn_alias.prev_hash.is_not(None))
+            .where(OutflowDAO.address.is_not(None))
+            .group_by(OutflowDAO.address)
+            .order_by(db.desc('blocks'), OutflowDAO.address)
+        )
+
     def unrescinded_outflows(
         self,
         subject: str,

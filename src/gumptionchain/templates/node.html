@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Node{% endblock %}
+{% from "_pagination.html" import render_pagination %}
 {% block content -%}
 <div class="container-fluid">
 
@@ -22,22 +23,25 @@
 
 {% block miller_section %}
   <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
-    <div class="h5">Miller</div>
-    {% if miller %}
+    <div class="h5">Millers</div>
+    {% if millers_page and millers_page.items %}
     <table class="table table-sm">
-      <thead><tr><th>Address</th><th>Rewards</th><th>Blocks milled</th><th>Last milled</th></tr></thead>
+      <thead><tr><th>Address</th><th>Blocks milled</th><th>GRIT minted</th><th>Last milled</th></tr></thead>
       <tbody class="font-monospace">
-        {% for mk in miller %}
-        <tr data-miller-address="{{ mk.address }}">
-          <td>{{ mk.address }}</td>
-          <td>{{ mk.balance }} <span class="small text-muted">grains</span></td>
-          <td><a href="{{ url_for('browser.miller_view', address=mk.address) }}">{{ mk.blocks_milled }}</a></td>
-          <td>{% if mk.last_milled_dt %}{{ mk.last_milled_dt | utc_datetime }}{% else %}<span class="text-muted">never</span>{% endif %}</td>
+        {% for m in millers_page.items %}
+        <tr data-miller-address="{{ m.address }}">
+          <td>{{ m.address }}
+            {% if m.address in held %}<span class="badge bg-success">this node</span>{% endif %}
+            {% if m.address in configured %}<span class="badge bg-secondary">MILLER</span>{% endif %}</td>
+          <td><a href="{{ url_for('browser.miller_view', address=m.address) }}">{{ m.blocks }}</a></td>
+          <td>{{ m.minted }} <span class="small text-muted">grains</span></td>
+          <td>{{ m.last_milled | utc_datetime }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% else %}<p class="text-muted">No MILLER key loaded on this node.</p>{% endif %}
+    {{ render_pagination(millers_page, 'browser.node_view') }}
+    {% else %}<p class="text-muted">No blocks milled yet.</p>{% endif %}
   </div></div></div></div>
 {% endblock %}
 

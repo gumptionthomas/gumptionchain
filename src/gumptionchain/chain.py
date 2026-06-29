@@ -549,6 +549,9 @@ class Chain:
     def signing_key_leaderboard(self, limit: int | None = None) -> Select[Any]:
         return self.to_dao().signing_key_leaderboard(limit=limit)
 
+    def miller_leaderboard(self) -> Any:
+        return self.to_dao().miller_leaderboard()
+
     def coinbase_stats(self, address: str) -> tuple[int, datetime | None]:
         # (blocks this address milled, datetime of its most recent block) on
         # the canonical chain — the dashboard's "is my miller producing?"
