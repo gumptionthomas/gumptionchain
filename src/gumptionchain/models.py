@@ -567,6 +567,29 @@ class BlockDAO(Base):
         )
 
     @classmethod
+    def longest_chain_blocks_milled_by_q(
+        cls, address: str
+    ) -> Select[tuple[BlockDAO]]:
+        """Canonical blocks whose coinbase pays `address`, tip→genesis.
+
+        Filters longest_chain_blocks_q to blocks that contain a coinbase
+        (prev_hash set) whose outflow pays `address` — i.e. blocks this
+        address milled. An IN-subquery (not a join) so a coinbase with
+        multiple outflows to the miller doesn't duplicate block rows.
+        """
+        milled = (
+            db.select(block_transactions.c.block_id)
+            .join(
+                TransactionDAO,
+                TransactionDAO.id == block_transactions.c.transaction_id,
+            )
+            .join(OutflowDAO, OutflowDAO.txid == TransactionDAO.txid)
+            .where(TransactionDAO.prev_hash.is_not(None))
+            .where(OutflowDAO.address == address)
+        )
+        return cls.longest_chain_blocks_q().where(BlockDAO.id.in_(milled))
+
+    @classmethod
     def longest_chain_blocks_range(
         cls, from_idx: int, limit: int
     ) -> Select[tuple[BlockDAO]]:

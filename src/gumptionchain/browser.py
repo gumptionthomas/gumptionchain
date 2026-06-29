@@ -254,6 +254,31 @@ def node_view() -> Any:
     return render_template('node.html', title='Node', **context)
 
 
+@blueprint.route('/node/miller/<address>')
+def miller_view(address: str) -> Any:
+    from gumptionchain.schema import (  # noqa: PLC0415
+        validate_address_format,
+    )
+
+    if not validate_address_format(address):
+        abort(404)
+    try:
+        blocks_page = db.paginate(
+            BlockDAO.longest_chain_blocks_milled_by_q(address)
+        )
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'miller.html',
+        title='Miller',
+        address=address,
+        blocks_page=blocks_page,
+    )
+
+
 @blueprint.route('/stats')
 def stats_view() -> Any:
     spec = parse_sort(

@@ -426,6 +426,33 @@ def test_longest_chain_blocks_q_fast_path_skips_cte(
         assert 'longest_chain_block' in compiled_sql.lower()
 
 
+def test_longest_chain_blocks_milled_by_q(
+    app, mill_block, signing_key, miller_signing_key
+):
+    """Lists exactly the canonical blocks whose coinbase pays the address,
+    and is empty for an address that milled nothing.
+    """
+    with app.app_context():
+        _m, b1 = mill_block(signing_key)
+        _m, b2 = mill_block(signing_key)
+        _m, b3 = mill_block(signing_key)
+
+        page = db.paginate(
+            BlockDAO.longest_chain_blocks_milled_by_q(signing_key.address)
+        )
+        assert page.total == 3
+        hashes = {b.block_hash for b in page.items}
+        assert hashes == {b1.block_hash, b2.block_hash, b3.block_hash}
+
+        other = db.paginate(
+            BlockDAO.longest_chain_blocks_milled_by_q(
+                miller_signing_key.address
+            )
+        )
+        assert other.total == 0
+        assert other.items == []
+
+
 def test_non_longest_chain_blocks_is_cte_free(app, time_stepper, signing_key):
     """A non-longest ChainDAO's .blocks must NOT emit a recursive CTE after
     #158 — it resolves ancestry via the divergent-suffix + materialization

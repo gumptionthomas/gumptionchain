@@ -31,7 +31,7 @@
         <tr data-miller-address="{{ mk.address }}">
           <td>{{ mk.address }}</td>
           <td>{{ mk.balance }} <span class="small text-muted">grains</span></td>
-          <td>{{ mk.blocks_milled }}</td>
+          <td><a href="{{ url_for('browser.miller_view', address=mk.address) }}">{{ mk.blocks_milled }}</a></td>
           <td>{% if mk.last_milled_dt %}{{ mk.last_milled_dt | utc_datetime }}{% else %}<span class="text-muted">never</span>{% endif %}</td>
         </tr>
         {% endfor %}
