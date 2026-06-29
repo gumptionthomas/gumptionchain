@@ -37,6 +37,16 @@ def test_node_page_miller_section(
         assert f'data-miller-address="{signing_key.address}"' not in body
 
 
+def test_node_page_fresh_block_not_stale(
+    app, mill_block, test_client, signing_key
+):
+    with app.app_context():
+        mill_block(signing_key)
+        body = test_client.get('/node').get_data(as_text=True)
+        assert 's ago' in body  # age rendered
+        assert 'badge bg-warning' not in body  # a fresh tip is not stale
+
+
 def test_node_page_peers_show_host_only(app, test_client):
     # PEERS are http://<addr>@<host>; the open page must show the host, never
     # the addr@ userinfo (which would reveal the local per-peer signing key).

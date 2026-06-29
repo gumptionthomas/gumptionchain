@@ -15,7 +15,7 @@ from flask_sqlalchemy.pagination import SelectPagination
 from werkzeug.exceptions import HTTPException
 
 from gumptionchain.block import Block, expiry_cutoff
-from gumptionchain.chain import Chain
+from gumptionchain.chain import TARGET_GOAL_SECONDS, Chain
 from gumptionchain.database import db
 from gumptionchain.models import (
     BlockDAO,
@@ -214,11 +214,21 @@ def node_view() -> Any:
         chain = None
         if lc is not None and lc.last_block is not None:
             tip = lc.last_block
+            age_seconds = (
+                (now() - tip.timestamp_dt).total_seconds()
+                if tip.timestamp_dt is not None
+                else None
+            )
             chain = {
                 'height': lc.length,
                 'tip_hash': tip.block_hash,
                 'target': lc.target,
                 'last_block_dt': tip.timestamp_dt,
+                'seconds_since': age_seconds,
+                'stale': (
+                    age_seconds is not None
+                    and age_seconds > 2 * TARGET_GOAL_SECONDS
+                ),
             }
         miller = []
         for ident in identities:
@@ -240,11 +250,16 @@ def node_view() -> Any:
             'node_host': cfg['NODE_HOST'],
             'identities': identities,
             'chain': chain,
-            'pending': PendingTxnDAO.count(),
+            'pending': PendingTxnDAO.unconfirmed_count(
+                expired=expiry_cutoff(now())
+            ),
             'max_pending': cfg.get('MAX_PENDING_TXNS'),
             'peers': [host_address(p)[0] for p in (cfg.get('PEERS') or [])],
             'miller': miller,
+            'target_goal_seconds': TARGET_GOAL_SECONDS,
         }
+    except HTTPException as e:
+        return e
     except Exception as e:
         current_app.logger.exception(e)
         abort(500)

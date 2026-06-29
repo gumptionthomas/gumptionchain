@@ -20,7 +20,9 @@
     {% if chain %}
     <p class="mb-1">Height: <strong>{{ chain.height }}</strong> &middot; tip <code>{{ chain.tip_hash }}</code></p>
     <p class="mb-1">Target: <code>{{ chain.target }}</code></p>
-    <p class="mb-1">Last block: {{ chain.last_block_dt | utc_datetime }}</p>
+    <p class="mb-1">Last block: {{ chain.last_block_dt | utc_datetime }}{% if chain.seconds_since is not none %} <span class="text-muted">({{ chain.seconds_since | round(0, 'floor') | int }} s ago)</span>{% endif %}
+      {% if chain.stale %}<span class="badge bg-warning text-dark">stale</span>{% endif %}</p>
+    <p class="mb-1 small text-muted">Target block time: {{ target_goal_seconds }} s</p>
     {% else %}<p class="text-muted">No chain yet &mdash; this node hasn't milled or synced a genesis block.</p>{% endif %}
   </div></div></div></div>
 
