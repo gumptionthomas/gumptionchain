@@ -35,7 +35,26 @@
     {% else %}<p class="text-muted">No peers configured.</p>{% endif %}
   </div></div></div></div>
 
-  {% block miller_section %}{% endblock %}
+{% block miller_section %}
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Miller</div>
+    {% if miller %}
+    <table class="table table-sm">
+      <thead><tr><th>Address</th><th>Rewards</th><th>Blocks milled</th><th>Last milled</th></tr></thead>
+      <tbody class="font-monospace">
+        {% for mk in miller %}
+        <tr data-miller-address="{{ mk.address }}">
+          <td>{{ mk.address }}</td>
+          <td>{{ mk.balance }} <span class="small text-muted">grains</span></td>
+          <td>{{ mk.blocks_milled }}</td>
+          <td>{% if mk.last_milled_dt %}{{ mk.last_milled_dt | utc_datetime }}{% else %}<span class="text-muted">never</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="text-muted">No MILLER key loaded on this node.</p>{% endif %}
+  </div></div></div></div>
+{% endblock %}
 
 </div>
 {%- endblock %}
