@@ -15,7 +15,7 @@ from flask_sqlalchemy.pagination import SelectPagination
 from werkzeug.exceptions import HTTPException
 
 from gumptionchain.block import Block, expiry_cutoff
-from gumptionchain.chain import Chain
+from gumptionchain.chain import TARGET_GOAL_SECONDS, Chain
 from gumptionchain.database import db
 from gumptionchain.models import (
     BlockDAO,
@@ -192,6 +192,81 @@ def subjects_view() -> Any:
         title='Subjects',
         subjects_page=subjects_page,
         sort=spec,
+    )
+
+
+@blueprint.route('/node')
+def node_view() -> Any:
+    from gumptionchain.util import host_address  # noqa: PLC0415
+
+    try:
+        cfg = current_app.config
+        keys = current_app.signing_keys  # type: ignore[attr-defined]
+        lc = longest_chain()
+        chain = None
+        if lc is not None and lc.last_block is not None:
+            tip = lc.last_block
+            age_seconds = (
+                (now() - tip.timestamp_dt).total_seconds()
+                if tip.timestamp_dt is not None
+                else None
+            )
+            chain = {
+                'last_block_dt': tip.timestamp_dt,
+                'seconds_since': age_seconds,
+                'stale': (
+                    age_seconds is not None
+                    and age_seconds > 2 * TARGET_GOAL_SECONDS
+                ),
+            }
+        # Miller view: a leaderboard of EVERY canonical coinbase recipient —
+        # not just MILLER-role keys loaded here — so millers whose key isn't
+        # held/allowlisted on this node still appear (egu-366). Rows are badged
+        # by whether this node holds the key / lists it in MILLER_ADDRESSES.
+        millers_page = (
+            paginate_rows(lc.miller_leaderboard()) if lc is not None else None
+        )
+        held = set(keys)  # addresses whose key is loaded on this node
+        configured = set(cfg.get('MILLER_ADDRESSES') or [])
+        context = {
+            'node_host': cfg['NODE_HOST'],
+            'chain': chain,
+            'peers': [host_address(p)[0] for p in (cfg.get('PEERS') or [])],
+            'millers_page': millers_page,
+            'held': held,
+            'configured': configured,
+            'target_goal_seconds': TARGET_GOAL_SECONDS,
+        }
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template('node.html', title='Node', **context)
+
+
+@blueprint.route('/node/miller/<address>')
+def miller_view(address: str) -> Any:
+    from gumptionchain.schema import (  # noqa: PLC0415
+        validate_address_format,
+    )
+
+    if not validate_address_format(address):
+        abort(404)
+    try:
+        blocks_page = db.paginate(
+            BlockDAO.longest_chain_blocks_milled_by_q(address)
+        )
+    except HTTPException as e:
+        return e
+    except Exception as e:
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template(
+        'miller.html',
+        title='Miller',
+        address=address,
+        blocks_page=blocks_page,
     )
 
 

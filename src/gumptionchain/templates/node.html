@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Node{% endblock %}
+{% from "_pagination.html" import render_pagination %}
+{% block content -%}
+<div class="container-fluid">
+
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Node</div>
+    <p class="mb-1">Host: <code>{{ node_host }}</code> &middot; version {{ gc_version }}</p>
+    <div class="h6 mt-3">Peers</div>
+    {% if peers %}<ul class="mb-0">{% for h in peers %}<li><code>{{ h }}</code></li>{% endfor %}</ul>
+    {% else %}<p class="text-muted mb-0">No peers configured.</p>{% endif %}
+  </div></div></div></div>
+
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Block cadence</div>
+    {% if chain %}
+    <p class="mb-1">Last block: {{ chain.last_block_dt | utc_datetime }}{% if chain.seconds_since is not none %} <span class="text-muted">({{ chain.seconds_since | round(0, 'floor') | int }} s ago)</span>{% endif %}
+      {% if chain.stale %}<span class="badge bg-warning text-dark">stale</span>{% endif %}</p>
+    <p class="mb-1 small text-muted">Target block time: {{ target_goal_seconds }} s</p>
+    {% else %}<p class="text-muted">No chain yet &mdash; this node hasn't milled or synced a genesis block.</p>{% endif %}
+  </div></div></div></div>
+
+{% block miller_section %}
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Millers</div>
+    {% if millers_page and millers_page.items %}
+    <table class="table table-sm">
+      <thead><tr><th>Address</th><th>Blocks milled</th><th>GRIT minted</th><th>Last milled</th></tr></thead>
+      <tbody class="font-monospace">
+        {% for m in millers_page.items %}
+        <tr data-miller-address="{{ m.address }}">
+          <td>{{ m.address }}
+            {% if m.address in held %}<span class="badge bg-success">this node</span>{% endif %}
+            {% if m.address in configured %}<span class="badge bg-secondary">MILLER</span>{% endif %}</td>
+          <td><a href="{{ url_for('browser.miller_view', address=m.address) }}">{{ m.blocks }}</a></td>
+          <td>{{ m.minted }} <span class="small text-muted">grains</span></td>
+          <td>{{ m.last_milled | utc_datetime }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ render_pagination(millers_page, 'browser.node_view') }}
+    {% else %}<p class="text-muted">No blocks milled yet.</p>{% endif %}
+  </div></div></div></div>
+{% endblock %}
+
+</div>
+{%- endblock %}

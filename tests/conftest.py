@@ -358,6 +358,7 @@ def app(
     ):
         db_uri = f'sqlite:///{db_file.name}'
         signing_key.to_file(signing_keydir=signing_keydir)
+        miller_signing_key.to_file(signing_keydir=signing_keydir)
         miller_2_signing_key.to_file(signing_keydir=signing_keydir)
         app = create_app(
             config_map={

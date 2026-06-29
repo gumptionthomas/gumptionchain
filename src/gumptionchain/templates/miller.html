@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_pagination.html" import render_pagination %}
+
+{% block content -%}
+<div class="container-fluid">
+  <div class="row my-3"><div class="col">
+    <div class="card bg-light"><div class="card-body">
+      <div class="card-title h5">Miller</div>
+      <p class="font-monospace mb-1">{{ address }}</p>
+      <p class="text-muted">{{ blocks_page.total }} canonical block{{ '' if blocks_page.total == 1 else 's' }} milled</p>
+      {%- if blocks_page.total %}
+      <table class="table table-hover blocks">
+        <thead><tr><th>#</th><th>Hash</th><th>Timestamp</th></tr></thead>
+        <tbody class="font-monospace">
+        {%- for block in blocks_page.items %}
+          <tr class="clickable" style="cursor: pointer;" onclick="window.location='{{ url_for('browser.block_view', block_hash=block.block_hash) }}'">
+            <td>{{ block.idx }}</td>
+            <td><a class="text-dark" href="{{ url_for('browser.block_view', block_hash=block.block_hash) }}">{{ block.block_hash }}</a></td>
+            <td>{{ block.timestamp | utc_datetime }}</td>
+          </tr>
+        {%- endfor %}
+        </tbody>
+      </table>
+      {{ render_pagination(blocks_page, 'browser.miller_view') }}
+      {%- else %}
+      <p>This address has milled no canonical blocks.</p>
+      {%- endif %}
+    </div></div>
+  </div></div>
+</div>
+{%- endblock %}

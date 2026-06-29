@@ -567,6 +567,29 @@ class BlockDAO(Base):
         )
 
     @classmethod
+    def longest_chain_blocks_milled_by_q(
+        cls, address: str
+    ) -> Select[tuple[BlockDAO]]:
+        """Canonical blocks whose coinbase pays `address`, tip→genesis.
+
+        Filters longest_chain_blocks_q to blocks that contain a coinbase
+        (prev_hash set) whose outflow pays `address` — i.e. blocks this
+        address milled. An IN-subquery (not a join) so a coinbase with
+        multiple outflows to the miller doesn't duplicate block rows.
+        """
+        milled = (
+            db.select(block_transactions.c.block_id)
+            .join(
+                TransactionDAO,
+                TransactionDAO.id == block_transactions.c.transaction_id,
+            )
+            .join(OutflowDAO, OutflowDAO.txid == TransactionDAO.txid)
+            .where(TransactionDAO.prev_hash.is_not(None))
+            .where(OutflowDAO.address == address)
+        )
+        return cls.longest_chain_blocks_q().where(BlockDAO.id.in_(milled))
+
+    @classmethod
     def longest_chain_blocks_range(
         cls, from_idx: int, limit: int
     ) -> Select[tuple[BlockDAO]]:
@@ -829,6 +852,45 @@ class ChainDAO(Base):
             outflows_alias, OutflowDAO.id == outflows_alias.id
         )
         return db.session.scalar(sum_stmt) or 0
+
+    def coinbase_stats(
+        self, address: str
+    ) -> tuple[int, datetime.datetime | None]:
+        # (blocks milled by `address`, timestamp of its most recent block)
+        # over the CANONICAL chain. A coinbase (prev_hash set) pays the miller
+        # via its outflow; the coinbase txn's timestamp is the block's seal
+        # time, so no block join is needed. COUNT(DISTINCT txid) is robust if a
+        # coinbase ever carries more than one outflow to the same address.
+        txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
+        stmt = db.select(
+            db.func.count(db.distinct(OutflowDAO.txid)).label('n'),
+            db.func.max(txn_alias.timestamp).label('latest'),
+        )
+        stmt = stmt.join(txn_alias, OutflowDAO.transaction)
+        stmt = stmt.where(txn_alias.prev_hash.is_not(None))
+        stmt = stmt.where(OutflowDAO.address == address)
+        row = db.session.execute(stmt).one()
+        return (int(row.n or 0), row.latest)
+
+    def miller_leaderboard(self) -> Select[Any]:
+        # Every canonical coinbase recipient: blocks milled, total GRIT minted
+        # (grains), and last-milled time — "who milled this chain" (egu-366).
+        # COUNT(DISTINCT txid) counts blocks (a coinbase has several outflows to
+        # the miller); SUM(amount) totals all those outflows = total minted.
+        txn_alias = db.aliased(TransactionDAO, self.transactions.subquery())
+        return (  # type: ignore[no-any-return]
+            db.select(
+                OutflowDAO.address.label('address'),
+                db.func.count(db.distinct(OutflowDAO.txid)).label('blocks'),
+                db.func.sum(OutflowDAO.amount).label('minted'),
+                db.func.max(txn_alias.timestamp).label('last_milled'),
+            )
+            .join(txn_alias, OutflowDAO.transaction)
+            .where(txn_alias.prev_hash.is_not(None))
+            .where(OutflowDAO.address.is_not(None))
+            .group_by(OutflowDAO.address)
+            .order_by(db.desc('blocks'), OutflowDAO.address)
+        )
 
     def unrescinded_outflows(
         self,
