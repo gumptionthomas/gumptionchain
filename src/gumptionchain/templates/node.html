@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Node{% endblock %}
+{% block content -%}
+<div class="container-fluid">
+
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Node</div>
+    <p class="mb-1">Host: <code>{{ node_host }}</code> &middot; version {{ gc_version }}</p>
+    <div class="h6 mt-3">Loaded signing keys</div>
+    {% if identities %}
+    <table class="table table-sm font-monospace"><tbody>
+      {% for i in identities %}<tr><td>{{ i.address }}</td>
+        <td>{% for r in i.roles %}<span class="badge bg-secondary">{{ r }}</span> {% else %}<span class="text-muted">no role</span>{% endfor %}</td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="text-muted">No signing keys loaded.</p>{% endif %}
+  </div></div></div></div>
+
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Chain</div>
+    {% if chain %}
+    <p class="mb-1">Height: <strong>{{ chain.height }}</strong> &middot; tip <code>{{ chain.tip_hash }}</code></p>
+    <p class="mb-1">Target: <code>{{ chain.target }}</code></p>
+    <p class="mb-1">Last block: {{ chain.last_block_dt | utc_datetime }}</p>
+    {% else %}<p class="text-muted">No chain yet &mdash; this node hasn't milled or synced a genesis block.</p>{% endif %}
+  </div></div></div></div>
+
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Mempool</div>
+    <p class="mb-1">Pending: <strong>{{ pending }}</strong>{% if max_pending %} / {{ max_pending }}{% endif %}</p>
+  </div></div></div></div>
+
+  <div class="row my-3"><div class="col"><div class="card"><div class="card-body">
+    <div class="h5">Peers</div>
+    {% if peers %}<ul class="mb-0">{% for h in peers %}<li><code>{{ h }}</code></li>{% endfor %}</ul>
+    {% else %}<p class="text-muted">No peers configured.</p>{% endif %}
+  </div></div></div></div>
+
+  {% block miller_section %}{% endblock %}
+
+</div>
+{%- endblock %}

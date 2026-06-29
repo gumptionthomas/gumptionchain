@@ -195,6 +195,62 @@ def subjects_view() -> Any:
     )
 
 
+@blueprint.route('/node')
+def node_view() -> Any:
+    from gumptionchain.api import Role  # noqa: PLC0415 — avoid import cycle
+    from gumptionchain.util import host_address  # noqa: PLC0415
+
+    try:
+        cfg = current_app.config
+        keys = current_app.signing_keys  # type: ignore[attr-defined]
+        identities = [
+            {
+                'address': addr,
+                'roles': [r.name for r in Role.address_roles(addr)],
+            }
+            for addr in sorted(keys)
+        ]
+        lc = longest_chain()
+        chain = None
+        if lc is not None and lc.last_block is not None:
+            tip = lc.last_block
+            chain = {
+                'height': lc.length,
+                'tip_hash': tip.block_hash,
+                'target': lc.target,
+                'last_block_dt': tip.timestamp_dt,
+            }
+        miller = []
+        for ident in identities:
+            if 'MILLER' not in ident['roles']:
+                continue
+            addr = ident['address']
+            count, latest = (
+                lc.coinbase_stats(addr) if lc is not None else (0, None)
+            )
+            miller.append(
+                {
+                    'address': addr,
+                    'balance': lc.balance(addr) if lc is not None else 0,
+                    'blocks_milled': count,
+                    'last_milled_dt': latest,
+                }
+            )
+        context = {
+            'node_host': cfg['NODE_HOST'],
+            'identities': identities,
+            'chain': chain,
+            'pending': PendingTxnDAO.count(),
+            'max_pending': cfg.get('MAX_PENDING_TXNS'),
+            'peers': [host_address(p)[0] for p in (cfg.get('PEERS') or [])],
+            'miller': miller,
+        }
+    except Exception as e:
+        current_app.logger.exception(e)
+        abort(500)
+    return render_template('node.html', title='Node', **context)
+
+
 @blueprint.route('/stats')
 def stats_view() -> Any:
     spec = parse_sort(
