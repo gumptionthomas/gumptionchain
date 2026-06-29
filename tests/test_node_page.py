@@ -11,16 +11,20 @@ def test_node_page_empty_db(app, test_client):
         assert 'No chain yet' in body
 
 
-def test_node_page_with_chain_shows_health(
+def test_node_page_with_chain_shows_cadence(
     app, mill_block, test_client, signing_key
 ):
+    # The trimmed chain section carries only what /chains + /blocks don't:
+    # block cadence (target block time + last-block age/stale). Tip
+    # height/hash/difficulty live on those explorer pages, not here.
     with app.app_context():
-        _m, b = mill_block(signing_key)
+        mill_block(signing_key)
         resp = test_client.get('/node')
         assert resp.status_code == httpx.codes.OK
         body = resp.get_data(as_text=True)
-        assert b.block_hash in body  # tip hash
-        assert 'Mempool' in body
+        assert 'Block cadence' in body
+        assert 'Target block time' in body
+        assert 's ago' in body  # last-block age rendered
 
 
 def test_node_page_miller_section(

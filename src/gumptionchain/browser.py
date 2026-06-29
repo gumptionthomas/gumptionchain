@@ -203,13 +203,6 @@ def node_view() -> Any:
     try:
         cfg = current_app.config
         keys = current_app.signing_keys  # type: ignore[attr-defined]
-        identities = [
-            {
-                'address': addr,
-                'roles': [r.name for r in Role.address_roles(addr)],
-            }
-            for addr in sorted(keys)
-        ]
         lc = longest_chain()
         chain = None
         if lc is not None and lc.last_block is not None:
@@ -220,9 +213,6 @@ def node_view() -> Any:
                 else None
             )
             chain = {
-                'height': lc.length,
-                'tip_hash': tip.block_hash,
-                'target': lc.target,
                 'last_block_dt': tip.timestamp_dt,
                 'seconds_since': age_seconds,
                 'stale': (
@@ -230,11 +220,14 @@ def node_view() -> Any:
                     and age_seconds > 2 * TARGET_GOAL_SECONDS
                 ),
             }
+        # Miller view: only loaded keys that hold the MILLER role. Identity,
+        # full chain detail, and the mempool live on their own surfaces (config,
+        # /chains + /blocks, /mempool) — this page is node + miller health, so
+        # it carries only what those don't: block cadence + per-miller status.
         miller = []
-        for ident in identities:
-            if 'MILLER' not in ident['roles']:
+        for addr in sorted(keys):
+            if Role.MILLER not in Role.address_roles(addr):
                 continue
-            addr = ident['address']
             count, latest = (
                 lc.coinbase_stats(addr) if lc is not None else (0, None)
             )
@@ -248,12 +241,7 @@ def node_view() -> Any:
             )
         context = {
             'node_host': cfg['NODE_HOST'],
-            'identities': identities,
             'chain': chain,
-            'pending': PendingTxnDAO.unconfirmed_count(
-                expired=expiry_cutoff(now())
-            ),
-            'max_pending': cfg.get('MAX_PENDING_TXNS'),
             'peers': [host_address(p)[0] for p in (cfg.get('PEERS') or [])],
             'miller': miller,
             'target_goal_seconds': TARGET_GOAL_SECONDS,
