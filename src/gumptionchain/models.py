@@ -1458,6 +1458,40 @@ class PendingTxnDAO(Base):
             yield json_data
 
     @classmethod
+    def incoming_grains(
+        cls, address: str, expired: datetime.datetime | None = None
+    ) -> int:
+        """Total grains paid TO `address` by OTHER signers across the live
+        mempool (unconfirmed + unexpired). Excludes txns signed by `address`
+        itself — that pending change is already reflected by the spendable-now
+        balance (signing_key_balance(filter_pending=True)). Stake outflows carry
+        a NULL payee, so only payment/reward outflows count. Returns 0 when
+        nothing matches; a row that fails to parse is skipped, never raised."""
+        # Lazy import: transaction.py imports this module, so a top-level import
+        # would be circular.
+        from gumptionchain.exceptions import (  # noqa: PLC0415 — circular
+            InvalidTransactionError,
+        )
+        from gumptionchain.transaction import (  # noqa: PLC0415 — circular
+            Transaction,
+        )
+
+        total = 0
+        for json_data in cls.json_datas(
+            expired=expired, exclude_confirmed=True
+        ):
+            try:
+                txn = Transaction.from_json(json_data)
+            except InvalidTransactionError:
+                continue  # a corrupt mempool row must not break the read
+            if txn.address == address:
+                continue  # the signer's own change is counted elsewhere
+            for outflow in txn.outflows:
+                if outflow.address == address:
+                    total += outflow.amount or 0
+        return total
+
+    @classmethod
     def pending_q(
         cls,
         expired: datetime.datetime | None = None,

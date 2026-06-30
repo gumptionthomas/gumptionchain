@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 from _sa_helpers import _count, _count_select
 
-from gumptionchain.block import Block
+from gumptionchain.api_client import ApiClient
+from gumptionchain.block import Block, expiry_cutoff
 from gumptionchain.chain import Chain
 from gumptionchain.database import db
 from gumptionchain.models import (
@@ -12,10 +13,13 @@ from gumptionchain.models import (
     InflowDAO,
     LongestChainBlockDAO,
     OutflowDAO,
+    PendingTxnDAO,
     TransactionDAO,
 )
 from gumptionchain.payload import Inflow, Outflow
+from gumptionchain.signing_key import SigningKey
 from gumptionchain.transaction import CoinbaseMetrics, Transaction
+from gumptionchain.util import now
 
 
 def _pythonic_ancestry_ids(block_dao):
@@ -1800,3 +1804,125 @@ def test_antijoin_no_materialization(app, subject, time_stepper, signing_key):
                 if 'AUTOMATIC' in row and 'OUTFLOW_ID' in row
             ]
             assert not automatic_over_inflow, text
+
+
+def test_incoming_grains_counts_payment_and_skips_self(
+    app, host, mill_block, requests_proxy, signing_key
+):
+    with app.app_context():
+        m, _b = mill_block(signing_key)  # signing_key holds a coinbase UTXO
+        dest = SigningKey().address
+        txn = m.longest_chain.create_transfer(signing_key, 400, dest)
+        txn.sign()
+        ApiClient(host, signing_key).post_transaction(txn)  # pending
+        cutoff = expiry_cutoff(now())
+        # the recipient sees the incoming payment
+        assert PendingTxnDAO.incoming_grains(dest, expired=cutoff) == 400
+        # the signer's own change output is NOT counted (self-skip)
+        assert (
+            PendingTxnDAO.incoming_grains(signing_key.address, expired=cutoff)
+            == 0
+        )
+
+
+def test_incoming_grains_sums_across_pending_txns(
+    app, host, mill_block, requests_proxy, signing_key
+):
+    with app.app_context():
+        # Two DIFFERENT signers, each funded by its own coinbase, each paying
+        # dest -> two independent pending payments. (A single signer can't make
+        # two concurrent pending transfers: create_transfer's gather would tie
+        # up its funds on the first.)
+        signer2 = SigningKey()
+        m, _b = mill_block(signing_key)  # signer1's coinbase
+        m, _b = mill_block(signer2)  # signer2's coinbase
+        chain = m.longest_chain
+        dest = SigningKey().address
+        t1 = chain.create_transfer(signing_key, 300, dest)
+        t1.sign()
+        ApiClient(host, signing_key).post_transaction(t1)
+        t2 = chain.create_transfer(signer2, 200, dest)
+        t2.sign()
+        # t2 is signed by signer2 (an arbitrary key with no node role); post it
+        # through the authorized poster so it lands in the mempool. The parsed
+        # mempool row's signer is still signer2 — an "other signer" vs. dest.
+        ApiClient(host, signing_key).post_transaction(t2)
+        assert (
+            PendingTxnDAO.incoming_grains(dest, expired=expiry_cutoff(now()))
+            == 500
+        )
+
+
+def test_incoming_grains_excludes_confirmed(
+    app, host, mill_block, requests_proxy, signing_key
+):
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        dest = SigningKey().address
+        txn = m.longest_chain.create_transfer(signing_key, 400, dest)
+        txn.sign()
+        ApiClient(host, signing_key).post_transaction(txn)  # pending
+        m, _b = mill_block(signing_key)  # confirms + prunes it
+        # re-insert as a re-gossiped row; it's still confirmed in the chain
+        PendingTxnDAO(
+            txid=txn.txid,
+            timestamp=txn.timestamp_dt,
+            json_data=txn.to_json(),
+        ).commit()
+        assert (
+            PendingTxnDAO.incoming_grains(dest, expired=expiry_cutoff(now()))
+            == 0
+        )
+
+
+def test_incoming_grains_excludes_expired(
+    app, host, mill_block, requests_proxy, signing_key
+):
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        dest = SigningKey().address
+        txn = m.longest_chain.create_transfer(signing_key, 400, dest)
+        txn.sign()
+        # insert directly with an EXPIRED row timestamp (don't post)
+        PendingTxnDAO(
+            txid=txn.txid,
+            timestamp=now() - datetime.timedelta(hours=8),
+            json_data=txn.to_json(),
+        ).commit()
+        # with the expiry cutoff it is filtered out...
+        assert (
+            PendingTxnDAO.incoming_grains(dest, expired=expiry_cutoff(now()))
+            == 0
+        )
+        # ...without it (the default), it still counts
+        assert PendingTxnDAO.incoming_grains(dest) == 400
+
+
+def test_incoming_grains_ignores_stakes(
+    app, host, mill_block, requests_proxy, subject, signing_key
+):
+    with app.app_context():
+        m, _b = mill_block(signing_key)
+        txn = m.longest_chain.create_opposition(signing_key, 400, subject)
+        txn.sign()
+        ApiClient(host, signing_key).post_transaction(txn)  # pending stake
+        other = SigningKey().address
+        # a stake outflow has a NULL payee -> credits nobody
+        assert (
+            PendingTxnDAO.incoming_grains(other, expired=expiry_cutoff(now()))
+            == 0
+        )
+
+
+def test_incoming_grains_empty_mempool(app, signing_key):
+    with app.app_context():
+        assert PendingTxnDAO.incoming_grains(signing_key.address) == 0
+
+
+def test_incoming_grains_skips_unparseable_row(app, signing_key):
+    with app.app_context():
+        PendingTxnDAO(
+            txid='b' * 64, timestamp=now(), json_data='{not valid json}'
+        ).commit()
+        # a corrupt mempool row must not raise — it's skipped, contributes 0
+        assert PendingTxnDAO.incoming_grains(signing_key.address) == 0
