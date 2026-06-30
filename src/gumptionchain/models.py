@@ -1461,12 +1461,16 @@ class PendingTxnDAO(Base):
     def incoming_grains(
         cls, address: str, expired: datetime.datetime | None = None
     ) -> int:
-        """Total grains paid TO `address` by OTHER signers across the live
-        mempool (unconfirmed + unexpired). Excludes txns signed by `address`
-        itself — that pending change is already reflected by the spendable-now
-        balance (signing_key_balance(filter_pending=True)). Stake outflows carry
-        a NULL payee, so only payment/reward outflows count. Returns 0 when
-        nothing matches; a row that fails to parse is skipped, never raised."""
+        """Total grains paid TO `address` by OTHER signers across the pending
+        pool. Measures credits arriving FROM OTHERS (e.g. an unmilled reward),
+        not your own change: txns signed by `address` are skipped, so a consumer
+        can pair this with the spendable-now balance
+        (signing_key_balance(filter_pending=True)) without double-showing your
+        own pending outputs as "incoming". Stake outflows carry a NULL payee, so
+        only payment outflows count. Pass `expired` (a cutoff datetime, e.g.
+        expiry_cutoff(now())) to drop rows older than it; the default None
+        counts all pending rows regardless of expiry. Returns 0 when nothing
+        matches; a row that fails to parse is skipped, never raised."""
         # Lazy import: transaction.py imports this module, so a top-level import
         # would be circular.
         from gumptionchain.exceptions import (  # noqa: PLC0415 — circular
@@ -1476,6 +1480,11 @@ class PendingTxnDAO(Base):
             Transaction,
         )
 
+        # Scale: O(N) json parse over the whole pending pool per call. Fine
+        # while MAX_PENDING_TXNS keeps the pool small; if this ever becomes a
+        # hot path, project pending OUTFLOWS (payee, amount, signer) into a
+        # queryable table on admission and SUM in SQL — the pool only indexes
+        # consumed INFLOWS today (PendingIOflowDAO), not outputs.
         total = 0
         for json_data in cls.json_datas(
             expired=expired, exclude_confirmed=True
@@ -1485,7 +1494,7 @@ class PendingTxnDAO(Base):
             except InvalidTransactionError:
                 continue  # a corrupt mempool row must not break the read
             if txn.address == address:
-                continue  # the signer's own change is counted elsewhere
+                continue  # credits FROM OTHERS only — own change isn't incoming
             for outflow in txn.outflows:
                 if outflow.address == address:
                     total += outflow.amount or 0
