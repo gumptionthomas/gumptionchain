@@ -16,6 +16,17 @@ def test_base_renders_theme_scaffolding(app, test_client):
     assert 'js/theme.mjs' in body
 
 
+def test_base_dark_override_neutralizes_fixed_light_utilities(app, test_client):
+    # Bootstrap's .bg-light / .text-dark are fixed colors that ignore
+    # data-bs-theme, so shared templates using them render a white card (and
+    # invisible dark links) in dark mode. A base-only override recolors them
+    # under [data-bs-theme="dark"] without touching those shared templates.
+    with app.app_context():
+        body = test_client.get('/').get_data(as_text=True)
+    assert '[data-bs-theme="dark"] .bg-light' in body
+    assert '[data-bs-theme="dark"] a.text-dark' in body
+
+
 def test_base_uses_bootstrap_5_3_3(app, test_client):
     # The bump to 5.3.3 is what makes data-bs-theme work; pin it so a stray
     # revert to 5.1.3 (no native dark mode) fails loudly.
