@@ -20,7 +20,7 @@ jobs:
       # Node is needed on PATH for the live JS->Python gc-sig cross-verify in
       # tests/test_browser_signing_key_parity.py (it shells out to `node`). The
       # browser signing_key is pure Web Crypto + vanilla JS — zero npm packages.
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           node-version: '20'
       - run: node --test clients/sdk/*.test.mjs src/gumptionchain/static/js/*.test.mjs
